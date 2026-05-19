@@ -1,26 +1,128 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand palette */
+  --palette-primary: #123570;
+  --palette-secondary: #324152;
+  --palette-silver: #b5c0ca;
+  --palette-cloud: #e8ecf0;
+  --palette-sky: #bfdbf7;
+  --palette-white: #ffffff;
+  /* Watercolor status */
+  --palette-positive: #5f9a7e;
+  --palette-negative: #c4716b;
+
+  --background: var(--palette-cloud);
+  --foreground: var(--palette-primary);
+  --card: var(--palette-white);
+  --card-foreground: var(--palette-primary);
+  --popover: var(--palette-white);
+  --popover-foreground: var(--palette-primary);
+  --primary: var(--palette-primary);
+  --primary-foreground: var(--palette-white);
+  --secondary: var(--palette-cloud);
+  --secondary-foreground: var(--palette-secondary);
+  --muted: var(--palette-cloud);
+  --muted-foreground: var(--palette-secondary);
+  --accent: var(--palette-sky);
+  --accent-foreground: var(--palette-primary);
+  --destructive: var(--palette-negative);
+  --success: var(--palette-positive);
+  --border: var(--palette-silver);
+  --input: var(--palette-secondary);
+  --ring: var(--palette-primary);
+  --radius: 0.5rem;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-outline-variant: var(--palette-silver);
+  --color-surface-container-lowest: var(--palette-white);
+  --color-surface-container-low: var(--palette-cloud);
+  --color-primary-container: var(--palette-primary);
+  --color-on-primary-container: var(--palette-silver);
+  --color-inverse-surface: var(--palette-primary);
+  --color-surface: var(--palette-cloud);
+  --color-on-surface: var(--palette-primary);
+  --color-on-surface-variant: var(--palette-secondary);
+  --color-outline: var(--palette-secondary);
+  --color-surface-tint: #0e2a5a;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --spacing-gutter: 16px;
+
+  --font-sans: var(--font-work-sans), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  --font-label-caps: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --font-body-base: var(--font-work-sans), ui-sans-serif, sans-serif;
+  --font-body-sm: var(--font-work-sans), ui-sans-serif, sans-serif;
+  --font-headline-md: var(--font-work-sans), ui-sans-serif, sans-serif;
+  --font-display-lg: var(--font-work-sans), ui-sans-serif, sans-serif;
+
+  --text-label-caps: 11px;
+  --text-label-caps--line-height: 16px;
+  --text-label-caps--letter-spacing: 0.05em;
+  --text-label-caps--font-weight: 600;
+
+  --text-body-base: 14px;
+  --text-body-base--line-height: 20px;
+  --text-body-base--font-weight: 400;
+
+  --text-body-sm: 13px;
+  --text-body-sm--line-height: 18px;
+  --text-body-sm--font-weight: 400;
+
+  --text-headline-md: 20px;
+  --text-headline-md--line-height: 28px;
+  --text-headline-md--font-weight: 600;
+
+  --text-display-lg: 32px;
+  --text-display-lg--line-height: 40px;
+  --text-display-lg--letter-spacing: -0.02em;
+  --text-display-lg--font-weight: 700;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-work-sans), ui-sans-serif, sans-serif;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.industrial-overlay {
+  background: linear-gradient(
+    color-mix(in srgb, var(--palette-primary) 70%, transparent),
+    color-mix(in srgb, var(--palette-primary) 70%, transparent)
+  );
+  backdrop-filter: grayscale(100%) contrast(120%);
 }
