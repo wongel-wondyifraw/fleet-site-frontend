@@ -15,7 +15,7 @@
   --palette-positive: #5f9a7e;
   --palette-negative: #c4716b;
 
-  --background: var(--palette-cloud);
+  --background: var(--palette-white);
   --foreground: var(--palette-primary);
   --card: var(--palette-white);
   --card-foreground: var(--palette-primary);
@@ -23,9 +23,9 @@
   --popover-foreground: var(--palette-primary);
   --primary: var(--palette-primary);
   --primary-foreground: var(--palette-white);
-  --secondary: var(--palette-cloud);
+  --secondary: var(--palette-white);
   --secondary-foreground: var(--palette-secondary);
-  --muted: var(--palette-cloud);
+  --muted: #f4f6f9;
   --muted-foreground: var(--palette-secondary);
   --accent: var(--palette-sky);
   --accent-foreground: var(--palette-primary);
@@ -60,11 +60,11 @@
 
   --color-outline-variant: var(--palette-silver);
   --color-surface-container-lowest: var(--palette-white);
-  --color-surface-container-low: var(--palette-cloud);
+  --color-surface-container-low: var(--palette-white);
   --color-primary-container: var(--palette-primary);
   --color-on-primary-container: var(--palette-silver);
   --color-inverse-surface: var(--palette-primary);
-  --color-surface: var(--palette-cloud);
+  --color-surface: var(--palette-white);
   --color-on-surface: var(--palette-primary);
   --color-on-surface-variant: var(--palette-secondary);
   --color-outline: var(--palette-secondary);
@@ -76,6 +76,19 @@
   --radius-xl: calc(var(--radius) + 4px);
 
   --spacing-gutter: 16px;
+  --spacing-topbar: 52px;
+  --spacing-sidebar: 260px;
+  --spacing-margin-desktop: 24px;
+  --spacing-table-row: 34px;
+
+  --color-surface-container-high: #e1e8fd;
+  --color-surface-container: #e9edff;
+  --color-error: var(--destructive);
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+  --color-tertiary: #474a4d;
+  --color-tertiary-fixed-dim: #c4c7ca;
+  --color-on-primary: var(--palette-white);
 
   --font-sans: var(--font-work-sans), ui-sans-serif, sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;

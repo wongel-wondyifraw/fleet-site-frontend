@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   FormEvent,
   useState,
@@ -18,10 +19,12 @@ import { Label } from "@/components/ui/label";
 const CONSTRUCTION_IMAGE = "/construction-site.jpg";
 
 export function DesktopLogin() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    router.push("/dashboard");
   }
 
   return (

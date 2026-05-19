@@ -1,6 +1,7 @@
 "use client";
 
 import { Gavel, Loader2, Lock, LogIn, Mail } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState, type ComponentType } from "react";
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
@@ -10,11 +11,15 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 export function MobileLogin() {
+  const router = useRouter();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   function handleSignIn() {
     setIsAuthenticating(true);
-    setTimeout(() => setIsAuthenticating(false), 2000);
+    setTimeout(() => {
+      setIsAuthenticating(false);
+      router.push("/dashboard");
+    }, 800);
   }
 
   return (
