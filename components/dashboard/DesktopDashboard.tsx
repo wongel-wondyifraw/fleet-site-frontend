@@ -35,13 +35,13 @@ const SIDEBAR_NAV = [
 ] as const;
 
 const CHART_BARS = [
-  { day: "Mon", height: "40%", highlight: false },
-  { day: "Tue", height: "65%", highlight: false },
-  { day: "Wed", height: "85%", highlight: true },
-  { day: "Thu", height: "45%", highlight: false },
-  { day: "Fri", height: "55%", highlight: false },
-  { day: "Sat", height: "20%", highlight: false, weekend: true },
-  { day: "Sun", height: "15%", highlight: false, weekend: true },
+  { day: "Mon", height: "60%" },
+  { day: "Tue", height: "85%" },
+  { day: "Wed", height: "70%" },
+  { day: "Thu", height: "95%" },
+  { day: "Fri", height: "55%" },
+  { day: "Sat", height: "40%" },
+  { day: "Sun", height: "30%" },
 ] as const;
 
 const ACTIVITY_ROWS = [
@@ -54,10 +54,10 @@ const ACTIVITY_ROWS = [
 ];
 
 const PILL_STYLES = {
-  success: "bg-success/15 text-success",
-  info: "bg-primary/10 text-primary",
-  warning: "bg-amber-100 text-amber-800",
-  error: "bg-destructive/10 text-destructive",
+  success: "bg-emerald-50 text-emerald-700",
+  info: "bg-blue-50 text-blue-700",
+  warning: "bg-orange-50 text-orange-700",
+  error: "bg-rose-50 text-rose-700",
 };
 
 const ACTION_ICONS = {
@@ -71,10 +71,10 @@ export function DesktopDashboard() {
   return (
     <div className="hidden min-h-dvh bg-white lg:flex">
       <DashboardSidebar />
-      <main className="ml-[var(--spacing-sidebar)] min-h-dvh flex-1 overflow-auto bg-white p-6 pb-24">
+      <main className="ml-[var(--spacing-sidebar)] min-h-dvh flex-1 overflow-auto bg-dashboard-bg p-8 pb-24">
         <PageIntro />
         <KpiGrid />
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <TripVolumeChart />
           <RecentActivityPanel />
         </div>
@@ -86,39 +86,44 @@ export function DesktopDashboard() {
 
 function PageIntro() {
   return (
-    <header className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4">
+    <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
       <div>
-        <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        <p className="text-[11px] font-bold tracking-widest text-dashboard-on-surface-variant uppercase">
           Fleet Operations
         </p>
-        <h1 className="font-headline-md text-headline-md text-primary">Dashboard</h1>
+        <h1 className="font-headline-md text-headline-md text-dashboard-on-background">
+          Dashboard
+        </h1>
       </div>
-      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-        <div className="hidden text-right sm:block">
-          <p className="text-xs font-medium text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+        <div className="hidden text-right lg:block">
+          <p className="text-sm font-semibold text-dashboard-on-background">
             October 24, 2023
           </p>
-          <p className="text-sm font-semibold text-primary">08:42 AM</p>
+          <p className="text-[11px] text-dashboard-on-surface-variant">
+            08:42 AM · GMT-5
+          </p>
         </div>
-        <span className="hidden h-9 w-px bg-slate-200 sm:block" aria-hidden />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-9 rounded-xl hover:bg-slate-50"
-        >
-          <Bell className="size-4" />
-        </Button>
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-black/5 transition-colors hover:bg-slate-100"
-        >
-          <span className="flex size-8 items-center justify-center rounded-full bg-primary/10">
-            <CircleUser className="size-4 text-primary" />
+        <div className="flex items-center gap-2 rounded-full bg-white p-2 pr-5 shadow-sm">
+          <span className="flex size-10 items-center justify-center rounded-full bg-dashboard-surface-low">
+            <CircleUser className="size-5 text-dashboard-primary" />
           </span>
-          <span className="font-body-sm text-body-sm font-semibold text-primary">
-            Manager
-          </span>
-        </button>
+          <div className="ml-1 hidden sm:block">
+            <p className="text-sm font-semibold text-dashboard-on-background">
+              Manager
+            </p>
+            <p className="text-[11px] font-semibold text-dashboard-primary">
+              Fleet Admin
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="ml-2 size-9 rounded-full hover:bg-dashboard-surface-low"
+          >
+            <Bell className="size-4 text-dashboard-on-surface-variant" />
+          </Button>
+        </div>
       </div>
     </header>
   );
@@ -188,57 +193,72 @@ function DashboardSidebar() {
 
 function KpiGrid() {
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
       <KpiCard
         label="Active Vehicles"
         icon={Truck}
-        iconClassName="bg-primary/10 text-primary"
+        iconClassName="bg-blue-50 text-dashboard-primary"
       >
         <div className="flex items-baseline gap-2">
-          <span className="font-display-lg text-display-lg text-primary">14</span>
-          <span className="text-sm text-muted-foreground">/ 18 units</span>
+          <span className="font-display-lg text-display-lg text-dashboard-on-background">14</span>
+          <span className="pb-0.5 text-sm text-dashboard-on-surface-variant">
+            / 18 units
+          </span>
         </div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-          <div className="h-full w-[77%] rounded-full bg-primary" />
+        <div className="mt-4 h-2 overflow-hidden rounded-full bg-dashboard-surface-low">
+          <div className="h-full w-[77%] rounded-full bg-dashboard-primary" />
         </div>
       </KpiCard>
       <KpiCard
         label="Fuel Today"
         icon={Fuel}
-        iconClassName="bg-amber-500/10 text-amber-700"
+        iconClassName="bg-orange-50 text-orange-600"
       >
         <div className="flex items-baseline gap-2">
-          <span className="font-display-lg text-display-lg">450</span>
-          <span className="text-sm text-muted-foreground">Liters</span>
+          <span className="font-display-lg text-display-lg text-dashboard-on-background">
+            450
+          </span>
+          <span className="pb-0.5 text-sm text-dashboard-on-surface-variant">
+            Liters
+          </span>
         </div>
-        <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-medium text-destructive">
-          <ArrowUp className="size-3" />
+        <span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-600">
+          <ArrowUp className="size-4" />
           4% vs yesterday
         </span>
       </KpiCard>
       <KpiCard
         label="Open Maintenance"
         icon={Wrench}
-        iconClassName="bg-destructive/10 text-destructive"
+        iconClassName="bg-rose-50 text-dashboard-error"
       >
-        <div className="flex items-center gap-2">
-          <span className="font-display-lg text-display-lg text-destructive">2</span>
-          <span className="rounded-full bg-destructive/10 px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-destructive uppercase">
+        <div className="flex items-end gap-3">
+          <span className="font-display-lg text-display-lg text-dashboard-on-background">
+            2
+          </span>
+          <span className="mb-1 rounded-full bg-dashboard-error-container px-2 py-0.5 text-[10px] font-bold tracking-wide text-dashboard-error uppercase">
             Critical
           </span>
         </div>
-        <p className="mt-2 text-sm text-muted-foreground">Next due in 14h</p>
+        <p className="mt-2 text-sm text-dashboard-on-surface-variant">
+          Next due in{" "}
+          <span className="font-bold text-dashboard-error">14h</span>
+        </p>
       </KpiCard>
       <KpiCard
         label="Trips Completed"
         icon={Route}
-        iconClassName="bg-primary/10 text-primary"
+        iconClassName="bg-purple-50 text-purple-600"
       >
         <div className="flex items-baseline gap-2">
-          <span className="font-display-lg text-display-lg">42</span>
-          <span className="text-sm text-muted-foreground">Today</span>
+          <span className="font-display-lg text-display-lg text-dashboard-on-background">
+            42
+          </span>
+          <span className="pb-0.5 text-sm text-dashboard-on-surface-variant">
+            Today
+          </span>
         </div>
-        <span className="mt-2 inline-flex rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+        <span className="mt-2 inline-flex rounded-full bg-dashboard-primary-container/10 px-2.5 py-0.5 text-[11px] font-bold text-dashboard-primary-container uppercase">
           98% on-schedule
         </span>
       </KpiCard>

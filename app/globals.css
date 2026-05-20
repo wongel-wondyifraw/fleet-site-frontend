@@ -90,6 +90,17 @@
   --color-tertiary-fixed-dim: #c4c7ca;
   --color-on-primary: var(--palette-white);
 
+  /* Dashboard canvas (main content only — sidebar/login unchanged) */
+  --color-dashboard-bg: #f8f9ff;
+  --color-dashboard-on-background: #0b1c30;
+  --color-dashboard-on-surface-variant: #434655;
+  --color-dashboard-surface-low: #eff4ff;
+  --color-dashboard-surface-container: #e5eeff;
+  --color-dashboard-primary: #004ac6;
+  --color-dashboard-primary-container: #2563eb;
+  --color-dashboard-error: #ba1a1a;
+  --color-dashboard-error-container: #ffdad6;
+
   --font-sans: var(--font-work-sans), ui-sans-serif, sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
 
@@ -129,6 +140,16 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-work-sans), ui-sans-serif, sans-serif;
+  }
+}
+
+@layer components {
+  .dashboard-bento-card {
+    @apply rounded-xl border border-white/40 bg-white p-6 shadow-sm transition-[transform,box-shadow] duration-200;
+  }
+  .dashboard-bento-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px -5px rgb(0 0 0 / 8%);
   }
 }
 
