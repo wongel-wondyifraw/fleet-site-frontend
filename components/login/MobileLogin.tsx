@@ -1,25 +1,67 @@
 "use client";
 
-import { Gavel, Loader2, Lock, LogIn, Mail } from "lucide-react";
+import {
+  AlertCircle,
+  Gavel,
+  Loader2,
+  Lock,
+  LogIn,
+  Mail,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, type ComponentType } from "react";
+import {
+  useState,
+  type ChangeEvent,
+  type ComponentType,
+  type FormEvent,
+} from "react";
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ApiError } from "@/lib/api/client";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { cn } from "@/lib/utils";
 
 export function MobileLogin() {
+  // Router used to redirect to /dashboard on success.
   const router = useRouter();
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  // Pull the login helper out of auth context.
+  const { login } = useAuth();
 
-  function handleSignIn() {
+  // Form state: controlled inputs + UI flags.
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Submit handler shared by the form and the button click.
+  async function handleSubmit(e?: FormEvent<HTMLFormElement>) {
+    // Prevent the default browser submission when triggered by a form.
+    e?.preventDefault();
+    // Reset the inline error per attempt for clear feedback.
+    setErrorMessage(null);
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
+      setErrorMessage("Please enter both your email and password.");
+      return;
+    }
+
     setIsAuthenticating(true);
-    setTimeout(() => {
-      setIsAuthenticating(false);
+    try {
+      await login(trimmedEmail, password);
       router.push("/dashboard");
-    }, 800);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setErrorMessage(err.message);
+      } else {
+        setErrorMessage("Unexpected error. Please try again.");
+      }
+    } finally {
+      setIsAuthenticating(false);
+    }
   }
 
   return (
@@ -35,10 +77,17 @@ export function MobileLogin() {
           </p>
         </header>
 
-        <LoginForm
-          isAuthenticating={isAuthenticating}
-          onSignIn={handleSignIn}
-        />
+        {/* form element gives us Enter-to-submit behavior on mobile keyboards. */}
+        <form className="w-full" onSubmit={handleSubmit} noValidate>
+          <LoginForm
+            email={email}
+            password={password}
+            errorMessage={errorMessage}
+            isAuthenticating={isAuthenticating}
+            onEmailChange={(e) => setEmail(e.target.value)}
+            onPasswordChange={(e) => setPassword(e.target.value)}
+          />
+        </form>
       </div>
 
       <footer className="pb-8 text-center">
@@ -48,12 +97,21 @@ export function MobileLogin() {
   );
 }
 
+// Form body: inputs, error banner, and submit button.
 function LoginForm({
+  email,
+  password,
+  errorMessage,
   isAuthenticating,
-  onSignIn,
+  onEmailChange,
+  onPasswordChange,
 }: {
+  email: string;
+  password: string;
+  errorMessage: string | null;
   isAuthenticating: boolean;
-  onSignIn: () => void;
+  onEmailChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onPasswordChange: (e: ChangeEvent<HTMLInputElement>) => void;
 }) {
   return (
     <div className="w-full space-y-6">
@@ -63,22 +121,32 @@ function LoginForm({
           label="Email"
           icon={Mail}
           type="email"
+          autoComplete="email"
           placeholder="Enter your email"
+          value={email}
+          onChange={onEmailChange}
+          disabled={isAuthenticating}
         />
         <MobileField
           id="mobile-password"
           label="Password"
           icon={Lock}
           type="password"
+          autoComplete="current-password"
           placeholder="••••••••"
+          value={password}
+          onChange={onPasswordChange}
+          disabled={isAuthenticating}
         />
       </div>
 
+      {/* Inline error: shown only when we have something to report. */}
+      {errorMessage && <ErrorBanner message={errorMessage} />}
+
       <Button
-        type="button"
-        className="h-12 w-full gap-2 rounded-lg bg-primary-container font-semibold shadow-sm hover:bg-primary active:scale-[0.98]"
+        type="submit"
+        className="h-12 w-full gap-2 rounded-lg bg-primary-container font-semibold shadow-sm hover:bg-primary active:scale-[0.98] disabled:opacity-70"
         disabled={isAuthenticating}
-        onClick={onSignIn}
       >
         {isAuthenticating ? (
           <>
@@ -98,6 +166,7 @@ function LoginForm({
   );
 }
 
+// Visual-only "Forgot Password" affordance; wiring deferred.
 function ForgotPasswordLink() {
   return (
     <div className="flex flex-col items-center gap-4 pt-2">
@@ -112,18 +181,40 @@ function ForgotPasswordLink() {
   );
 }
 
+// Inline alert rendered above the submit button.
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+    >
+      <AlertCircle className="mt-0.5 size-4 flex-shrink-0" />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+// Labeled input field with a leading icon - the mobile look uses uppercase labels.
 function MobileField({
   id,
   label,
   icon: Icon,
   type,
   placeholder,
+  value,
+  onChange,
+  disabled,
+  autoComplete,
 }: {
   id: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
   type: string;
   placeholder: string;
+  value: string;
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  disabled?: boolean;
+  autoComplete?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -139,7 +230,11 @@ function MobileField({
           id={id}
           name={id}
           type={type}
+          autoComplete={autoComplete}
           placeholder={placeholder}
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
           className={cn(
             "h-12 border-border bg-transparent pl-10 placeholder:text-outline-variant",
             "focus-visible:border-primary focus-visible:ring-primary/30",
@@ -150,6 +245,7 @@ function MobileField({
   );
 }
 
+// "Secure Access Only" pill at the bottom of the screen.
 function SecureBadge() {
   return (
     <div className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant/30 bg-surface-container-low px-3 py-1">

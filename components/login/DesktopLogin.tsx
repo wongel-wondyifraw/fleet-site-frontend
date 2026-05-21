@@ -1,10 +1,19 @@
 "use client";
 
-import { ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Loader2,
+  Lock,
+  Mail,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   FormEvent,
   useState,
+  type ChangeEvent,
   type ComponentType,
   type ReactNode,
 } from "react";
@@ -15,16 +24,57 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ApiError } from "@/lib/api/client";
+import { useAuth } from "@/lib/auth/AuthContext";
 
+// Background image used as a hero on the left side of the desktop login.
 const CONSTRUCTION_IMAGE = "/construction-site.jpg";
 
 export function DesktopLogin() {
+  // Next.js router lets us send the user to /dashboard after a successful login.
   const router = useRouter();
-  const [showPassword, setShowPassword] = useState(false);
+  // login() hits POST /auth/login and stores token + user in context.
+  const { login } = useAuth();
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  // Controlled inputs: needed so we can include them in the API request.
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  // UI flags: password visibility toggle, network in-flight, and the last error.
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Handles form submission: validates locally, calls API, redirects on success.
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    router.push("/dashboard");
+    // Clear any previous error so the user sees fresh feedback per attempt.
+    setErrorMessage(null);
+
+    // Trim email to avoid accidental whitespace from password managers.
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
+      setErrorMessage("Please enter both your email and password.");
+      return;
+    }
+
+    // Disable the button and show a spinner while the request is in flight.
+    setIsSubmitting(true);
+    try {
+      await login(trimmedEmail, password);
+      // Hard navigation to dashboard; the auth context now has the user.
+      router.push("/dashboard");
+    } catch (err) {
+      // ApiError carries the server's message (e.g. "Invalid email or password").
+      if (err instanceof ApiError) {
+        setErrorMessage(err.message);
+      } else {
+        // Defensive fallback for unexpected thrown values.
+        setErrorMessage("Unexpected error. Please try again.");
+      }
+    } finally {
+      // Always re-enable the form whether the request succeeded or failed.
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -45,31 +95,57 @@ export function DesktopLogin() {
             <BrandHeader />
             <SignInHeader />
 
-            <form className="space-y-6" onSubmit={handleSubmit}>
+            {/* noValidate so we control the error UX instead of the browser's default tooltips. */}
+            <form className="space-y-6" onSubmit={handleSubmit} noValidate>
               <FieldGroup id="desktop-email" label="Email" icon={Mail}>
                 <Input
                   id="desktop-email"
                   type="email"
+                  autoComplete="email"
                   placeholder="name@company.com"
                   className="h-10 border-outline bg-surface pl-10"
+                  value={email}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                    setEmail(e.target.value)
+                  }
+                  disabled={isSubmitting}
+                  aria-invalid={errorMessage ? true : undefined}
                 />
               </FieldGroup>
 
               <FieldGroup id="desktop-password" label="Password" icon={Lock}>
                 <PasswordInput
+                  value={password}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                    setPassword(e.target.value)
+                  }
                   showPassword={showPassword}
                   onToggle={() => setShowPassword((v) => !v)}
+                  disabled={isSubmitting}
                 />
               </FieldGroup>
+
+              {/* Inline error banner; only renders when we have a message. */}
+              {errorMessage && <ErrorBanner message={errorMessage} />}
 
               <RememberRow />
 
               <Button
                 type="submit"
-                className="h-10 w-full gap-2 rounded-lg bg-primary font-bold hover:bg-surface-tint active:scale-[0.98]"
+                disabled={isSubmitting}
+                className="h-10 w-full gap-2 rounded-lg bg-primary font-bold hover:bg-surface-tint active:scale-[0.98] disabled:opacity-70"
               >
-                Sign In
-                <ArrowRight className="size-[18px]" />
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="size-[18px] animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  <>
+                    Sign In
+                    <ArrowRight className="size-[18px]" />
+                  </>
+                )}
               </Button>
             </form>
           </CardContent>
@@ -79,6 +155,7 @@ export function DesktopLogin() {
   );
 }
 
+// Hero text on the left side; static content.
 function HeroPanel() {
   return (
     <div className="relative z-10 max-w-2xl px-24">
@@ -94,6 +171,7 @@ function HeroPanel() {
   );
 }
 
+// Decorative blueprint grid in the hero corner; purely visual.
 function BlueprintSvg() {
   return (
     <svg
@@ -112,6 +190,7 @@ function BlueprintSvg() {
   );
 }
 
+// Brand mark + wordmark on top of the form.
 function BrandHeader() {
   return (
     <div className="mb-10 flex w-full flex-col items-center text-center">
@@ -125,6 +204,7 @@ function BrandHeader() {
   );
 }
 
+// "Sign In" heading + subtitle above the inputs.
 function SignInHeader() {
   return (
     <div className="mb-8">
@@ -138,20 +218,44 @@ function SignInHeader() {
   );
 }
 
+// Inline alert that renders the API error message to the user.
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+    >
+      <AlertCircle className="mt-0.5 size-4 flex-shrink-0" />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+// Password field with show/hide toggle and controlled value.
 function PasswordInput({
+  value,
+  onChange,
   showPassword,
   onToggle,
+  disabled,
 }: {
+  value: string;
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
   showPassword: boolean;
   onToggle: () => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="relative">
       <Input
         id="desktop-password"
         type={showPassword ? "text" : "password"}
+        autoComplete="current-password"
         placeholder="••••••••"
         className="h-10 border-outline bg-surface pr-12 pl-10"
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
       />
       <Button
         type="button"
@@ -160,6 +264,7 @@ function PasswordInput({
         className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground hover:text-primary"
         aria-label={showPassword ? "Hide password" : "Show password"}
         onClick={onToggle}
+        disabled={disabled}
       >
         {showPassword ? (
           <EyeOff className="size-4" />
@@ -171,6 +276,7 @@ function PasswordInput({
   );
 }
 
+// "Remember me" + forgot-password link; visual-only for now.
 function RememberRow() {
   return (
     <div className="flex items-center justify-between py-2">
@@ -193,6 +299,7 @@ function RememberRow() {
   );
 }
 
+// Generic labeled field with a leading icon - keeps each input row consistent.
 function FieldGroup({
   id,
   label,

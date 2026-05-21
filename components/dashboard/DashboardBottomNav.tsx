@@ -1,38 +1,51 @@
 "use client";
 
-import {
-  ClipboardList,
-  Fuel,
-  LayoutDashboard,
-  Menu,
-} from "lucide-react";
+import { ClipboardList, Fuel, LayoutDashboard, Menu } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, active: true },
-  { id: "logs", label: "Logs", icon: ClipboardList, active: false },
-  { id: "fuel", label: "Fuel", icon: Fuel, active: false },
-  { id: "more", label: "More", icon: Menu, active: false },
+const NAV_ITEMS = [
+  {
+    id: "dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    href: "/dashboard",
+  },
+  { id: "logs", label: "Logs", icon: ClipboardList, href: "/dashboard/logs" },
+  { id: "fuel", label: "Fuel", icon: Fuel, href: "/dashboard/fuel" },
+  { id: "more", label: "More", icon: Menu, href: "/dashboard/settings" },
 ] as const;
 
+function isActive(pathname: string, href: string): boolean {
+  if (href === "/dashboard") return pathname === "/dashboard";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function DashboardBottomNav() {
+  const pathname = usePathname() ?? "";
+
   return (
-    <nav className="fixed bottom-0 left-0 z-50 flex h-16 w-full items-center justify-around border-t border-slate-200/80 bg-white/95 px-4 pb-safe backdrop-blur-md md:hidden">
-      {navItems.map(({ id, label, icon: Icon, active }) => (
-        <button
-          key={id}
-          type="button"
-          className={cn(
-            "flex flex-col items-center justify-center px-4 py-1 transition-transform active:scale-90",
-            active
-              ? "rounded-full bg-primary px-4 py-1.5 text-primary-foreground shadow-md shadow-primary/25"
-              : "rounded-full px-4 py-1.5 text-muted-foreground",
-          )}
-        >
-          <Icon className="size-5" />
-          <span className="font-label-caps text-label-caps">{label}</span>
-        </button>
-      ))}
+    <nav className="pb-safe fixed bottom-0 left-0 z-50 flex h-16 w-full items-center justify-around border-t border-slate-200/80 bg-white/95 px-4 backdrop-blur-md lg:hidden">
+      {NAV_ITEMS.map(({ id, label, icon: Icon, href }) => {
+        const active = isActive(pathname, href);
+        return (
+          <Link
+            key={id}
+            href={href}
+            className={cn(
+              "flex flex-col items-center justify-center px-4 py-1 transition-transform active:scale-90",
+              active
+                ? "rounded-full bg-primary px-4 py-1.5 text-primary-foreground shadow-md shadow-primary/25"
+                : "rounded-full px-4 py-1.5 text-muted-foreground",
+            )}
+          >
+            <Icon className="size-5" />
+            <span className="font-label-caps text-label-caps">{label}</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }
