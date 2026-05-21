@@ -6,43 +6,35 @@ import {
   ArrowUp,
   Bell,
   CircleUser,
-  ClipboardList,
   Fuel,
-  LayoutDashboard,
   LogIn,
   LogOut,
   MapPin,
-  Plus,
   Route,
-  Settings,
-  HelpCircle,
   Truck,
   Wrench,
-  Warehouse,
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 
-import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const SIDEBAR_NAV = [
-  { label: "Dashboard", icon: LayoutDashboard, active: true },
-  { label: "Vehicle Registry", icon: Warehouse, active: false },
-  { label: "Daily Logs", icon: ClipboardList, active: false },
-  { label: "Fuel Tracking", icon: Fuel, active: false },
-  { label: "Maintenance", icon: Wrench, active: false },
-] as const;
+type ChartBar = {
+  day: string;
+  height: string;
+  highlight?: boolean;
+  weekend?: boolean;
+};
 
-const CHART_BARS = [
+const CHART_BARS: ChartBar[] = [
   { day: "Mon", height: "60%" },
   { day: "Tue", height: "85%" },
   { day: "Wed", height: "70%" },
-  { day: "Thu", height: "95%" },
+  { day: "Thu", height: "95%", highlight: true },
   { day: "Fri", height: "55%" },
-  { day: "Sat", height: "40%" },
-  { day: "Sun", height: "30%" },
-] as const;
+  { day: "Sat", height: "40%", weekend: true },
+  { day: "Sun", height: "30%", weekend: true },
+];
 
 const ACTIVITY_ROWS = [
   { id: "TX-2248", time: "08:41", action: "Check-in", tone: "success" as const },
@@ -69,16 +61,13 @@ const ACTION_ICONS = {
 
 export function DesktopDashboard() {
   return (
-    <div className="hidden min-h-dvh bg-white lg:flex">
-      <DashboardSidebar />
-      <main className="ml-[var(--spacing-sidebar)] min-h-dvh flex-1 overflow-auto bg-dashboard-bg p-8 pb-24">
-        <PageIntro />
-        <KpiGrid />
-        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <TripVolumeChart />
-          <RecentActivityPanel />
-        </div>
-      </main>
+    <div className="hidden lg:block">
+      <PageIntro />
+      <KpiGrid />
+      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <TripVolumeChart />
+        <RecentActivityPanel />
+      </div>
       <Fab />
     </div>
   );
@@ -120,74 +109,13 @@ function PageIntro() {
             variant="ghost"
             size="icon"
             className="ml-2 size-9 rounded-full hover:bg-dashboard-surface-low"
+            aria-label="Notifications"
           >
             <Bell className="size-4 text-dashboard-on-surface-variant" />
           </Button>
         </div>
       </div>
     </header>
-  );
-}
-
-function DashboardSidebar() {
-  return (
-    <aside className="fixed top-0 left-0 z-40 flex h-full w-[var(--spacing-sidebar)] flex-col border-r border-slate-200/80 bg-white px-4 py-5">
-      <div className="mb-5 flex flex-col items-center gap-3 rounded-2xl bg-slate-50 px-4 py-5 ring-1 ring-black/5">
-        <FleetSiteLogo size="sidebar" />
-        <span className="text-base font-bold leading-none text-primary">
-          FleetSite
-        </span>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-success/15 px-3 py-1 text-[11px] font-semibold text-success">
-          <span className="size-1.5 rounded-full bg-success" />
-          Site Active
-        </span>
-      </div>
-
-      <p className="mb-6 text-center font-label-caps text-[10px] tracking-wide text-muted-foreground uppercase">
-        Oct 24, 2023 · 08:42 AM
-      </p>
-
-      <nav className="flex-1 space-y-1">
-        {SIDEBAR_NAV.map(({ label, icon: Icon, active }) => (
-          <button
-            key={label}
-            type="button"
-            className={cn(
-              "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
-              active
-                ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
-                : "text-muted-foreground hover:bg-slate-50 hover:text-primary",
-            )}
-          >
-            <Icon className="size-[18px]" />
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      <div className="mt-4 space-y-3">
-        <Button className="h-11 w-full gap-2 rounded-xl bg-primary font-semibold shadow-md shadow-primary/25 hover:bg-surface-tint">
-          <Plus className="size-4" />
-          Add New Vehicle
-        </Button>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-slate-50 hover:text-primary"
-          >
-            <Settings className="size-3.5" />
-            Settings
-          </button>
-          <button
-            type="button"
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-slate-50 hover:text-primary"
-          >
-            <HelpCircle className="size-3.5" />
-            Support
-          </button>
-        </div>
-      </div>
-    </aside>
   );
 }
 
@@ -200,7 +128,9 @@ function KpiGrid() {
         iconClassName="bg-blue-50 text-dashboard-primary"
       >
         <div className="flex items-baseline gap-2">
-          <span className="font-display-lg text-display-lg text-dashboard-on-background">14</span>
+          <span className="font-display-lg text-display-lg text-dashboard-on-background">
+            14
+          </span>
           <span className="pb-0.5 text-sm text-dashboard-on-surface-variant">
             / 18 units
           </span>
@@ -324,7 +254,10 @@ function TripVolumeChart() {
       </div>
       <div className="flex h-56 items-end justify-between gap-2">
         {CHART_BARS.map(({ day, height, highlight, weekend }) => (
-          <div key={day} className="group flex flex-1 flex-col items-center gap-2">
+          <div
+            key={day}
+            className="group flex flex-1 flex-col items-center gap-2"
+          >
             <div
               className={cn(
                 "w-full max-w-[40px] rounded-t-lg transition-all",
@@ -391,7 +324,9 @@ function RecentActivityPanel() {
                       {row.id}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{row.time}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {row.time}
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={cn(
@@ -417,11 +352,10 @@ function Fab() {
   return (
     <button
       type="button"
-      className="fixed right-8 bottom-8 z-50 flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-all hover:scale-105 active:scale-95"
+      className="fixed right-8 bottom-8 z-50 hidden size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-all hover:scale-105 active:scale-95 lg:flex"
       aria-label="Add location"
     >
       <MapPin className="size-6" />
     </button>
   );
 }
-
