@@ -1,6 +1,17 @@
 // Mirrors backend src/common/enums.ts UserRole - kept in sync manually.
 export type UserRole = "ADMIN" | "SITE_MANAGER" | "TIME_KEEPER";
 
+// Ordered list of roles used by select inputs and filter dropdowns.
+export const USER_ROLES: UserRole[] = ["ADMIN", "SITE_MANAGER", "TIME_KEEPER"];
+
+// Pretty-print a role code for display (e.g. "SITE_MANAGER" -> "Site Manager").
+export function formatRole(role: UserRole | string): string {
+  return role
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 // Minimal Site shape used when a User comes back with its sites loaded.
 // Extend this only with fields the UI actually needs.
 export interface ApiSite {

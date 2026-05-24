@@ -14,8 +14,9 @@ import {
   ShieldCheck,
   Smartphone,
   User,
+  Users,
 } from "lucide-react";
-import { useState, type ComponentType } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,23 +27,32 @@ import {
   fieldClass,
 } from "@/components/settings/SettingsShared";
 import { SitesPanel } from "@/components/settings/SitesPanel";
+import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
+import { formatRole } from "@/lib/api/types";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { cn } from "@/lib/utils";
 
+// Each settings section is identified by a stable string id.
 type SectionId =
   | "profile"
   | "workspace"
   | "sites"
+  | "users"
   | "notifications"
   | "security"
   | "about";
 
+// Metadata for one section in the sub-sidebar.
 type SectionMeta = {
   id: SectionId;
   label: string;
   description: string;
   icon: ComponentType<{ className?: string }>;
+  // When true, the section is only visible to ADMIN users.
+  adminOnly?: boolean;
 };
 
+// Full list of sections; admin-only ones are filtered out for non-admins.
 const SECTIONS: SectionMeta[] = [
   {
     id: "profile",
@@ -61,6 +71,13 @@ const SECTIONS: SectionMeta[] = [
     label: "Sites",
     description: "Add & edit sites",
     icon: Building2,
+  },
+  {
+    id: "users",
+    label: "Users",
+    description: "Team & roles",
+    icon: Users,
+    adminOnly: true,
   },
   {
     id: "notifications",
@@ -82,6 +99,7 @@ const SECTIONS: SectionMeta[] = [
   },
 ];
 
+// Static options used by the workspace panel selects.
 const TIMEZONE_OPTIONS = [
   "GMT-8 · Pacific",
   "GMT-7 · Mountain",
@@ -102,9 +120,23 @@ const DEFAULT_SITE_OPTIONS = [
 ];
 
 export function DesktopSettings() {
-  const [active, setActive] = useState<SectionId>("profile");
+  // Pull the signed-in user for role-aware section filtering.
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
 
-  const activeMeta = SECTIONS.find((s) => s.id === active) ?? SECTIONS[0];
+  // Filter out admin-only sections for non-admins.
+  const visibleSections = useMemo(
+    () => SECTIONS.filter((s) => !s.adminOnly || isAdmin),
+    [isAdmin],
+  );
+
+  // Default to "profile"; reflow if the visible list ever changes underneath us.
+  const [active, setActive] = useState<SectionId>("profile");
+  const activeMeta =
+    visibleSections.find((s) => s.id === active) ?? visibleSections[0];
+
+  // Hide the global "Save Changes" button on panels that own their own actions.
+  const sectionOwnsActions = active === "sites" || active === "users";
 
   return (
     <div className="hidden lg:block">
@@ -120,7 +152,7 @@ export function DesktopSettings() {
             Manage your profile, workspace preferences, sites, and security.
           </p>
         </div>
-        {active !== "sites" ? (
+        {!sectionOwnsActions ? (
           <Button className="h-10 gap-2 rounded-xl bg-primary px-5 font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint">
             <Save className="size-4" />
             Save Changes
@@ -129,7 +161,11 @@ export function DesktopSettings() {
       </header>
 
       <div className="grid grid-cols-[240px_minmax(0,1fr)] gap-6">
-        <SubSidebar active={active} onSelect={setActive} />
+        <SubSidebar
+          sections={visibleSections}
+          active={active}
+          onSelect={setActive}
+        />
         <div className="min-w-0">
           <ActivePanel section={active} meta={activeMeta} />
         </div>
@@ -138,10 +174,13 @@ export function DesktopSettings() {
   );
 }
 
+// Left-hand navigation that lets the user switch between settings sections.
 function SubSidebar({
+  sections,
   active,
   onSelect,
 }: {
+  sections: SectionMeta[];
   active: SectionId;
   onSelect: (id: SectionId) => void;
 }) {
@@ -151,7 +190,7 @@ function SubSidebar({
         Settings
       </p>
       <nav className="space-y-1">
-        {SECTIONS.map(({ id, label, description, icon: Icon }) => {
+        {sections.map(({ id, label, description, icon: Icon }) => {
           const isActive = id === active;
           return (
             <button
@@ -176,12 +215,7 @@ function SubSidebar({
                 <Icon className="size-4" />
               </span>
               <span className="min-w-0">
-                <span
-                  className={cn(
-                    "block text-sm font-semibold",
-                    isActive ? "text-primary" : "text-primary",
-                  )}
-                >
+                <span className="block text-sm font-semibold text-primary">
                   {label}
                 </span>
                 <span className="block truncate text-[11px] text-muted-foreground">
@@ -196,6 +230,7 @@ function SubSidebar({
   );
 }
 
+// Wraps the selected panel in the standard settings card chrome.
 function ActivePanel({
   section,
   meta,
@@ -212,6 +247,7 @@ function ActivePanel({
       {section === "profile" ? <ProfilePanel /> : null}
       {section === "workspace" ? <WorkspacePanel /> : null}
       {section === "sites" ? <SitesPanel /> : null}
+      {section === "users" ? <UserManagementPanel /> : null}
       {section === "notifications" ? <NotificationsPanel /> : null}
       {section === "security" ? <SecurityPanel /> : null}
       {section === "about" ? <AboutPanel /> : null}
@@ -219,6 +255,7 @@ function ActivePanel({
   );
 }
 
+// One-liner description shown under the section title in the card header.
 function panelDescription(section: SectionId): string {
   switch (section) {
     case "profile":
@@ -227,6 +264,8 @@ function panelDescription(section: SectionId): string {
       return "Defaults applied across the FleetSite dashboard.";
     case "sites":
       return "Add new construction sites and edit existing ones.";
+    case "users":
+      return "Invite teammates and assign their roles and sites.";
     case "notifications":
       return "Choose which fleet events you want to be alerted about.";
     case "security":
@@ -236,49 +275,55 @@ function panelDescription(section: SectionId): string {
   }
 }
 
+// Profile panel - now driven entirely by the authenticated user from context.
 function ProfilePanel() {
+  const { user } = useAuth();
+
+  // If for some reason we render without a user (shouldn't happen behind the
+  // dashboard gate), bail out gracefully.
+  if (!user) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Sign in to view your profile.
+      </p>
+    );
+  }
+
+  // Initials power the avatar - safe even for one-character names.
+  const initials = `${user.firstName[0] ?? ""}${user.lastName[0] ?? ""}`.toUpperCase();
+
   return (
     <>
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-        <div className="flex size-20 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-          <User className="size-9" />
+        <div className="flex size-20 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-2xl font-semibold text-primary">
+          {initials}
         </div>
         <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-lg font-semibold text-primary">Alex Morgan</p>
+            <p className="text-lg font-semibold text-primary">
+              {user.firstName} {user.lastName}
+            </p>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-bold text-primary uppercase">
-              Fleet Admin
+              {formatRole(user.role)}
             </span>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              className="h-9 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm"
-            >
-              Change avatar
-            </Button>
-            <Button
-              variant="ghost"
-              className="h-9 rounded-xl px-4 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              Remove
-            </Button>
           </div>
         </div>
       </div>
 
       <FieldGrid>
-        <SettingsField label="Full Name">
+        <SettingsField label="First name">
+          {/* readOnly until we wire profile updates; prevents misleading edits. */}
           <input
             type="text"
-            defaultValue="Alex Morgan"
-            className={fieldClass}
+            value={user.firstName}
+            readOnly
+            className={`${fieldClass} bg-slate-50`}
           />
         </SettingsField>
-        <SettingsField label="Employee ID">
+        <SettingsField label="Last name">
           <input
             type="text"
-            defaultValue="EMP-00482"
+            value={user.lastName}
             readOnly
             className={`${fieldClass} bg-slate-50`}
           />
@@ -288,18 +333,47 @@ function ProfilePanel() {
             <Mail className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
               type="email"
-              defaultValue="alex.morgan@fleetsite.io"
-              className={`${fieldClass} pl-9`}
+              value={user.email}
+              readOnly
+              className={`${fieldClass} bg-slate-50 pl-9`}
             />
           </div>
         </SettingsField>
-        <SettingsField label="Phone">
+        <SettingsField label="Role">
           <div className="relative">
-            <Phone className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <ShieldCheck className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
-              type="tel"
-              defaultValue="+1 555 481 0226"
-              className={`${fieldClass} pl-9`}
+              type="text"
+              value={formatRole(user.role)}
+              readOnly
+              className={`${fieldClass} bg-slate-50 pl-9`}
+            />
+          </div>
+        </SettingsField>
+        <SettingsField label="Assigned sites">
+          <input
+            type="text"
+            value={
+              user.sites.length > 0
+                ? user.sites.map((s) => `${s.code} · ${s.name}`).join(", ")
+                : "None"
+            }
+            readOnly
+            className={`${fieldClass} bg-slate-50`}
+          />
+        </SettingsField>
+        <SettingsField label="Last signed in">
+          <div className="relative">
+            <Clock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={
+                user.lastLoginAt
+                  ? new Date(user.lastLoginAt).toLocaleString()
+                  : "First sign-in"
+              }
+              readOnly
+              className={`${fieldClass} bg-slate-50 pl-9`}
             />
           </div>
         </SettingsField>
@@ -308,6 +382,7 @@ function ProfilePanel() {
   );
 }
 
+// Workspace panel - static selects until real preferences are persisted server-side.
 function WorkspacePanel() {
   return (
     <FieldGrid>
@@ -355,6 +430,7 @@ function WorkspacePanel() {
   );
 }
 
+// Notifications panel - local toggle state only (no persistence yet).
 function NotificationsPanel() {
   const [notifications, setNotifications] = useState({
     vehicle: true,
@@ -399,6 +475,7 @@ function NotificationsPanel() {
   );
 }
 
+// Security panel - placeholder sessions; password change flow deferred.
 function SecurityPanel() {
   const [twoFactor, setTwoFactor] = useState(true);
   return (
@@ -461,6 +538,7 @@ function SecurityPanel() {
   );
 }
 
+// About panel - static build info.
 function AboutPanel() {
   return (
     <FieldGrid>
@@ -472,6 +550,7 @@ function AboutPanel() {
   );
 }
 
+// Row inside the active sessions list.
 function SessionRow({
   device,
   location,
@@ -508,6 +587,7 @@ function SessionRow({
   );
 }
 
+// Single info card for the About section.
 function AboutItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3">
