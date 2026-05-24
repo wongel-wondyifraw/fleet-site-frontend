@@ -1,16 +1,48 @@
-// API wrappers for the /sites resource. Currently only the list endpoint is
-// needed (for assigning sites during user creation).
+// API wrappers for the /sites resource. Used by SitesPanel (CRUD) and the
+// user-management form (assignment dropdown).
 import { apiRequest } from "@/lib/api/client";
-import type { ApiSite } from "@/lib/api/types";
+import type { ApiSite, SiteStatus, SiteType } from "@/lib/api/types";
 
-// Backend site shape includes more fields, but the UI only needs id/code/name.
-// We loosen the type with Partial here so future additions stay compatible.
-export interface ListedSite extends ApiSite {
-  status?: string;
-  city?: string;
+// Alias kept so existing imports (UserManagementPanel) don't break.
+export type ListedSite = ApiSite;
+
+// Body for POST /sites. Mirrors backend CreateSiteDto.
+export interface CreateSiteRequest {
+  name: string;
+  type: SiteType;
+  // Optional - backend defaults to PLANNING when omitted.
+  status?: SiteStatus;
+  address: string;
+  city: string;
+  state: string;
+  // Optional list of user UUIDs to assign to this site on creation.
+  userIds?: string[];
 }
 
-// GET /sites - returns the full list. Admin-only on the backend.
-export async function listSites(): Promise<ListedSite[]> {
-  return apiRequest<ListedSite[]>("/sites");
+// Body for PATCH /sites/:id. Mirrors backend UpdateSiteDto.
+// All fields optional; passing `userIds: []` clears the assignments,
+// omitting it leaves the existing assignments untouched.
+export type UpdateSiteRequest = Partial<CreateSiteRequest>;
+
+// GET /sites - returns the full list.
+export async function listSites(): Promise<ApiSite[]> {
+  return apiRequest<ApiSite[]>("/sites");
+}
+
+// POST /sites - admin creates a new site.
+export async function createSite(body: CreateSiteRequest): Promise<ApiSite> {
+  return apiRequest<ApiSite>("/sites", { method: "POST", body });
+}
+
+// PATCH /sites/:id - update mutable fields.
+export async function updateSite(
+  id: string,
+  body: UpdateSiteRequest,
+): Promise<ApiSite> {
+  return apiRequest<ApiSite>(`/sites/${id}`, { method: "PATCH", body });
+}
+
+// DELETE /sites/:id - hard-delete on the backend.
+export async function deleteSite(id: string): Promise<void> {
+  return apiRequest<void>(`/sites/${id}`, { method: "DELETE" });
 }

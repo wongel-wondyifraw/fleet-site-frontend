@@ -254,7 +254,7 @@ function UserRow({
           {/* Sites the user belongs to; truncated to keep the row compact. */}
           {user.sites.length > 0 && (
             <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {user.sites.map((s) => s.code).join(" · ")}
+              {user.sites.map((s) => s.name).join(" · ")}
             </p>
           )}
         </div>
@@ -480,11 +480,15 @@ function UserForm({
                   )}
                 >
                   {checked && <Plus className="size-3 rotate-45" />}
-                  <span className="font-mono text-[11px] uppercase">
-                    {s.code}
-                  </span>
-                  <span>·</span>
                   <span>{s.name}</span>
+                  {s.city && (
+                    <>
+                      <span>·</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {s.city}
+                      </span>
+                    </>
+                  )}
                 </button>
               );
             })}

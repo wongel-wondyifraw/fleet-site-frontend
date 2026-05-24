@@ -1,29 +1,19 @@
 "use client";
 
 import {
-  Bell,
   Building2,
   Clock,
-  Globe,
-  Info,
-  KeyRound,
   Mail,
-  MapPinned,
-  Phone,
-  Save,
   ShieldCheck,
-  Smartphone,
   User,
   Users,
 } from "lucide-react";
 import { useMemo, useState, type ComponentType } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
   FieldGrid,
   SettingsField,
   SettingsSection,
-  ToggleRow,
   fieldClass,
 } from "@/components/settings/SettingsShared";
 import { SitesPanel } from "@/components/settings/SitesPanel";
@@ -33,14 +23,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { cn } from "@/lib/utils";
 
 // Each settings section is identified by a stable string id.
-type SectionId =
-  | "profile"
-  | "workspace"
-  | "sites"
-  | "users"
-  | "notifications"
-  | "security"
-  | "about";
+type SectionId = "profile" | "sites" | "users";
 
 // Metadata for one section in the sub-sidebar.
 type SectionMeta = {
@@ -61,12 +44,6 @@ const SECTIONS: SectionMeta[] = [
     icon: User,
   },
   {
-    id: "workspace",
-    label: "Workspace",
-    description: "Defaults & units",
-    icon: MapPinned,
-  },
-  {
     id: "sites",
     label: "Sites",
     description: "Add & edit sites",
@@ -79,44 +56,6 @@ const SECTIONS: SectionMeta[] = [
     icon: Users,
     adminOnly: true,
   },
-  {
-    id: "notifications",
-    label: "Notifications",
-    description: "Alerts & digests",
-    icon: Bell,
-  },
-  {
-    id: "security",
-    label: "Security",
-    description: "2FA & sessions",
-    icon: ShieldCheck,
-  },
-  {
-    id: "about",
-    label: "About",
-    description: "Build & version",
-    icon: Info,
-  },
-];
-
-// Static options used by the workspace panel selects.
-const TIMEZONE_OPTIONS = [
-  "GMT-8 · Pacific",
-  "GMT-7 · Mountain",
-  "GMT-6 · Central",
-  "GMT-5 · Eastern",
-];
-const SHIFT_OPTIONS = [
-  "Day (06:00 – 14:00)",
-  "Swing (14:00 – 22:00)",
-  "Night (22:00 – 06:00)",
-];
-const UNIT_OPTIONS = ["Metric (km, L)", "Imperial (mi, gal)"];
-const DEFAULT_SITE_OPTIONS = [
-  "North Creek Bridge",
-  "Eastside Quarry",
-  "Riverbend Plant",
-  "Highway 14 Expansion",
 ];
 
 export function DesktopSettings() {
@@ -135,29 +74,18 @@ export function DesktopSettings() {
   const activeMeta =
     visibleSections.find((s) => s.id === active) ?? visibleSections[0];
 
-  // Hide the global "Save Changes" button on panels that own their own actions.
-  const sectionOwnsActions = active === "sites" || active === "users";
-
   return (
     <div className="hidden lg:block">
-      <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-bold tracking-widest text-dashboard-on-surface-variant uppercase">
-            Account
-          </p>
-          <h1 className="font-headline-md text-headline-md text-dashboard-on-background">
-            Settings
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage your profile, workspace preferences, sites, and security.
-          </p>
-        </div>
-        {!sectionOwnsActions ? (
-          <Button className="h-10 gap-2 rounded-xl bg-primary px-5 font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint">
-            <Save className="size-4" />
-            Save Changes
-          </Button>
-        ) : null}
+      <header className="mb-8">
+        <p className="text-[11px] font-bold tracking-widest text-dashboard-on-surface-variant uppercase">
+          Account
+        </p>
+        <h1 className="font-headline-md text-headline-md text-dashboard-on-background">
+          Settings
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Manage your profile, sites, and team members.
+        </p>
       </header>
 
       <div className="grid grid-cols-[240px_minmax(0,1fr)] gap-6">
@@ -245,12 +173,8 @@ function ActivePanel({
       icon={meta.icon}
     >
       {section === "profile" ? <ProfilePanel /> : null}
-      {section === "workspace" ? <WorkspacePanel /> : null}
       {section === "sites" ? <SitesPanel /> : null}
       {section === "users" ? <UserManagementPanel /> : null}
-      {section === "notifications" ? <NotificationsPanel /> : null}
-      {section === "security" ? <SecurityPanel /> : null}
-      {section === "about" ? <AboutPanel /> : null}
     </SettingsSection>
   );
 }
@@ -260,18 +184,10 @@ function panelDescription(section: SectionId): string {
   switch (section) {
     case "profile":
       return "Your account details and contact information.";
-    case "workspace":
-      return "Defaults applied across the FleetSite dashboard.";
     case "sites":
       return "Add new construction sites and edit existing ones.";
     case "users":
       return "Invite teammates and assign their roles and sites.";
-    case "notifications":
-      return "Choose which fleet events you want to be alerted about.";
-    case "security":
-      return "Two-factor authentication and active sessions.";
-    case "about":
-      return "Build information and platform details.";
   }
 }
 
@@ -355,7 +271,7 @@ function ProfilePanel() {
             type="text"
             value={
               user.sites.length > 0
-                ? user.sites.map((s) => `${s.code} · ${s.name}`).join(", ")
+                ? user.sites.map((s) => s.name).join(", ")
                 : "None"
             }
             readOnly
@@ -382,219 +298,3 @@ function ProfilePanel() {
   );
 }
 
-// Workspace panel - static selects until real preferences are persisted server-side.
-function WorkspacePanel() {
-  return (
-    <FieldGrid>
-      <SettingsField label="Default Site">
-        <select className={fieldClass} defaultValue={DEFAULT_SITE_OPTIONS[0]}>
-          {DEFAULT_SITE_OPTIONS.map((s) => (
-            <option key={s}>{s}</option>
-          ))}
-        </select>
-      </SettingsField>
-      <SettingsField label="Time Zone">
-        <div className="relative">
-          <Globe className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <select
-            className={`${fieldClass} pl-9`}
-            defaultValue={TIMEZONE_OPTIONS[3]}
-          >
-            {TIMEZONE_OPTIONS.map((tz) => (
-              <option key={tz}>{tz}</option>
-            ))}
-          </select>
-        </div>
-      </SettingsField>
-      <SettingsField label="Default Shift">
-        <div className="relative">
-          <Clock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <select
-            className={`${fieldClass} pl-9`}
-            defaultValue={SHIFT_OPTIONS[0]}
-          >
-            {SHIFT_OPTIONS.map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-        </div>
-      </SettingsField>
-      <SettingsField label="Units">
-        <select className={fieldClass} defaultValue={UNIT_OPTIONS[0]}>
-          {UNIT_OPTIONS.map((u) => (
-            <option key={u}>{u}</option>
-          ))}
-        </select>
-      </SettingsField>
-    </FieldGrid>
-  );
-}
-
-// Notifications panel - local toggle state only (no persistence yet).
-function NotificationsPanel() {
-  const [notifications, setNotifications] = useState({
-    vehicle: true,
-    fuel: true,
-    maintenance: true,
-    attendance: false,
-    weeklyDigest: true,
-  });
-  return (
-    <>
-      <ToggleRow
-        label="Vehicle alerts"
-        description="Real-time updates when vehicles change status."
-        checked={notifications.vehicle}
-        onChange={(v) => setNotifications((p) => ({ ...p, vehicle: v }))}
-      />
-      <ToggleRow
-        label="Fuel anomalies"
-        description="Unusual consumption or refill activity."
-        checked={notifications.fuel}
-        onChange={(v) => setNotifications((p) => ({ ...p, fuel: v }))}
-      />
-      <ToggleRow
-        label="Maintenance due"
-        description="Service intervals and inspection deadlines."
-        checked={notifications.maintenance}
-        onChange={(v) => setNotifications((p) => ({ ...p, maintenance: v }))}
-      />
-      <ToggleRow
-        label="Attendance issues"
-        description="Missed check-ins and overtime escalations."
-        checked={notifications.attendance}
-        onChange={(v) => setNotifications((p) => ({ ...p, attendance: v }))}
-      />
-      <ToggleRow
-        label="Weekly digest"
-        description="A Monday morning summary of last week's operations."
-        checked={notifications.weeklyDigest}
-        onChange={(v) => setNotifications((p) => ({ ...p, weeklyDigest: v }))}
-      />
-    </>
-  );
-}
-
-// Security panel - placeholder sessions; password change flow deferred.
-function SecurityPanel() {
-  const [twoFactor, setTwoFactor] = useState(true);
-  return (
-    <>
-      <ToggleRow
-        label="Two-factor authentication"
-        description="Require a one-time code when signing in from a new device."
-        checked={twoFactor}
-        onChange={setTwoFactor}
-      />
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <KeyRound className="size-5" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold text-primary">Password</p>
-            <p className="text-xs text-muted-foreground">
-              Last changed 42 days ago
-            </p>
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          className="h-9 rounded-xl border-slate-200 bg-white px-4 text-sm"
-        >
-          Change password
-        </Button>
-      </div>
-      <div>
-        <p className="font-label-caps mb-2 text-[10px] tracking-wide text-muted-foreground uppercase">
-          Active sessions
-        </p>
-        <div className="space-y-2">
-          <SessionRow
-            device="Macbook Pro · Chrome"
-            location="Site office · 192.168.1.42"
-            lastActive="Active now"
-            current
-          />
-          <SessionRow
-            device="iPhone · FleetSite app"
-            location="Sector 4 · Cellular"
-            lastActive="Active 2h ago"
-          />
-          <SessionRow
-            device="iPad · Safari"
-            location="Maintenance bay · WiFi"
-            lastActive="Active yesterday"
-          />
-        </div>
-        <Button
-          variant="ghost"
-          className="mt-3 h-9 rounded-xl px-4 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
-        >
-          Sign out of all sessions
-        </Button>
-      </div>
-    </>
-  );
-}
-
-// About panel - static build info.
-function AboutPanel() {
-  return (
-    <FieldGrid>
-      <AboutItem label="Version" value="1.0.4-STABLE" />
-      <AboutItem label="Build" value="2026.05.20-rc1" />
-      <AboutItem label="Last sync" value="Today, 08:42 AM · GMT-5" />
-      <AboutItem label="Support" value="support@fleetsite.io" />
-    </FieldGrid>
-  );
-}
-
-// Row inside the active sessions list.
-function SessionRow({
-  device,
-  location,
-  lastActive,
-  current,
-}: {
-  device: string;
-  location: string;
-  lastActive: string;
-  current?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="flex size-9 items-center justify-center rounded-xl bg-white text-muted-foreground ring-1 ring-slate-200">
-          <Smartphone className="size-4" />
-        </span>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-primary">
-            {device}
-            {current ? (
-              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
-                Current
-              </span>
-            ) : null}
-          </p>
-          <p className="truncate text-xs text-muted-foreground">{location}</p>
-        </div>
-      </div>
-      <span className="shrink-0 text-[11px] text-muted-foreground">
-        {lastActive}
-      </span>
-    </div>
-  );
-}
-
-// Single info card for the About section.
-function AboutItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3">
-      <p className="font-label-caps text-[10px] tracking-wide text-muted-foreground uppercase">
-        {label}
-      </p>
-      <p className="mt-0.5 text-sm font-semibold text-primary">{value}</p>
-    </div>
-  );
-}

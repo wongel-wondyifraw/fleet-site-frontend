@@ -12,12 +12,52 @@ export function formatRole(role: UserRole | string): string {
     .join(" ");
 }
 
-// Minimal Site shape used when a User comes back with its sites loaded.
+// Mirrors backend Site entity - the trimmed set of fields the API now exposes.
 // Extend this only with fields the UI actually needs.
+export const SITE_TYPES = [
+  "CONSTRUCTION",
+  "MINING",
+  "INFRASTRUCTURE",
+  "DEMOLITION",
+  "QUARRY",
+  "DEPOT",
+  "OTHER",
+] as const;
+
+export const SITE_STATUSES = [
+  "PLANNING",
+  "ACTIVE",
+  "ON_HOLD",
+  "COMPLETED",
+  "CLOSED",
+] as const;
+
+export type SiteType = (typeof SITE_TYPES)[number];
+export type SiteStatus = (typeof SITE_STATUSES)[number];
+
+// Slim user shape returned inside a Site's `users` relation. Kept separate
+// from ApiUser to avoid a circular type (ApiUser also includes ApiSite[]).
+export interface SiteAssignee {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: UserRole;
+}
+
 export interface ApiSite {
   id: string;
-  code: string;
   name: string;
+  type: SiteType;
+  status: SiteStatus;
+  address: string;
+  city: string;
+  state: string;
+  // Assignees attached to this site. Optional because list views may omit it
+  // and older snapshots in storage won't have it.
+  users?: SiteAssignee[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // Mirrors backend User entity (passwordHash is stripped server-side).
