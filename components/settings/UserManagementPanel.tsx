@@ -5,6 +5,7 @@
 import {
   AlertCircle,
   ArrowLeft,
+  ChevronRight,
   Eye,
   EyeOff,
   Loader2,
@@ -18,6 +19,7 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -25,6 +27,7 @@ import {
   useState,
   type ChangeEvent,
   type FormEvent,
+  type MouseEvent,
 } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -199,6 +202,7 @@ export function UserManagementPanel({
         </div>
       ) : (
         // User list rendered as cards for visual consistency with SitesPanel.
+        // Each row links to the detail page so admins can open + edit a user.
         <ul className={cn("space-y-2", density === "compact" && "space-y-1.5")}>
           {filteredUsers.map((u) => (
             <UserRow
@@ -240,7 +244,9 @@ export function UserManagementPanel({
   );
 }
 
-// Single user row in the list. Self-row hides the deactivate action.
+// Single user row in the list. The whole row is a Link to the user's detail
+// page; the deactivate icon button stops propagation so it doesn't navigate.
+// Self-row hides the deactivate action.
 function UserRow({
   user,
   isSelf,
@@ -252,68 +258,82 @@ function UserRow({
   onDeactivate: () => void;
   density: "comfortable" | "compact";
 }) {
+  function handleDeactivateClick(e: MouseEvent<HTMLButtonElement>) {
+    // Prevent the parent Link from intercepting the click.
+    e.preventDefault();
+    e.stopPropagation();
+    onDeactivate();
+  }
+
   return (
-    <li
-      className={cn(
-        "flex flex-col gap-3 rounded-xl border border-slate-100 bg-white p-3 transition-colors hover:border-slate-200 sm:flex-row sm:items-center sm:justify-between",
-        density === "compact" && "p-2.5",
-        !user.isActive && "opacity-60",
-      )}
-    >
-      <div className="flex min-w-0 items-center gap-3">
-        {/* Initials avatar - same look as the sidebar identity strip. */}
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-sm font-semibold text-primary">
-          {user.firstName[0]}
-          {user.lastName[0]}
-        </div>
-        <div className="min-w-0">
-          <p className="flex items-center gap-2 truncate text-sm font-semibold text-primary">
-            <span className="truncate">
-              {user.firstName} {user.lastName}
-            </span>
-            {isSelf && (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-muted-foreground uppercase">
-                You
-              </span>
-            )}
-            {!user.isActive && (
-              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-muted-foreground uppercase">
-                Inactive
-              </span>
-            )}
-          </p>
-          <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-          {/* Sites the user belongs to; truncated to keep the row compact. */}
-          {user.sites.length > 0 && (
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {user.sites.map((s) => s.name).join(" · ")}
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center justify-end gap-2 sm:ml-auto">
-        <span
-          className={cn(
-            "rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase",
-            ROLE_PILL[user.role],
-          )}
-        >
-          {formatRole(user.role)}
-        </span>
-        {/* Deactivate button hidden for the currently logged-in admin. */}
-        {!isSelf && user.isActive && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onDeactivate}
-            aria-label={`Deactivate ${user.firstName} ${user.lastName}`}
-            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-          >
-            <Trash2 className="size-4" />
-          </Button>
+    <li>
+      <Link
+        href={`/dashboard/users/${user.id}`}
+        aria-label={`Open ${user.firstName} ${user.lastName} details`}
+        className={cn(
+          "group flex flex-col gap-3 rounded-xl border border-slate-100 bg-white p-3 transition-colors hover:border-primary/30 hover:bg-slate-50/60 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:flex-row sm:items-center sm:justify-between",
+          density === "compact" && "p-2.5",
+          !user.isActive && "opacity-60",
         )}
-      </div>
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          {/* Initials avatar - same look as the sidebar identity strip. */}
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-sm font-semibold text-primary">
+            {user.firstName[0]}
+            {user.lastName[0]}
+          </div>
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 truncate text-sm font-semibold text-primary">
+              <span className="truncate">
+                {user.firstName} {user.lastName}
+              </span>
+              {isSelf && (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-muted-foreground uppercase">
+                  You
+                </span>
+              )}
+              {!user.isActive && (
+                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-muted-foreground uppercase">
+                  Inactive
+                </span>
+              )}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              {user.email}
+            </p>
+            {/* Sites the user belongs to; truncated to keep the row compact. */}
+            {user.sites.length > 0 && (
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                {user.sites.map((s) => s.name).join(" · ")}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center justify-end gap-2 sm:ml-auto">
+          <span
+            className={cn(
+              "rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase",
+              ROLE_PILL[user.role],
+            )}
+          >
+            {formatRole(user.role)}
+          </span>
+          {/* Deactivate button hidden for the currently logged-in admin. */}
+          {!isSelf && user.isActive && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleDeactivateClick}
+              aria-label={`Deactivate ${user.firstName} ${user.lastName}`}
+              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          )}
+          <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+        </div>
+      </Link>
     </li>
   );
 }

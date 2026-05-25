@@ -8,7 +8,8 @@ import {
   User,
   Users,
 } from "lucide-react";
-import { useMemo, useState, type ComponentType } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo, type ComponentType } from "react";
 
 import {
   FieldGrid,
@@ -24,6 +25,12 @@ import { cn } from "@/lib/utils";
 
 // Each settings section is identified by a stable string id.
 type SectionId = "profile" | "sites" | "users";
+
+// Narrowing helper for the `?section=` query param. Keeping this here (next to
+// the SectionId definition) means the union and the runtime guard can't drift.
+function isValidSection(value: string | null): value is SectionId {
+  return value === "profile" || value === "sites" || value === "users";
+}
 
 // Metadata for one section in the sub-sidebar.
 type SectionMeta = {
@@ -69,8 +76,37 @@ export function DesktopSettings() {
     [isAdmin],
   );
 
-  // Default to "profile"; reflow if the visible list ever changes underneath us.
-  const [active, setActive] = useState<SectionId>("profile");
+  // Active sub-section is URL-driven so deep links like
+  // `/dashboard/settings?section=users` (used by the UserDetail back link)
+  // land the admin on the right tab. Falling back to the first visible
+  // section also handles cases where the requested section is hidden
+  // (e.g. a non-admin requesting "users").
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const requestedSection = searchParams.get("section");
+
+  const active: SectionId = useMemo(() => {
+    if (
+      isValidSection(requestedSection) &&
+      visibleSections.some((s) => s.id === requestedSection)
+    ) {
+      return requestedSection;
+    }
+    return visibleSections[0].id;
+  }, [requestedSection, visibleSections]);
+
+  // Sub-sidebar clicks update the URL rather than local state so the section
+  // is always consistent with the address bar and works with browser back.
+  const handleSelect = useCallback(
+    (id: SectionId) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("section", id);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
   const activeMeta =
     visibleSections.find((s) => s.id === active) ?? visibleSections[0];
 
@@ -92,7 +128,7 @@ export function DesktopSettings() {
         <SubSidebar
           sections={visibleSections}
           active={active}
-          onSelect={setActive}
+          onSelect={handleSelect}
         />
         <div className="min-w-0">
           <ActivePanel section={active} meta={activeMeta} />
