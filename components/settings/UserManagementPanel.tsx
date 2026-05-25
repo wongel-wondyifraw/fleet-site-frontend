@@ -28,6 +28,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   FieldGrid,
   SettingsField,
@@ -72,6 +73,10 @@ export function UserManagementPanel({
   // UI flags.
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // User queued for a deactivate confirmation. `null` keeps the dialog hidden.
+  const [pendingDeactivate, setPendingDeactivate] = useState<ApiUser | null>(
+    null,
+  );
 
   // Loader for both users and sites; sites are needed by the create form.
   const refresh = useCallback(async () => {
@@ -113,13 +118,15 @@ export function UserManagementPanel({
     await refresh();
   }
 
-  // Deactivate (soft-delete) - confirms with the user before firing.
-  async function handleDeactivate(target: ApiUser): Promise<void> {
+  // Opens the confirm dialog for a deactivate. Self-deactivation is blocked
+  // here as a safety net; the row UI also hides the button for self.
+  function requestDeactivate(target: ApiUser): void {
     if (target.id === currentUser?.id) return;
-    const ok = window.confirm(
-      `Deactivate ${target.firstName} ${target.lastName}? They will no longer be able to sign in.`,
-    );
-    if (!ok) return;
+    setPendingDeactivate(target);
+  }
+
+  // Runs after the confirm dialog resolves.
+  async function handleConfirmedDeactivate(target: ApiUser): Promise<void> {
     try {
       await deactivateUser(target.id);
       await refresh();
@@ -198,12 +205,37 @@ export function UserManagementPanel({
               key={u.id}
               user={u}
               isSelf={u.id === currentUser?.id}
-              onDeactivate={() => handleDeactivate(u)}
+              onDeactivate={() => requestDeactivate(u)}
               density={density}
             />
           ))}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={pendingDeactivate !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeactivate(null);
+        }}
+        title="Deactivate user?"
+        description={
+          pendingDeactivate ? (
+            <>
+              <span className="font-semibold text-primary">
+                {pendingDeactivate.firstName} {pendingDeactivate.lastName}
+              </span>{" "}
+              will no longer be able to sign in. You can reactivate them later
+              if needed.
+            </>
+          ) : null
+        }
+        confirmLabel="Deactivate"
+        destructive
+        onConfirm={async () => {
+          if (pendingDeactivate)
+            await handleConfirmedDeactivate(pendingDeactivate);
+        }}
+      />
     </div>
   );
 }

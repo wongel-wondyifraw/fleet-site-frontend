@@ -112,10 +112,13 @@ export function DashboardSidebar() {
       </nav>
 
       <div className="mt-4 space-y-3">
-        <Button className="h-11 w-full gap-2 rounded-xl bg-primary font-semibold shadow-md shadow-primary/25 hover:bg-surface-tint">
+        <Link
+          href="/dashboard/vehicles"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-md shadow-primary/25 transition-colors hover:bg-surface-tint"
+        >
           <Plus className="size-4" />
           Add New Vehicle
-        </Button>
+        </Link>
         <div className="flex gap-2">
           <SidebarFooterLink
             href="/dashboard/settings"

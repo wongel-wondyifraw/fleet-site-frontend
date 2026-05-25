@@ -99,3 +99,108 @@ export interface ApiErrorPayload {
   message: string | string[];
   error?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Vehicle types - mirror backend src/common/enums.ts.
+// ---------------------------------------------------------------------------
+export const VEHICLE_TYPES = [
+  "TRUCK",
+  "EXCAVATOR",
+  "LOADER",
+  "BULLDOZER",
+  "CRANE",
+  "PICKUP",
+  "TANKER",
+  "OTHER",
+] as const;
+
+export const VEHICLE_STATUSES = [
+  "ACTIVE",
+  "IDLE",
+  "IN_MAINTENANCE",
+  "OUT_OF_SERVICE",
+  "RETIRED",
+] as const;
+
+export const FUEL_TYPES = [
+  "DIESEL",
+  "PETROL",
+  "ELECTRIC",
+  "HYBRID",
+] as const;
+
+export type VehicleType = (typeof VEHICLE_TYPES)[number];
+export type VehicleStatus = (typeof VEHICLE_STATUSES)[number];
+export type FuelType = (typeof FUEL_TYPES)[number];
+
+// Mirrors backend Vehicle entity (selected fields the UI consumes).
+export interface ApiVehicle {
+  id: string;
+  // Server-issued asset tag (e.g. "AST-001"). Auto-generated on create.
+  assetNumber: string;
+  plateNumber: string;
+  type: VehicleType;
+  status: VehicleStatus;
+  fuelType: FuelType;
+  fuelCapacity: number;
+  // Fuel economy in km/L.
+  mileage: number;
+  currentOdometer: number;
+  // assignedSite stores the site UUID (nullable). The UI joins to ApiSite.
+  assignedSite?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Driver types.
+// ---------------------------------------------------------------------------
+export const LICENSE_CLASSES = [
+  "A",
+  "B",
+  "C",
+  "D",
+  "E",
+  "HEAVY_EQUIPMENT",
+] as const;
+
+export const DRIVER_STATUSES = [
+  "ACTIVE",
+  "ON_LEAVE",
+  "SUSPENDED",
+  "TERMINATED",
+] as const;
+
+export type LicenseClass = (typeof LICENSE_CLASSES)[number];
+export type DriverStatus = (typeof DRIVER_STATUSES)[number];
+
+// Mirrors backend Driver entity. assignedVehicleId is the link between
+// drivers and vehicles - vehicles do not store the inverse FK.
+export interface ApiDriver {
+  id: string;
+  employeeId: string;
+  firstName: string;
+  lastName: string;
+  licenseNumber: string;
+  licenseClass: LicenseClass;
+  licenseExpiry: string;
+  phoneNumber: string;
+  email?: string | null;
+  hireDate: string;
+  status: DriverStatus;
+  assignedVehicleId?: string | null;
+  // Optional nested vehicle, present when the backend joins it in.
+  assignedVehicle?: ApiVehicle | null;
+  homeSite?: string | null;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// Pretty-print a code-style enum value (e.g. "IN_MAINTENANCE" -> "In Maintenance").
+export function prettyEnum(value: string): string {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}

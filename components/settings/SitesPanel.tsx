@@ -28,6 +28,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   FieldGrid,
   SettingsField,
@@ -106,6 +107,8 @@ export function SitesPanel({
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Site queued for delete confirmation. `null` keeps the dialog closed.
+  const [pendingDelete, setPendingDelete] = useState<ApiSite | null>(null);
 
   // Reusable loader so we can refresh after mutations.
   const refresh = useCallback(async () => {
@@ -153,11 +156,9 @@ export function SitesPanel({
     await refreshAfterMutation(payload.userIds, editingId);
   }
 
-  async function handleDelete(target: ApiSite): Promise<void> {
-    const ok = window.confirm(
-      `Delete site "${target.name}"? This cannot be undone.`,
-    );
-    if (!ok) return;
+  // Runs after the confirm dialog resolves. Mirrors the previous handler
+  // minus the inline window.confirm prompt (now driven by ConfirmDialog).
+  async function handleConfirmedDelete(target: ApiSite): Promise<void> {
     try {
       await deleteSite(target.id);
       // Deleting a site the current user belonged to also changes their
@@ -240,11 +241,35 @@ export function SitesPanel({
               site={site}
               density={density}
               onEdit={() => setMode({ kind: "form", editing: site })}
-              onDelete={() => handleDelete(site)}
+              onDelete={() => setPendingDelete(site)}
             />
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title="Delete site?"
+        description={
+          pendingDelete ? (
+            <>
+              You&apos;re about to permanently delete{" "}
+              <span className="font-semibold text-primary">
+                {pendingDelete.name}
+              </span>
+              . Assigned users will be unlinked. This action cannot be undone.
+            </>
+          ) : null
+        }
+        confirmLabel="Delete site"
+        destructive
+        onConfirm={async () => {
+          if (pendingDelete) await handleConfirmedDelete(pendingDelete);
+        }}
+      />
     </div>
   );
 }

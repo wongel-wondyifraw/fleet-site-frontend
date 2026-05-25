@@ -1,6 +1,12 @@
 "use client";
 
-import { ClipboardList, Fuel, LayoutDashboard, Menu } from "lucide-react";
+import {
+  ClipboardList,
+  Fuel,
+  LayoutDashboard,
+  Menu,
+  Truck,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -12,6 +18,12 @@ const NAV_ITEMS = [
     label: "Dashboard",
     icon: LayoutDashboard,
     href: "/dashboard",
+  },
+  {
+    id: "vehicles",
+    label: "Vehicles",
+    icon: Truck,
+    href: "/dashboard/vehicles",
   },
   { id: "logs", label: "Logs", icon: ClipboardList, href: "/dashboard/logs" },
   { id: "fuel", label: "Fuel", icon: Fuel, href: "/dashboard/fuel" },
