@@ -1,0 +1,500 @@
+"use client";
+
+// Drivers Management panel - list, search, filter, add, edit, and delete.
+// Edits happen inline in the same panel (the panel switches to the form
+// view), matching the simpler shape of the drivers domain compared to
+// vehicles which have their own detail page.
+import {
+  Building2,
+  Filter,
+  IdCard,
+  Loader2,
+  Mail,
+  Pencil,
+  Phone,
+  Plus,
+  Search,
+  Trash2,
+  Truck,
+  UserPlus,
+  UserRound,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { DriverForm } from "@/components/drivers/DriverForm";
+import { fieldClass } from "@/components/settings/SettingsShared";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PanelError } from "@/components/vehicles/VehicleForm";
+import { ApiError } from "@/lib/api/client";
+import {
+  createDriver,
+  deleteDriver,
+  listDrivers,
+  updateDriver,
+  type CreateDriverRequest,
+  type UpdateDriverRequest,
+} from "@/lib/api/drivers";
+import { listSites } from "@/lib/api/sites";
+import { listVehicles } from "@/lib/api/vehicles";
+import {
+  DRIVER_STATUSES,
+  prettyEnum,
+  type ApiDriver,
+  type ApiSite,
+  type ApiVehicle,
+  type DriverStatus,
+} from "@/lib/api/types";
+import { cn } from "@/lib/utils";
+
+// Tailwind classes for the driver status pill, kept in one place so colors
+// stay consistent wherever this is rendered.
+const DRIVER_STATUS_PILL: Record<DriverStatus, string> = {
+  ACTIVE: "bg-success/15 text-success",
+  ON_LEAVE: "bg-amber-50 text-amber-700",
+  SUSPENDED: "bg-destructive/15 text-destructive",
+  TERMINATED: "bg-slate-200 text-slate-700",
+};
+
+// View modes: list (default), add new, or edit an existing driver.
+type Mode =
+  | { kind: "list" }
+  | { kind: "create" }
+  | { kind: "edit"; driver: ApiDriver };
+
+export function DriversPanel({
+  density = "comfortable",
+}: {
+  density?: "comfortable" | "compact";
+}) {
+  const [drivers, setDrivers] = useState<ApiDriver[]>([]);
+  const [sites, setSites] = useState<ApiSite[]>([]);
+  const [vehicles, setVehicles] = useState<ApiVehicle[]>([]);
+  const [mode, setMode] = useState<Mode>({ kind: "list" });
+  const [searchQuery, setSearchQuery] = useState("");
+  // "ALL" means no filter; otherwise narrow the list by status.
+  const [statusFilter, setStatusFilter] = useState<DriverStatus | "ALL">(
+    "ALL",
+  );
+  // "ALL" means no filter; otherwise narrow the list by assigned site name.
+  const [siteFilter, setSiteFilter] = useState<string>("ALL");
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Driver pending a delete confirmation. null keeps the dialog closed.
+  const [pendingDelete, setPendingDelete] = useState<ApiDriver | null>(null);
+
+  // Reusable loader - drivers + sites + vehicles in parallel.
+  const refresh = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const [d, s, v] = await Promise.all([
+        listDrivers(),
+        listSites().catch((err) => {
+          if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
+          throw err;
+        }),
+        listVehicles().catch((err) => {
+          if (err instanceof ApiError && err.isAuth) return [] as ApiVehicle[];
+          throw err;
+        }),
+      ]);
+      setDrivers(d);
+      setSites(s);
+      setVehicles(v);
+    } catch (err) {
+      setLoadError(
+        err instanceof ApiError ? err.message : "Unable to load drivers.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // O(1) lookup of vehicle records by id, for showing the assigned vehicle.
+  const vehicleById = useMemo(() => {
+    const map = new Map<string, ApiVehicle>();
+    for (const v of vehicles) map.set(v.id, v);
+    return map;
+  }, [vehicles]);
+
+  // Distinct list of site names used by the filter dropdown. Combines the
+  // names of existing sites with any home-site values already saved on
+  // drivers (so the filter still works for legacy free-text values).
+  const siteOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const s of sites) names.add(s.name);
+    for (const d of drivers) {
+      if (d.homeSite) names.add(d.homeSite);
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [sites, drivers]);
+
+  // Filter cascade: status -> site -> free-text search.
+  const filteredDrivers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return drivers.filter((d) => {
+      if (statusFilter !== "ALL" && d.status !== statusFilter) return false;
+      if (siteFilter !== "ALL" && (d.homeSite ?? "") !== siteFilter)
+        return false;
+      if (!q) return true;
+      const vehicle = d.assignedVehicleId
+        ? vehicleById.get(d.assignedVehicleId)
+        : null;
+      const hay = [
+        d.employeeId,
+        d.firstName,
+        d.lastName,
+        d.licenseNumber,
+        d.email ?? "",
+        d.phoneNumber,
+        d.homeSite ?? "",
+        vehicle?.assetNumber ?? "",
+        vehicle?.plateNumber ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [drivers, vehicleById, searchQuery, statusFilter, siteFilter]);
+
+  // Create handler - delegates to the API and refreshes the list.
+  async function handleCreate(payload: CreateDriverRequest): Promise<void> {
+    await createDriver(payload);
+    setMode({ kind: "list" });
+    await refresh();
+  }
+
+  // Update handler - same flow as create, just calls the update endpoint.
+  async function handleUpdate(
+    id: string,
+    payload: UpdateDriverRequest,
+  ): Promise<void> {
+    await updateDriver(id, payload);
+    setMode({ kind: "list" });
+    await refresh();
+  }
+
+  // Runs after the confirmation dialog resolves.
+  async function handleConfirmedDelete(target: ApiDriver): Promise<void> {
+    try {
+      await deleteDriver(target.id);
+      await refresh();
+    } catch (err) {
+      setLoadError(
+        err instanceof ApiError ? err.message : "Unable to delete driver.",
+      );
+    }
+  }
+
+  // ---- Form view (create / edit) ------------------------------------------
+  if (mode.kind === "create" || mode.kind === "edit") {
+    const editing = mode.kind === "edit" ? mode.driver : null;
+    return (
+      <DriverForm
+        initial={editing}
+        sites={sites}
+        onCancel={() => setMode({ kind: "list" })}
+        onSubmit={async ({ createPayload, updatePayload }) => {
+          if (editing) {
+            await handleUpdate(editing.id, updatePayload);
+          } else {
+            await handleCreate(createPayload);
+          }
+        }}
+      />
+    );
+  }
+
+  // ---- List view ----------------------------------------------------------
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-semibold text-primary">
+              {filteredDrivers.length}
+            </span>{" "}
+            of {drivers.length}{" "}
+            {drivers.length === 1 ? "driver" : "drivers"} shown
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
+            <div className="relative w-full sm:max-w-xs">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="search"
+                placeholder="Search name, employee ID, license, or site"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`${fieldClass} pl-9`}
+                aria-label="Search drivers"
+              />
+            </div>
+            <div className="relative w-full sm:w-44">
+              <Filter className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <select
+                value={statusFilter}
+                onChange={(e) =>
+                  setStatusFilter(e.target.value as DriverStatus | "ALL")
+                }
+                className={`${fieldClass} pl-9`}
+                aria-label="Filter by status"
+              >
+                <option value="ALL">All statuses</option>
+                {DRIVER_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {prettyEnum(s)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="relative w-full sm:w-56">
+              <Building2 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <select
+                value={siteFilter}
+                onChange={(e) => setSiteFilter(e.target.value)}
+                className={`${fieldClass} pl-9`}
+                aria-label="Filter by site"
+              >
+                <option value="ALL">All sites</option>
+                {siteOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+        <Button
+          onClick={() => setMode({ kind: "create" })}
+          className="h-10 gap-2 self-start rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint sm:self-auto"
+        >
+          <Plus className="size-4" />
+          Add Driver
+        </Button>
+      </div>
+
+      {loadError && <PanelError message={loadError} />}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center rounded-xl border border-slate-100 bg-slate-50/50 p-8">
+          <Loader2 className="size-5 animate-spin text-primary" />
+        </div>
+      ) : filteredDrivers.length === 0 ? (
+        drivers.length === 0 ? (
+          <EmptyState onAdd={() => setMode({ kind: "create" })} />
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center">
+            <UserRound className="mx-auto mb-2 size-6 text-muted-foreground" />
+            <p className="text-sm font-medium text-primary">
+              No drivers match your filters.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Try clearing a filter or refining your search.
+            </p>
+            {(statusFilter !== "ALL" || siteFilter !== "ALL") && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setStatusFilter("ALL");
+                  setSiteFilter("ALL");
+                }}
+                className="mt-3 h-8 gap-1 rounded-lg border-slate-200 bg-white px-3 text-xs"
+              >
+                Clear filters
+              </Button>
+            )}
+          </div>
+        )
+      ) : (
+        <div className="space-y-2">
+          {filteredDrivers.map((driver) => (
+            <DriverRow
+              key={driver.id}
+              driver={driver}
+              vehicle={
+                driver.assignedVehicleId
+                  ? (vehicleById.get(driver.assignedVehicleId) ?? null)
+                  : null
+              }
+              density={density}
+              onEdit={() => setMode({ kind: "edit", driver })}
+              onDelete={() => setPendingDelete(driver)}
+            />
+          ))}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title="Delete driver?"
+        description={
+          pendingDelete ? (
+            <>
+              You&apos;re about to permanently delete{" "}
+              <span className="font-semibold text-primary">
+                {pendingDelete.firstName} {pendingDelete.lastName}
+              </span>{" "}
+              ({pendingDelete.employeeId}). This action cannot be undone.
+            </>
+          ) : null
+        }
+        confirmLabel="Delete driver"
+        destructive
+        onConfirm={async () => {
+          if (pendingDelete) await handleConfirmedDelete(pendingDelete);
+        }}
+      />
+    </div>
+  );
+}
+
+// Each list entry renders a card with driver info and inline edit / delete
+// actions. Tapping anywhere outside the action buttons triggers edit.
+function DriverRow({
+  driver,
+  vehicle,
+  density,
+  onEdit,
+  onDelete,
+}: {
+  driver: ApiDriver;
+  vehicle: ApiVehicle | null;
+  density: "comfortable" | "compact";
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "group flex flex-wrap items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 transition-colors hover:border-primary/30 hover:bg-white",
+        density === "compact" ? "p-3" : "p-4",
+      )}
+    >
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <UserRound className="size-5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="truncate text-sm font-semibold text-primary">
+            {driver.firstName} {driver.lastName}
+          </p>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">
+            {driver.employeeId}
+          </span>
+          <DriverStatusPill status={driver.status} />
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">
+            Class {driver.licenseClass}
+          </span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <Building2 className="size-3" />
+            {driver.homeSite ? (
+              <span className="truncate font-semibold text-primary">
+                {driver.homeSite}
+              </span>
+            ) : (
+              <span className="italic">No site</span>
+            )}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Truck className="size-3" />
+            {vehicle ? (
+              <span className="truncate font-semibold text-primary">
+                {vehicle.assetNumber}
+              </span>
+            ) : (
+              <span className="italic">No vehicle</span>
+            )}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <IdCard className="size-3" />
+            <span className="font-mono font-semibold text-primary">
+              {driver.licenseNumber}
+            </span>
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Phone className="size-3" />
+            <span className="font-semibold text-primary">
+              {driver.phoneNumber}
+            </span>
+          </span>
+          {driver.email && (
+            <span className="inline-flex items-center gap-1">
+              <Mail className="size-3" />
+              <span className="truncate font-semibold text-primary">
+                {driver.email}
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label={`Edit ${driver.firstName} ${driver.lastName}`}
+          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+        >
+          <Pencil className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label={`Delete ${driver.firstName} ${driver.lastName}`}
+          className="flex size-8 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10"
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DriverStatusPill({ status }: { status: DriverStatus }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase",
+        DRIVER_STATUS_PILL[status],
+      )}
+    >
+      {status.replace("_", " ")}
+    </span>
+  );
+}
+
+function EmptyState({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-10 text-center">
+      <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+        <UserPlus className="size-6" />
+      </span>
+      <div>
+        <p className="text-sm font-semibold text-primary">No drivers yet</p>
+        <p className="text-xs text-muted-foreground">
+          Register your first driver to start assigning them to sites and
+          vehicles.
+        </p>
+      </div>
+      <Button
+        onClick={onAdd}
+        className="h-9 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold"
+      >
+        <Plus className="size-4" />
+        Add Driver
+      </Button>
+    </div>
+  );
+}

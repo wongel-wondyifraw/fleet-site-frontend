@@ -1,13 +1,13 @@
 "use client";
 
 import {
-  ClipboardList,
   Fuel,
   HelpCircle,
   LayoutDashboard,
   LogOut,
   Plus,
   Settings,
+  Users,
   Warehouse,
   Wrench,
 } from "lucide-react";
@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 const SIDEBAR_NAV = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { label: "Vehicle Registry", icon: Warehouse, href: "/dashboard/vehicles" },
-  { label: "Daily Logs", icon: ClipboardList, href: "/dashboard/logs" },
+  { label: "Drivers", icon: Users, href: "/dashboard/drivers" },
   { label: "Fuel Tracking", icon: Fuel, href: "/dashboard/fuel" },
   { label: "Maintenance", icon: Wrench, href: "/dashboard/maintenance" },
 ] as const;

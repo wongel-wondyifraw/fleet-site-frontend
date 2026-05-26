@@ -115,7 +115,6 @@ function parseNumericField(raw: string): number {
 }
 
 type NewDriverFormState = {
-  employeeId: string;
   firstName: string;
   lastName: string;
   licenseNumber: string;
@@ -128,7 +127,6 @@ type NewDriverFormState = {
 
 function emptyNewDriverForm(): NewDriverFormState {
   return {
-    employeeId: "",
     firstName: "",
     lastName: "",
     licenseNumber: "",
@@ -781,16 +779,6 @@ function NewDriverSubForm({
       </div>
 
       <FieldGrid>
-        <SettingsField label="Employee ID">
-          <input
-            type="text"
-            value={form.employeeId}
-            onChange={(e) => onChange("employeeId", e.target.value)}
-            disabled={disabled}
-            placeholder="EMP-1042"
-            className={fieldClass}
-          />
-        </SettingsField>
         <SettingsField label="First name">
           <input
             type="text"
@@ -885,7 +873,6 @@ function NewDriverSubForm({
 
 function trimNewDriver(form: NewDriverFormState): CreateDriverRequest {
   return {
-    employeeId: form.employeeId.trim(),
     firstName: form.firstName.trim(),
     lastName: form.lastName.trim(),
     licenseNumber: form.licenseNumber.trim(),
@@ -898,7 +885,6 @@ function trimNewDriver(form: NewDriverFormState): CreateDriverRequest {
 }
 
 function validateNewDriver(payload: CreateDriverRequest): string | null {
-  if (!payload.employeeId) return "Driver: employee ID is required.";
   if (!payload.firstName) return "Driver: first name is required.";
   if (!payload.lastName) return "Driver: last name is required.";
   if (!payload.licenseNumber) return "Driver: license number is required.";
