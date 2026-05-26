@@ -42,6 +42,7 @@ import { ApiError } from "@/lib/api/client";
 import { listDrivers } from "@/lib/api/drivers";
 import { listSites } from "@/lib/api/sites";
 import {
+  formatLicenseClass,
   prettyEnum,
   type ApiDriver,
   type ApiSite,
@@ -344,7 +345,7 @@ export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
                   <span className="mx-1.5 text-slate-300">·</span>
                   {assignedDriver.licenseNumber}
                   <span className="mx-1.5 text-slate-300">·</span>
-                  {prettyEnum(assignedDriver.licenseClass)}
+                  {formatLicenseClass(assignedDriver.licenseClass)}
                 </p>
                 <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                   {assignedDriver.phoneNumber && (

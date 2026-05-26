@@ -43,6 +43,7 @@ import {
   LICENSE_CLASSES,
   VEHICLE_STATUSES,
   VEHICLE_TYPES,
+  formatLicenseClass,
   prettyEnum,
   type ApiDriver,
   type ApiSite,
@@ -130,7 +131,7 @@ function emptyNewDriverForm(): NewDriverFormState {
     firstName: "",
     lastName: "",
     licenseNumber: "",
-    licenseClass: "B",
+    licenseClass: "PUBLIC_1",
     licenseExpiry: oneYearFromTodayIso(),
     phoneNumber: "",
     email: "",
@@ -712,7 +713,7 @@ function DriverPicker({
                         <span className="mx-1.5 text-slate-300">·</span>
                         {d.licenseNumber}
                         <span className="mx-1.5 text-slate-300">·</span>
-                        {prettyEnum(d.licenseClass)}
+                        {formatLicenseClass(d.licenseClass, "short")}
                       </p>
                     </div>
                     <Button
@@ -831,7 +832,7 @@ function NewDriverSubForm({
           >
             {LICENSE_CLASSES.map((c) => (
               <option key={c} value={c}>
-                {prettyEnum(c)}
+                {formatLicenseClass(c)}
               </option>
             ))}
           </select>

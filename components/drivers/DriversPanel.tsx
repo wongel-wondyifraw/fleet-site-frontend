@@ -21,7 +21,10 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { DriverForm } from "@/components/drivers/DriverForm";
+import {
+  DriverForm,
+  type VehicleSelection,
+} from "@/components/drivers/DriverForm";
 import { fieldClass } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -36,9 +39,10 @@ import {
   type UpdateDriverRequest,
 } from "@/lib/api/drivers";
 import { listSites } from "@/lib/api/sites";
-import { listVehicles } from "@/lib/api/vehicles";
+import { createVehicle, listVehicles } from "@/lib/api/vehicles";
 import {
   DRIVER_STATUSES,
+  formatLicenseClass,
   prettyEnum,
   type ApiDriver,
   type ApiSite,
@@ -122,6 +126,17 @@ export function DriversPanel({
     return map;
   }, [vehicles]);
 
+  // Map of vehicleId -> driver currently linked to it. We need this so the
+  // edit form can show the driver's own vehicle as still selectable while
+  // hiding vehicles claimed by *other* drivers.
+  const driverByVehicleId = useMemo(() => {
+    const map = new Map<string, ApiDriver>();
+    for (const d of drivers) {
+      if (d.assignedVehicleId) map.set(d.assignedVehicleId, d);
+    }
+    return map;
+  }, [drivers]);
+
   // Distinct list of site names used by the filter dropdown. Combines the
   // names of existing sites with any home-site values already saved on
   // drivers (so the filter still works for legacy free-text values).
@@ -162,19 +177,50 @@ export function DriversPanel({
     });
   }, [drivers, vehicleById, searchQuery, statusFilter, siteFilter]);
 
-  // Create handler - delegates to the API and refreshes the list.
-  async function handleCreate(payload: CreateDriverRequest): Promise<void> {
-    await createDriver(payload);
+  // Resolve a VehicleSelection into the assignedVehicleId that should land
+  // on the driver record. For "new" we create the vehicle first and return
+  // the new id. For "existing" we return the id directly. For "none" we
+  // return null (which clears any existing link on update).
+  async function resolveVehicleAssignment(
+    selection: VehicleSelection,
+  ): Promise<string | null> {
+    if (selection.kind === "existing") return selection.vehicleId;
+    if (selection.kind === "new") {
+      const created = await createVehicle(selection.payload);
+      return created.id;
+    }
+    return null;
+  }
+
+  // Create handler - orchestrates the vehicle-then-driver save. We create
+  // the vehicle (if requested) first so we can stamp its id onto the
+  // driver's create payload in a single transaction-shaped flow.
+  async function handleCreate(
+    payload: CreateDriverRequest,
+    selection: VehicleSelection,
+  ): Promise<void> {
+    const assignedVehicleId = await resolveVehicleAssignment(selection);
+    await createDriver({
+      ...payload,
+      assignedVehicleId: assignedVehicleId ?? undefined,
+    });
     setMode({ kind: "list" });
     await refresh();
   }
 
-  // Update handler - same flow as create, just calls the update endpoint.
+  // Update handler - mirrors create. When the user picks "no vehicle" on a
+  // driver that previously had one assigned, we explicitly send null to
+  // clear the foreign key.
   async function handleUpdate(
     id: string,
     payload: UpdateDriverRequest,
+    selection: VehicleSelection,
   ): Promise<void> {
-    await updateDriver(id, payload);
+    const assignedVehicleId = await resolveVehicleAssignment(selection);
+    await updateDriver(id, {
+      ...payload,
+      assignedVehicleId: assignedVehicleId,
+    });
     setMode({ kind: "list" });
     await refresh();
   }
@@ -198,12 +244,14 @@ export function DriversPanel({
       <DriverForm
         initial={editing}
         sites={sites}
+        vehicles={vehicles}
+        driverByVehicleId={driverByVehicleId}
         onCancel={() => setMode({ kind: "list" })}
-        onSubmit={async ({ createPayload, updatePayload }) => {
+        onSubmit={async ({ createPayload, updatePayload, vehicleSelection }) => {
           if (editing) {
-            await handleUpdate(editing.id, updatePayload);
+            await handleUpdate(editing.id, updatePayload, vehicleSelection);
           } else {
-            await handleCreate(createPayload);
+            await handleCreate(createPayload, vehicleSelection);
           }
         }}
       />
@@ -393,8 +441,11 @@ function DriverRow({
             {driver.employeeId}
           </span>
           <DriverStatusPill status={driver.status} />
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">
-            Class {driver.licenseClass}
+          <span
+            className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tracking-wide text-muted-foreground uppercase"
+            title={formatLicenseClass(driver.licenseClass)}
+          >
+            {formatLicenseClass(driver.licenseClass, "short")}
           </span>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">

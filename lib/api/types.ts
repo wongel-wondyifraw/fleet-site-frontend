@@ -155,14 +155,44 @@ export interface ApiVehicle {
 // ---------------------------------------------------------------------------
 // Driver types.
 // ---------------------------------------------------------------------------
+// Ethiopian driving license classes.
+//   PUBLIC_* (ህዝብ)    -> passenger / public-transport classes.
+//   DRY_CARGO_* (ደረቅ) -> dry-cargo / freight classes.
+// Order here is the order shown in select dropdowns.
 export const LICENSE_CLASSES = [
-  "A",
-  "B",
-  "C",
-  "D",
-  "E",
-  "HEAVY_EQUIPMENT",
+  "PUBLIC_1",
+  "PUBLIC_2",
+  "PUBLIC_3",
+  "DRY_CARGO_1",
+  "DRY_CARGO_2",
+  "DRY_CARGO_3",
 ] as const;
+
+// Bilingual (English + Amharic) label for each license class. Used by every
+// dropdown and detail view so the displayed name matches the local licensing
+// scheme. The short form is convenient for compact pills in list rows.
+export const LICENSE_CLASS_LABELS: Record<
+  (typeof LICENSE_CLASSES)[number],
+  { long: string; short: string }
+> = {
+  PUBLIC_1: { long: "Public 1 (ህዝብ - 1)", short: "Public 1" },
+  PUBLIC_2: { long: "Public 2 (ህዝብ - 2)", short: "Public 2" },
+  PUBLIC_3: { long: "Public 3 (ህዝብ - 3)", short: "Public 3" },
+  DRY_CARGO_1: { long: "Dry Cargo 1 (ደረቅ - 1)", short: "Dry Cargo 1" },
+  DRY_CARGO_2: { long: "Dry Cargo 2 (ደረቅ - 2)", short: "Dry Cargo 2" },
+  DRY_CARGO_3: { long: "Dry Cargo 3 (ደረቅ - 3)", short: "Dry Cargo 3" },
+};
+
+// Pretty-print a LicenseClass. Falls back to prettyEnum for any unknown
+// value (e.g. legacy A/B/C drivers from before the migration) so the UI
+// doesn't render an empty string.
+export function formatLicenseClass(
+  value: LicenseClass | string,
+  variant: "long" | "short" = "long",
+): string {
+  const label = LICENSE_CLASS_LABELS[value as LicenseClass];
+  return label ? label[variant] : prettyEnum(String(value));
+}
 
 export const DRIVER_STATUSES = [
   "ACTIVE",
