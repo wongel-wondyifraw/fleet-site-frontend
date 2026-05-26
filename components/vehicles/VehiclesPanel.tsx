@@ -255,7 +255,7 @@ export function VehiclesPanel({
         </div>
       ) : filteredVehicles.length === 0 ? (
         vehicles.length === 0 ? (
-          <EmptyState onAdd={() => setMode({ kind: "form" })} />
+          <EmptyState />
         ) : (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center">
             <Truck className="mx-auto mb-2 size-6 text-muted-foreground" />
@@ -431,7 +431,10 @@ function VehicleStatusPill({ status }: { status: VehicleStatus }) {
   );
 }
 
-function EmptyState({ onAdd }: { onAdd: () => void }) {
+// Shown when no vehicles exist at all. Intentionally has no "Add" button —
+// the toolbar above the list already exposes one, so we avoid duplicating
+// the call to action inside the empty card.
+function EmptyState() {
   return (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-10 text-center">
       <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -443,13 +446,6 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
           Register your first vehicle to start tracking the fleet.
         </p>
       </div>
-      <Button
-        onClick={onAdd}
-        className="h-9 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold"
-      >
-        <Plus className="size-4" />
-        Add Vehicle
-      </Button>
     </div>
   );
 }

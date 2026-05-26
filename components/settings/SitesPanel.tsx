@@ -232,7 +232,7 @@ export function SitesPanel({
           <Loader2 className="size-5 animate-spin text-primary" />
         </div>
       ) : sites.length === 0 ? (
-        <EmptyState onAdd={() => setMode({ kind: "form", editing: null })} />
+        <EmptyState />
       ) : (
         <div className="space-y-2">
           {sites.map((site) => (
@@ -363,7 +363,10 @@ function StatusPill({ status }: { status: SiteStatus }) {
   );
 }
 
-function EmptyState({ onAdd }: { onAdd: () => void }) {
+// Shown when no sites exist at all. Intentionally has no "Add" button —
+// the toolbar above the list already exposes one, so we avoid duplicating
+// the call to action inside the empty card.
+function EmptyState() {
   return (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-10 text-center">
       <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -375,13 +378,6 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
           Register your first site to start tracking fleet operations.
         </p>
       </div>
-      <Button
-        onClick={onAdd}
-        className="h-9 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold"
-      >
-        <Plus className="size-4" />
-        Add Site
-      </Button>
     </div>
   );
 }
