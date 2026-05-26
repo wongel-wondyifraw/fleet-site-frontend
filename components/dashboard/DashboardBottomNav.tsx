@@ -1,6 +1,6 @@
 "use client";
 
-import { Fuel, LayoutDashboard, Menu, Truck, Users } from "lucide-react";
+import { Fuel, LayoutDashboard, Settings, Truck, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -26,7 +26,12 @@ const NAV_ITEMS = [
     href: "/dashboard/drivers",
   },
   { id: "fuel", label: "Fuel", icon: Fuel, href: "/dashboard/fuel" },
-  { id: "more", label: "More", icon: Menu, href: "/dashboard/settings" },
+  {
+    id: "settings",
+    label: "Settings",
+    icon: Settings,
+    href: "/dashboard/settings",
+  },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {
