@@ -2,10 +2,25 @@
 import { getStoredToken, clearStoredAuth } from "@/lib/auth/storage";
 import type { ApiErrorPayload } from "@/lib/api/types";
 
-// Base URL of the NestJS backend; configured via env var with a localhost default.
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:3001/api";
+// Base URL of the NestJS backend. Resolved in this order:
+//   1. NEXT_PUBLIC_API_URL env var (used in production / explicit overrides).
+//   2. In the browser, derive from window.location so that LAN devices (e.g. a
+//      phone hitting http://192.168.1.3:3000) automatically target the same host
+//      on the backend port (http://192.168.1.3:3001/api) instead of "localhost".
+//   3. SSR / build-time fallback: localhost.
+const DEFAULT_API_PORT = 3001;
+
+function resolveApiBaseUrl(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+  if (typeof window !== "undefined") {
+    const { protocol, hostname } = window.location;
+    return `${protocol}//${hostname}:${DEFAULT_API_PORT}/api`;
+  }
+  return `http://localhost:${DEFAULT_API_PORT}/api`;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 // Custom error class so UI code can branch on status / read message cleanly.
 export class ApiError extends Error {
