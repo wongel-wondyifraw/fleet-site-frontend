@@ -13,9 +13,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +49,8 @@ export function DashboardSidebar() {
   // Pull current user + logout helper from auth context for the footer card.
   const { user, logout } = useAuth();
   const router = useRouter();
+  // Drives the sign-out confirmation dialog so a misclick can't end the session.
+  const [confirmSignOutOpen, setConfirmSignOutOpen] = useState(false);
 
   // Logout: clear auth state then send the user back to the login page.
   function handleLogout() {
@@ -133,17 +137,27 @@ export function DashboardSidebar() {
             active={isActive(pathname, "/dashboard/support")}
           />
         </div>
-        {/* Logout: clears the JWT/user from storage and routes back to /. */}
+        {/* Logout: opens a confirmation dialog before clearing the JWT/user. */}
         <Button
           type="button"
           variant="ghost"
-          onClick={handleLogout}
+          onClick={() => setConfirmSignOutOpen(true)}
           className="h-9 w-full justify-center gap-2 rounded-xl text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
         >
           <LogOut className="size-3.5" />
           Sign Out
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirmSignOutOpen}
+        onOpenChange={setConfirmSignOutOpen}
+        title="Sign out of FleetSite?"
+        description="You'll be returned to the login screen and will need to sign in again to continue."
+        confirmLabel="Sign out"
+        destructive
+        onConfirm={handleLogout}
+      />
     </aside>
   );
 }

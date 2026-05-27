@@ -35,10 +35,17 @@ export const metadata: Metadata = {
 // `viewport` is the Next 15 location for theme-color and viewport tags.
 // theme_color in the manifest also still matters, but this one drives the
 // system UI on Chrome / Android in real time.
+//
+// maximumScale + userScalable lock the zoom level. This prevents iOS Safari
+// from auto-zooming when focusing inputs whose font-size is < 16px (common
+// after submitting forms like Create Trip) and the zoom getting stuck after
+// route changes inside the installed PWA.
 export const viewport: Viewport = {
   themeColor: "#123570",
   width: "device-width",
   initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
 };
 

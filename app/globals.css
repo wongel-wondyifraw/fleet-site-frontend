@@ -153,6 +153,36 @@
   }
 }
 
+/* Mobile: hide every scrollbar in the dashboard PWA while keeping scroll
+   functionality. Placed OUTSIDE @layer base so it has higher cascade
+   priority than Tailwind utilities and any UI-library defaults. */
+@media (max-width: 1023.98px) {
+  html,
+  body {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  *::-webkit-scrollbar,
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-thumb,
+  *::-webkit-scrollbar-corner {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+}
+
 @layer components {
   .dashboard-bento-card {
     @apply rounded-xl border border-white/40 bg-white p-6 shadow-sm transition-[transform,box-shadow] duration-200;

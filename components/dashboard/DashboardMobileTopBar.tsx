@@ -1,68 +1,46 @@
 "use client";
 
-import { Bell, CircleUser, LogOut } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Bell } from "lucide-react";
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/AuthContext";
 
-// Top bar shown only on mobile (lg:hidden). Hosts the brand mark,
-// notifications, and a sign-out shortcut.
+// Top bar shown only on mobile (lg:hidden). Hosts the brand mark, the
+// notification bell, and a compact initials avatar for the signed-in user.
 export function DashboardMobileTopBar() {
-  const router = useRouter();
-  const { logout } = useAuth();
+  const { user } = useAuth();
 
-  // Logout: clear stored auth and send the user back to the login screen.
-  function handleLogout() {
-    logout();
-    router.replace("/");
-  }
+  const initials = user
+    ? `${user.firstName[0] ?? ""}${user.lastName[0] ?? ""}`.toUpperCase()
+    : "?";
 
   return (
     <header className="fixed top-0 z-50 w-full border-b border-slate-200/80 bg-white px-4 py-3 lg:hidden">
       <div className="flex items-center justify-between">
-        {/* Brand mark sits flush with the page's px-4 inset now that the
-            mobile menu button has been removed. */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-end gap-2">
           <FleetSiteLogo size="xs" />
-          <div className="flex flex-col">
-            <span className="text-sm leading-none font-bold text-primary">
-              FleetSite
-            </span>
-            <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-success">
-              <span className="size-1 rounded-full bg-success" />
-              Active
-            </span>
-          </div>
+          <span className="pb-1 text-xl leading-none font-bold tracking-tight text-primary">
+            FleetSite
+          </span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <Button
             variant="ghost"
             size="icon-sm"
-            className="size-9 rounded-xl"
+            className="size-9 shrink-0 rounded-xl"
             aria-label="Notifications"
           >
             <Bell className="size-4 text-muted-foreground" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="size-9 rounded-xl"
-            aria-label="Account"
-          >
-            <CircleUser className="size-4 text-primary" />
-          </Button>
-          {/* Sign out shortcut on mobile - one tap to clear the session. */}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="size-9 rounded-xl hover:bg-destructive/10"
-            aria-label="Sign out"
-            onClick={handleLogout}
-          >
-            <LogOut className="size-4 text-muted-foreground" />
-          </Button>
+          {user ? (
+            <div
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
+              aria-label={`Signed in as ${user.firstName} ${user.lastName}`}
+            >
+              {initials}
+            </div>
+          ) : null}
         </div>
       </div>
     </header>

@@ -45,9 +45,6 @@ export function MobileDashboard() {
     <div className="lg:hidden">
       <div className="mb-5">
         <h1 className="text-lg font-semibold text-primary">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          North Creek Bridge · Sector 4
-        </p>
       </div>
 
       <section className="mb-5 grid grid-cols-2 gap-3">

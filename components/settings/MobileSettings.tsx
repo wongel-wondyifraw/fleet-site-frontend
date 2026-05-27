@@ -1,6 +1,8 @@
 "use client";
 
-import { Building2, Clock, Mail, User, Users } from "lucide-react";
+import { Building2, Clock, LogOut, Mail, User, Users } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 import {
   SettingsField,
@@ -9,12 +11,22 @@ import {
 } from "@/components/settings/SettingsShared";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatRole } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 export function MobileSettings() {
+  const router = useRouter();
   // Signed-in user drives the profile card and gates the Users section.
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  // Drives the sign-out confirmation dialog so a stray tap can't end the session.
+  const [confirmSignOutOpen, setConfirmSignOutOpen] = useState(false);
+
+  function handleLogout() {
+    logout();
+    router.replace("/");
+  }
   const isAdmin = user?.role === "ADMIN";
 
   // Initials for the avatar circle.
@@ -108,6 +120,26 @@ export function MobileSettings() {
           <UserManagementPanel density="compact" />
         </SettingsSection>
       ) : null}
+
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => setConfirmSignOutOpen(true)}
+        className="h-11 w-full justify-center gap-2 rounded-xl border border-slate-200 text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+      >
+        <LogOut className="size-4" />
+        Sign Out
+      </Button>
+
+      <ConfirmDialog
+        open={confirmSignOutOpen}
+        onOpenChange={setConfirmSignOutOpen}
+        title="Sign out of FleetSite?"
+        description="You'll be returned to the login screen and will need to sign in again to continue."
+        confirmLabel="Sign out"
+        destructive
+        onConfirm={handleLogout}
+      />
     </div>
   );
 }
