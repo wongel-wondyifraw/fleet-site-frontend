@@ -58,6 +58,7 @@ import {
   type CreateTripRequest,
 } from "@/lib/api/trips";
 import { listSites } from "@/lib/api/sites";
+import { useToast } from "@/lib/toast/ToastContext";
 import {
   TRIP_STATUSES,
   prettyEnum,
@@ -170,6 +171,7 @@ export function TripsPanel({
   // cancel is reversible-ish (the row keeps a CANCELLED record) so we don't
   // want to share the destructive copy.
   const [pendingCancel, setPendingCancel] = useState<ApiTrip | null>(null);
+  const { showToast } = useToast();
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -225,28 +227,48 @@ export function TripsPanel({
   }, [trips, statusFilter, vehicleFilter]);
 
   async function handleCreate(payload: CreateTripRequest): Promise<void> {
-    await createTrip(payload);
-    setMode({ kind: "list" });
-    await refresh();
+    try {
+      await createTrip(payload);
+      setMode({ kind: "list" });
+      await refresh();
+      showToast({ variant: "success", message: "Trip created." });
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : "Unable to create trip.";
+      showToast({ variant: "error", message });
+      // Re-throw so the form can also surface the inline message it
+      // already renders, keeping desktop / fallback paths working.
+      throw err;
+    }
   }
 
   async function handleUpdate(
     id: string,
     payload: CreateTripRequest,
   ): Promise<void> {
-    await updateTrip(id, payload);
-    setMode({ kind: "list" });
-    await refresh();
+    try {
+      await updateTrip(id, payload);
+      setMode({ kind: "list" });
+      await refresh();
+      showToast({ variant: "success", message: "Trip updated." });
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : "Unable to update trip.";
+      showToast({ variant: "error", message });
+      throw err;
+    }
   }
 
   async function handleConfirmedDelete(target: ApiTrip): Promise<void> {
     try {
       await deleteTrip(target.id);
       await refresh();
+      showToast({ variant: "success", message: "Trip deleted." });
     } catch (err) {
-      setLoadError(
-        err instanceof ApiError ? err.message : "Unable to delete trip.",
-      );
+      const message =
+        err instanceof ApiError ? err.message : "Unable to delete trip.";
+      setLoadError(message);
+      showToast({ variant: "error", message });
     }
   }
 
@@ -260,12 +282,27 @@ export function TripsPanel({
     try {
       await setTripStatus(target.id, next);
       await refresh();
+      showToast({
+        variant: "success",
+        message:
+          next === "IN_PROGRESS"
+            ? "Trip checked out."
+            : next === "COMPLETED"
+              ? "Trip checked in."
+              : next === "CANCELLED"
+                ? "Trip cancelled."
+                : "Trip updated.",
+      });
     } catch (err) {
-      setLoadError(
+      const message =
         err instanceof ApiError
           ? err.message
-          : "Unable to update trip status.",
-      );
+          : "Unable to update trip status.";
+      setLoadError(message);
+      showToast({ variant: "error", message });
+      // Surface the failure back to the row so its loading state resolves
+      // without it assuming the action succeeded.
+      throw err;
     }
   }
 
@@ -515,16 +552,40 @@ function TripRow({
   const [pendingAction, setPendingAction] = useState<TripStatus | null>(null);
   const isBusy = pendingAction !== null;
 
+  // Local "checked out at" timestamp captured the moment the user taps the
+  // button. We use this for the live elapsed counter instead of the server's
+  // `startedAt` to dodge clock skew between the device (especially on mobile
+  // hotspots / cellular) and the deployed API host. Without this the counter
+  // can boot up showing 2+ minutes immediately after a successful checkout
+  // because the device clock trails the server.
+  const [localStartedAtMs, setLocalStartedAtMs] = useState<number | null>(null);
+
   async function runAction(next: TripStatus) {
+    // Capture the click instant before awaiting so the local timer starts
+    // from when the user actually tapped, not when the server response
+    // comes back (which could add another 100–500ms of perceived delay).
+    const clickedAt = Date.now();
     setPendingAction(next);
     try {
       await onStatusChange(next);
+      if (next === "IN_PROGRESS") {
+        setLocalStartedAtMs(clickedAt);
+      } else if (next === "COMPLETED" || next === "CANCELLED") {
+        setLocalStartedAtMs(null);
+      }
     } finally {
       setPendingAction(null);
     }
   }
 
-  const startedAtMs = trip.startedAt ? Date.parse(trip.startedAt) : null;
+  const serverStartedAtMs = trip.startedAt ? Date.parse(trip.startedAt) : null;
+  // Prefer the local override while the trip is IN_PROGRESS so the running
+  // counter ignores server clock skew. Once the trip is COMPLETED we fall
+  // back to the server's authoritative startedAt to compute total duration.
+  const startedAtMs =
+    trip.status === "IN_PROGRESS" && localStartedAtMs !== null
+      ? localStartedAtMs
+      : serverStartedAtMs;
   const completedAtMs = trip.completedAt ? Date.parse(trip.completedAt) : null;
 
   // While the trip is IN_PROGRESS we tick once per second so the badge shows

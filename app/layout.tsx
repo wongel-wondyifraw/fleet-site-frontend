@@ -3,6 +3,10 @@ import "./globals.css";
 
 // AuthProvider owns the authenticated user state for the whole app.
 import { AuthProvider } from "@/lib/auth/AuthContext";
+// ToastProvider exposes a global useToast() that renders banner-style
+// notifications. On mobile they pin to the top of the viewport; on
+// desktop they sit in the bottom-right corner. See ToastContext.tsx.
+import { ToastProvider } from "@/lib/toast/ToastContext";
 // Registers the PWA service worker so the site is installable and serves an
 // offline fallback. No-op in development; see the component for details.
 import { ServiceWorkerRegister } from "@/components/pwa/ServiceWorkerRegister";
@@ -53,7 +57,9 @@ export default function RootLayout({
         className="m-0 min-h-dvh overflow-x-hidden bg-background p-0 antialiased"
       >
         {/* AuthProvider hydrates the user from localStorage and exposes useAuth() to the tree. */}
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </AuthProvider>
         {/* Registers the PWA service worker (production-only). */}
         <ServiceWorkerRegister />
       </body>
