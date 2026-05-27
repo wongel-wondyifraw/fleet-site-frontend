@@ -34,6 +34,10 @@ import {
   SettingsField,
   fieldClass,
 } from "@/components/settings/SettingsShared";
+import {
+  LocationAutocomplete,
+  type PickedLocation,
+} from "@/components/shared/LocationAutocomplete";
 import { ApiError } from "@/lib/api/client";
 import {
   createSite,
@@ -406,6 +410,16 @@ function SiteForm({
         }
       : emptyForm(),
   );
+  // Free-text query bound to the LocationIQ search box. Seeded from the
+  // existing site's address fields on edit so the input doesn't look empty
+  // when an admin opens an already-saved site.
+  const [locationQuery, setLocationQuery] = useState<string>(() =>
+    initial
+      ? [initial.address, initial.city, initial.state]
+          .filter(Boolean)
+          .join(", ")
+      : "",
+  );
   // Selected assignee IDs - seeded from the site's existing users on edit.
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>(() =>
     initial?.users?.map((u) => u.id) ?? [],
@@ -419,6 +433,18 @@ function SiteForm({
     value: SiteFormState[K],
   ) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  // Picking a LocationIQ suggestion auto-fills the structured fields below.
+  // We only overwrite a manual entry when the suggestion actually has a
+  // value for that piece, so users can refine after selecting.
+  function applyPickedLocation(picked: PickedLocation) {
+    setForm((prev) => ({
+      ...prev,
+      address: picked.address || prev.address,
+      city: picked.city || prev.city,
+      state: picked.state || prev.state,
+    }));
   }
 
   function toggleUser(id: string) {
@@ -539,44 +565,58 @@ function SiteForm({
 
       <FormCard
         title="Location"
-        description="Where this site is operating from."
+        description="Search for a place to auto-fill, or enter the address manually below."
         icon={MapPin}
       >
-        <FieldGrid>
-          <SettingsField label="Address">
-            <input
-              type="text"
-              required
-              value={form.address}
-              onChange={(e) => update("address", e.target.value)}
+        <div className="space-y-4">
+          <SettingsField
+            label="Search Location"
+            hint="Powered by LocationIQ. Pick a suggestion to fill the fields below."
+          >
+            <LocationAutocomplete
+              value={locationQuery}
+              onChange={setLocationQuery}
+              onSelect={applyPickedLocation}
               disabled={isSubmitting}
-              placeholder="Hwy 26, Mile 14"
-              className={fieldClass}
             />
           </SettingsField>
-          <SettingsField label="City">
-            <input
-              type="text"
-              required
-              value={form.city}
-              onChange={(e) => update("city", e.target.value)}
-              disabled={isSubmitting}
-              placeholder="Portland"
-              className={fieldClass}
-            />
-          </SettingsField>
-          <SettingsField label="State">
-            <input
-              type="text"
-              required
-              value={form.state}
-              onChange={(e) => update("state", e.target.value)}
-              disabled={isSubmitting}
-              placeholder="OR"
-              className={fieldClass}
-            />
-          </SettingsField>
-        </FieldGrid>
+
+          <FieldGrid>
+            <SettingsField label="Address">
+              <input
+                type="text"
+                required
+                value={form.address}
+                onChange={(e) => update("address", e.target.value)}
+                disabled={isSubmitting}
+                placeholder="Hwy 26, Mile 14"
+                className={fieldClass}
+              />
+            </SettingsField>
+            <SettingsField label="City">
+              <input
+                type="text"
+                required
+                value={form.city}
+                onChange={(e) => update("city", e.target.value)}
+                disabled={isSubmitting}
+                placeholder="Portland"
+                className={fieldClass}
+              />
+            </SettingsField>
+            <SettingsField label="State">
+              <input
+                type="text"
+                required
+                value={form.state}
+                onChange={(e) => update("state", e.target.value)}
+                disabled={isSubmitting}
+                placeholder="OR"
+                className={fieldClass}
+              />
+            </SettingsField>
+          </FieldGrid>
+        </div>
       </FormCard>
 
       <FormCard
