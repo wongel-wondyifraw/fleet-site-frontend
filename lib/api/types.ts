@@ -285,6 +285,10 @@ export interface ApiTrip {
   // ISO timestamp set when the trip transitions to COMPLETED via the
   // check-in action. Required for downstream reporting (durations, costs).
   completedAt?: string | null;
+  // Persisted distance for the trip in kilometres, populated at check-in
+  // time by the client (LocationIQ driving distance with a haversine
+  // fallback). Nullable for trips checked in before this field shipped.
+  distanceKm?: number | null;
   notes?: string | null;
   vehicle?: TripVehicleSummary;
   driver?: TripDriverSummary | null;

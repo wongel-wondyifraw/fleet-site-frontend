@@ -65,12 +65,22 @@ export async function deleteTrip(id: string): Promise<void> {
 // PATCH /trips/:id/status — used by the row action buttons (Trip Checkout /
 // Check-in / Cancel). Lives separate from updateTrip so the start/complete
 // timestamp side-effects are explicit.
+//
+// On the COMPLETED transition the caller may pass `distanceKm` — the
+// driving distance computed client-side via the LocationIQ Directions
+// API. The backend persists it so subsequent list responses can render
+// the final number without recomputing.
 export async function setTripStatus(
   id: string,
   status: TripStatus,
+  options: { distanceKm?: number | null } = {},
 ): Promise<ApiTrip> {
+  const body: Record<string, unknown> = { status };
+  if (typeof options.distanceKm === "number") {
+    body.distanceKm = options.distanceKm;
+  }
   return apiRequest<ApiTrip>(`/trips/${id}/status`, {
     method: "PATCH",
-    body: { status },
+    body,
   });
 }

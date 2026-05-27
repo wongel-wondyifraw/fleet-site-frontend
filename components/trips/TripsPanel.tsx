@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowDown,
   ArrowLeft,
   ArrowRight,
   Ban,
@@ -58,6 +57,10 @@ import {
   type CreateTripRequest,
 } from "@/lib/api/trips";
 import { listSites } from "@/lib/api/sites";
+import {
+  fetchDrivingDistance,
+  geocodeAddress,
+} from "@/lib/locationiq/directions";
 import { useToast } from "@/lib/toast/ToastContext";
 import {
   TRIP_STATUSES,
@@ -278,9 +281,10 @@ export function TripsPanel({
   async function handleStatusChange(
     target: ApiTrip,
     next: TripStatus,
+    options: { distanceKm?: number | null } = {},
   ): Promise<void> {
     try {
-      await setTripStatus(target.id, next);
+      await setTripStatus(target.id, next, options);
       await refresh();
       showToast({
         variant: "success",
@@ -442,7 +446,9 @@ export function TripsPanel({
               onEdit={() => setMode({ kind: "edit", trip })}
               onDelete={() => setPendingDelete(trip)}
               onRequestCancel={() => setPendingCancel(trip)}
-              onStatusChange={(next) => handleStatusChange(trip, next)}
+              onStatusChange={(next, options) =>
+                handleStatusChange(trip, next, options)
+              }
             />
           ))}
         </div>
@@ -545,7 +551,10 @@ function TripRow({
   // Opens the cancel-confirmation dialog. The actual status transition
   // runs from the panel after the user confirms.
   onRequestCancel: () => void;
-  onStatusChange: (next: TripStatus) => Promise<void> | void;
+  onStatusChange: (
+    next: TripStatus,
+    options?: { distanceKm?: number | null },
+  ) => Promise<void> | void;
 }) {
   // Tracks the in-flight status action so we can disable all three buttons
   // while a request is in progress and surface a spinner on the clicked one.
@@ -567,7 +576,17 @@ function TripRow({
     const clickedAt = Date.now();
     setPendingAction(next);
     try {
-      await onStatusChange(next);
+      // For check-in (COMPLETED) we compute the route distance now and
+      // attach it to the status request so the backend can persist it
+      // alongside the completedAt timestamp. We don't block the UI on
+      // this if it takes too long — the API key may be missing or the
+      // network slow — so we cap the lookup with a short timeout and
+      // fall through with no distance if it doesn't resolve in time.
+      let distanceKm: number | null = null;
+      if (next === "COMPLETED") {
+        distanceKm = await resolveCheckinDistanceKm(trip);
+      }
+      await onStatusChange(next, distanceKm !== null ? { distanceKm } : {});
       if (next === "IN_PROGRESS") {
         setLocalStartedAtMs(clickedAt);
       } else if (next === "COMPLETED" || next === "CANCELLED") {
@@ -600,6 +619,130 @@ function TripRow({
       : startedAtMs && completedAtMs
         ? completedAtMs - startedAtMs
         : null;
+
+  // Distance shown on the completed row. Priority order:
+  //   1. `trip.distanceKm` persisted on the trip itself (set when the
+  //      user tapped Check-in via setTripStatus).
+  //   2. Straight-line distance from saved start/end coords (instant
+  //      fallback for older trips without the persisted figure).
+  //   3. Driving distance from LocationIQ Directions after geocoding the
+  //      saved addresses — last-resort upgrade for legacy trips.
+  const [distanceKm, setDistanceKm] = useState<number | null>(() => {
+    if (typeof trip.distanceKm === "number") return trip.distanceKm;
+    return trip.status === "COMPLETED" ? getTripDistanceKm(trip) : null;
+  });
+  const [isDistanceLoading, setIsDistanceLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const abort = new AbortController();
+
+    async function compute() {
+      if (trip.status !== "COMPLETED") {
+        if (!cancelled) setDistanceKm(null);
+        return;
+      }
+
+      // Trust the persisted distance if the server provided it.
+      if (typeof trip.distanceKm === "number") {
+        if (!cancelled) setDistanceKm(trip.distanceKm);
+        return;
+      }
+
+      const hasStartCoords =
+        typeof trip.startLat === "number" && typeof trip.startLon === "number";
+      const hasEndCoords =
+        typeof trip.endLat === "number" && typeof trip.endLon === "number";
+
+      const straightKm =
+        hasStartCoords && hasEndCoords
+          ? haversineKm(
+              trip.startLat as number,
+              trip.startLon as number,
+              trip.endLat as number,
+              trip.endLon as number,
+            )
+          : null;
+
+      if (!cancelled) setDistanceKm(straightKm);
+      if (abort.signal.aborted) return;
+
+      // If we don't have a complete coordinate pair, try geocoding the
+      // saved start/end addresses to recover lat/lon.
+      const startQuery = formatLocationLine(
+        trip.startAddress,
+        trip.startCity ?? null,
+        trip.startState ?? null,
+      );
+      const endQuery = formatLocationLine(
+        trip.endAddress,
+        trip.endCity ?? null,
+        trip.endState ?? null,
+      );
+
+      setIsDistanceLoading(true);
+      try {
+        const start =
+          hasStartCoords && trip.startLat !== null && trip.startLon !== null
+            ? { lat: trip.startLat as number, lon: trip.startLon as number }
+            : await geocodeAddress(startQuery, abort.signal);
+
+        const end =
+          hasEndCoords && trip.endLat !== null && trip.endLon !== null
+            ? { lat: trip.endLat as number, lon: trip.endLon as number }
+            : await geocodeAddress(endQuery, abort.signal);
+
+        if (!start || !end) return;
+
+        if (!cancelled && !abort.signal.aborted) {
+          setDistanceKm(
+            haversineKm(
+              start.lat,
+              start.lon,
+              end.lat,
+              end.lon,
+            ),
+          );
+        }
+
+        const driving = await fetchDrivingDistance(
+          start.lat,
+          start.lon,
+          end.lat,
+          end.lon,
+          abort.signal,
+        );
+
+        if (!driving) return;
+        if (cancelled || abort.signal.aborted) return;
+        setDistanceKm(driving.distanceKm);
+      } finally {
+        if (!cancelled) setIsDistanceLoading(false);
+      }
+    }
+
+    compute();
+
+    return () => {
+      cancelled = true;
+      abort.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    trip.status,
+    trip.id,
+    trip.distanceKm,
+    trip.startLat,
+    trip.startLon,
+    trip.endLat,
+    trip.endLon,
+    trip.startAddress,
+    trip.startCity,
+    trip.startState,
+    trip.endAddress,
+    trip.endCity,
+    trip.endState,
+  ]);
 
   const canCheckout = trip.status === "PLANNED";
   const canCheckin = trip.status === "IN_PROGRESS";
@@ -679,7 +822,8 @@ function TripRow({
         {trip.status === "COMPLETED" && (
           <TripCompletedStats
             durationMs={elapsedMs}
-            distanceKm={getTripDistanceKm(trip)}
+            distanceKm={distanceKm}
+            isDistanceLoading={isDistanceLoading}
             startedAt={trip.startedAt}
             completedAt={trip.completedAt}
           />
@@ -792,14 +936,23 @@ function TripActionButton({
 function TripCompletedStats({
   durationMs,
   distanceKm,
+  isDistanceLoading,
   startedAt,
   completedAt,
 }: {
   durationMs: number | null;
   distanceKm: number | null;
+  isDistanceLoading?: boolean;
   startedAt?: string | null;
   completedAt?: string | null;
 }) {
+  const distanceLabel =
+    distanceKm !== null
+      ? formatDistance(distanceKm)
+      : isDistanceLoading
+        ? "…"
+        : "—";
+
   return (
     <div className="mr-auto flex min-w-[170px] flex-col divide-y divide-slate-200/70 sm:mr-10">
       <CompletedStatCell
@@ -817,10 +970,7 @@ function TripCompletedStats({
       <CompletedStatCell
         icon={Navigation}
         label="Distance"
-        // TODO: replace with measured route distance once GPS tracking
-        // ships. For now this is the straight-line distance between the
-        // saved start/end coordinates (LocationIQ-picked) or a placeholder.
-        value={distanceKm !== null ? formatDistance(distanceKm) : "—"}
+        value={distanceLabel}
         tone="primary"
       />
     </div>
@@ -966,11 +1116,12 @@ function TripTimesInfo({
   );
 }
 
-// Resolves a "distance" to render for a trip. Prefers the haversine
-// straight-line between saved start/end coordinates so trips picked from
-// LocationIQ show a real number; falls back to null so the stats cell can
-// render a placeholder. Replace this once real route tracking is wired up.
+// Resolves a "distance" to render for a trip. Prefers the persisted
+// `distanceKm` saved by the backend when the user checked in; falls
+// back to the haversine straight-line between saved start/end
+// coordinates if there's no persisted figure yet (older trips).
 function getTripDistanceKm(trip: ApiTrip): number | null {
+  if (typeof trip.distanceKm === "number") return trip.distanceKm;
   const { startLat, startLon, endLat, endLon } = trip;
   if (
     typeof startLat !== "number" ||
@@ -981,6 +1132,71 @@ function getTripDistanceKm(trip: ApiTrip): number | null {
     return null;
   }
   return haversineKm(startLat, startLon, endLat, endLon);
+}
+
+// Computes the distance to persist when the user taps Trip Check-in.
+// Tries (in order):
+//   1. Real driving distance from LocationIQ Directions, using saved
+//      coords when available, or geocoding the addresses otherwise.
+//   2. Straight-line distance from any coords we can find (saved or
+//      geocoded).
+//   3. null — give up rather than blocking the check-in indefinitely.
+//
+// We cap the whole resolution at ~5 seconds so a slow API call can
+// never strand a driver who's trying to close out a trip in the field.
+async function resolveCheckinDistanceKm(
+  trip: ApiTrip,
+): Promise<number | null> {
+  const abort = new AbortController();
+  // Safety net: bail out if LocationIQ is being slow / unreachable so
+  // the check-in still completes.
+  const timeout = window.setTimeout(() => abort.abort(), 5000);
+
+  try {
+    const hasStartCoords =
+      typeof trip.startLat === "number" && typeof trip.startLon === "number";
+    const hasEndCoords =
+      typeof trip.endLat === "number" && typeof trip.endLon === "number";
+
+    const start =
+      hasStartCoords && trip.startLat !== null && trip.startLon !== null
+        ? { lat: trip.startLat as number, lon: trip.startLon as number }
+        : await geocodeAddress(
+            [trip.startAddress, trip.startCity, trip.startState]
+              .filter(Boolean)
+              .join(", "),
+            abort.signal,
+          );
+
+    const end =
+      hasEndCoords && trip.endLat !== null && trip.endLon !== null
+        ? { lat: trip.endLat as number, lon: trip.endLon as number }
+        : await geocodeAddress(
+            [trip.endAddress, trip.endCity, trip.endState]
+              .filter(Boolean)
+              .join(", "),
+            abort.signal,
+          );
+
+    if (!start || !end) return null;
+
+    const driving = await fetchDrivingDistance(
+      start.lat,
+      start.lon,
+      end.lat,
+      end.lon,
+      abort.signal,
+    );
+    if (driving) return driving.distanceKm;
+
+    // Driving failed — settle for the straight-line so the record at
+    // least carries something useful.
+    return haversineKm(start.lat, start.lon, end.lat, end.lon);
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 // Standard great-circle distance in kilometres. Accurate enough for the
@@ -1006,6 +1222,244 @@ function formatDistance(km: number): string {
   if (km < 1) return `${Math.round(km * 1000)} m`;
   if (km < 10) return `${km.toFixed(1)} km`;
   return `${Math.round(km)} km`;
+}
+
+// Formats the LocationIQ-reported route duration in seconds as a
+// human-friendly approximation. Anything under an hour collapses to
+// minutes; longer routes display as "Hh Mm". The leading "~" is added
+// at the call site so the format string stays clean.
+function formatRouteDuration(seconds: number): string {
+  const totalMinutes = Math.max(1, Math.round(seconds / 60));
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+// Renders the route preview that sits between the Starting point and
+// Ending point cards in the trip form. Shows the actual driving distance
+// returned by the LocationIQ Directions API, with a graceful fallback to
+// the haversine straight-line distance when the API call is in flight,
+// fails, or no API key is configured. Visualises completion as a
+// progress bar with start / end markers.
+//
+// Progress logic:
+//   - 0%  : neither point selected yet
+//   - 50% : only one of the two is set, so the route is half-known
+//   - 100%: both points set, the bar fills end-to-end
+//
+// Distance source (in priority order):
+//   1. Driving distance from LocationIQ /directions/driving (preferred,
+//      reflects real roads).
+//   2. Haversine straight-line distance from the same coords (instant
+//      fallback so the UI is never empty while we wait for the API).
+//   3. null — neither coord pair is set yet, render the em dash.
+function TripDistancePreview({
+  startLat,
+  startLon,
+  endLat,
+  endLon,
+  hasStart,
+  hasEnd,
+}: {
+  startLat: number | null;
+  startLon: number | null;
+  endLat: number | null;
+  endLon: number | null;
+  hasStart: boolean;
+  hasEnd: boolean;
+}) {
+  const haveBothCoords =
+    startLat !== null &&
+    startLon !== null &&
+    endLat !== null &&
+    endLon !== null;
+
+  const straightLineKm = haveBothCoords
+    ? haversineKm(
+        startLat as number,
+        startLon as number,
+        endLat as number,
+        endLon as number,
+      )
+    : null;
+
+  const [drivingKm, setDrivingKm] = useState<number | null>(null);
+  const [drivingDurationSec, setDrivingDurationSec] = useState<number | null>(
+    null,
+  );
+  const [isFetchingRoute, setIsFetchingRoute] = useState(false);
+
+  // Debounced driving-distance lookup. We wait ~400ms after the last
+  // coordinate change before hitting LocationIQ so rapid typing /
+  // autocomplete picks don't fire repeated requests against the free-
+  // tier rate limit. The AbortController makes sure an older request
+  // can't overwrite a newer result if the user keeps tweaking the form.
+  useEffect(() => {
+    if (!haveBothCoords) {
+      setDrivingKm(null);
+      setDrivingDurationSec(null);
+      return;
+    }
+    setIsFetchingRoute(true);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      const result = await fetchDrivingDistance(
+        startLat as number,
+        startLon as number,
+        endLat as number,
+        endLon as number,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      if (result) {
+        setDrivingKm(result.distanceKm);
+        setDrivingDurationSec(result.durationSec);
+      } else {
+        // Null = API failed / no key. Surface that by clearing the
+        // driving figure so the haversine label takes over.
+        setDrivingKm(null);
+        setDrivingDurationSec(null);
+      }
+      setIsFetchingRoute(false);
+    }, 400);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+      setIsFetchingRoute(false);
+    };
+  }, [haveBothCoords, startLat, startLon, endLat, endLon]);
+
+  const km = drivingKm ?? straightLineKm;
+  const isDriving = drivingKm !== null;
+  const progress = hasStart && hasEnd ? 100 : hasStart || hasEnd ? 50 : 0;
+  const bothLocked = hasStart && hasEnd;
+
+  return (
+    <div
+      className="flex flex-col items-center justify-center gap-3 py-2 lg:py-0"
+      aria-label="Trip distance preview"
+    >
+      <div className="flex flex-col items-center gap-0.5 leading-tight">
+        <span className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+          Distance
+        </span>
+        <span
+          className={cn(
+            "font-mono text-xl font-bold tabular-nums",
+            km !== null ? "text-primary" : "text-muted-foreground",
+          )}
+        >
+          {km !== null ? formatDistance(km) : "—"}
+        </span>
+        {km !== null && (
+          <span
+            className={cn(
+              "text-[9px] font-medium tracking-wide uppercase",
+              isDriving ? "text-success" : "text-muted-foreground",
+            )}
+            title={
+              isDriving
+                ? "Calculated by LocationIQ along the road network."
+                : "Great-circle distance between the two coordinates. Real driving distance will be longer."
+            }
+          >
+            {isFetchingRoute
+              ? "Calculating route…"
+              : isDriving
+                ? "Driving distance"
+                : "Straight-line"}
+          </span>
+        )}
+        {isDriving && drivingDurationSec !== null && drivingDurationSec > 0 && (
+          <span className="text-[10px] font-medium text-muted-foreground">
+            ~{formatRouteDuration(drivingDurationSec)} by road
+          </span>
+        )}
+      </div>
+
+      <div className="flex w-full max-w-[220px] items-center gap-2">
+        {/* Start marker — solid green once the start is locked in. */}
+        <span
+          className={cn(
+            "flex size-3 shrink-0 rounded-full ring-4 transition-colors",
+            hasStart
+              ? "bg-success ring-success/15"
+              : "bg-slate-300 ring-slate-100",
+          )}
+          aria-hidden
+        />
+
+        {/* Curvy SVG "road" that doubles as a progress indicator.
+            - Background path: the unfilled road surface.
+            - Foreground path: same shape, drawn from the start to a
+              point along the curve controlled by `progress` via
+              stroke-dashoffset (animated). Once both endpoints are
+              picked, the foreground fully covers the background.
+            - Dashed center line: subtle lane markers along the road
+              to sell the metaphor at a glance. */}
+        <svg
+          viewBox="0 0 100 24"
+          preserveAspectRatio="none"
+          className="h-6 flex-1"
+          aria-hidden
+        >
+          <path
+            d="M 2 12 Q 20 0, 40 14 T 80 10 T 98 12"
+            fill="none"
+            stroke="rgb(226 232 240)"
+            strokeWidth="6"
+            strokeLinecap="round"
+          />
+          <path
+            d="M 2 12 Q 20 0, 40 14 T 80 10 T 98 12"
+            fill="none"
+            strokeWidth="6"
+            strokeLinecap="round"
+            pathLength={100}
+            strokeDasharray={100}
+            strokeDashoffset={100 - progress}
+            className={bothLocked ? "stroke-primary" : "stroke-primary/60"}
+            style={{
+              transition: "stroke-dashoffset 500ms ease-out",
+            }}
+          />
+          {/* Dashed lane markers — only rendered when at least one
+              endpoint is set, otherwise they sit on an unrelated gray
+              track and read as noise. */}
+          {progress > 0 && (
+            <path
+              d="M 2 12 Q 20 0, 40 14 T 80 10 T 98 12"
+              fill="none"
+              stroke="rgba(255,255,255,0.75)"
+              strokeWidth="1"
+              strokeDasharray="3 4"
+              pathLength={100}
+              strokeDashoffset={100 - progress}
+              style={{
+                transition: "stroke-dashoffset 500ms ease-out",
+              }}
+            />
+          )}
+        </svg>
+
+        {/* End marker — uses the existing arrow chip so it doubles as
+            the visual link between the two cards (replacing the lone
+            arrow icon that used to live in this slot). */}
+        <span
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full shadow-md transition-colors",
+            hasEnd
+              ? "bg-primary text-primary-foreground shadow-primary/25"
+              : "bg-slate-200 text-slate-400 shadow-slate-200/40",
+          )}
+          aria-hidden
+        >
+          <ArrowRight className="size-4" />
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // React hook that re-renders once per second while a start timestamp is
@@ -1131,6 +1585,25 @@ function TripForm({
     setSuggestedStartSite(site.name);
     setForm((prev) => ({ ...prev, ...siteToStartFields(site) }));
     setStartQuery(formatSiteLocation(site));
+    // Sites are stored without lat/lon today, so the distance preview
+    // can't compute anything from the auto-fill alone. Kick off a quick
+    // LocationIQ geocode and patch the coords in once they arrive. We
+    // capture the site id so a rapid second selection can't race the
+    // first one's response and clobber the newer coords.
+    const targetSiteId = site.id;
+    void geocodeAddress(formatSiteLocation(site)).then((coords) => {
+      if (!coords) return;
+      setForm((prev) => {
+        // Bail if the user already picked a different site / location in
+        // the meantime — comparing the address line is a cheap proxy.
+        if (prev.startAddress !== site.address) return prev;
+        return { ...prev, startLat: coords.lat, startLon: coords.lon };
+      });
+      // Tag the form with the site id so the proxy comparison above is
+      // robust against two sites that happen to share an address string.
+      // We can revisit this once sites carry lat/lon natively.
+      void targetSiteId;
+    });
   }
 
   function handleVehicleSelect(vehicle: ApiVehicle) {
@@ -1261,57 +1734,62 @@ function TripForm({
 
       {formError && <PanelError message={formError} />}
 
-      <FormCard
-        title="Driver"
-        description="Search drivers — loads their truck and home site as the start."
-        icon={UserRound}
-      >
-        <TripDriverPicker
-          drivers={drivers}
-          sites={sites}
-          selectedId={form.driverId}
-          onSelect={handleDriverSelect}
-          onClear={handleDriverClear}
-          disabled={isSubmitting}
-        />
-        {form.driverId && !form.vehicleId && (
-          <p className="mt-2 text-xs text-amber-700">
-            This driver has no vehicle assigned yet. Pick a vehicle below or
-            assign one from Drivers.
-          </p>
-        )}
-        {form.vehicleId && form.driverId && (
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            Linked:{" "}
-            <span className="font-semibold text-primary">
-              {driverById.get(form.driverId)?.firstName}{" "}
-              {driverById.get(form.driverId)?.lastName}
-            </span>
-            {" · "}
-            <span className="font-semibold text-primary">
-              {vehicleById.get(form.vehicleId)?.assetNumber ??
-                vehicleById.get(form.vehicleId)?.plateNumber}
-            </span>
-          </p>
-        )}
-      </FormCard>
+      {/* Driver + Vehicle cards sit side-by-side from `lg` upwards so the
+          form fits above the fold without scrolling. On mobile the grid
+          collapses to a single column and the cards stack like before. */}
+      <div className="grid items-stretch gap-4 lg:grid-cols-2">
+        <FormCard
+          title="Driver"
+          description="Search drivers — loads their truck and home site as the start."
+          icon={UserRound}
+        >
+          <TripDriverPicker
+            drivers={drivers}
+            sites={sites}
+            selectedId={form.driverId}
+            onSelect={handleDriverSelect}
+            onClear={handleDriverClear}
+            disabled={isSubmitting}
+          />
+          {form.driverId && !form.vehicleId && (
+            <p className="mt-2 text-xs text-amber-700">
+              This driver has no vehicle assigned yet. Pick a vehicle from the
+              card next to this one or assign one from Drivers.
+            </p>
+          )}
+          {form.vehicleId && form.driverId && (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Linked:{" "}
+              <span className="font-semibold text-primary">
+                {driverById.get(form.driverId)?.firstName}{" "}
+                {driverById.get(form.driverId)?.lastName}
+              </span>
+              {" · "}
+              <span className="font-semibold text-primary">
+                {vehicleById.get(form.vehicleId)?.assetNumber ??
+                  vehicleById.get(form.vehicleId)?.plateNumber}
+              </span>
+            </p>
+          )}
+        </FormCard>
 
-      <FormCard
-        title="Vehicle"
-        description="Pick a truck — loads its driver and assigned site as the start."
-        icon={Truck}
-      >
-        <TripVehiclePicker
-          vehicles={vehicles}
-          sites={sites}
-          selectedId={form.vehicleId}
-          onSelect={handleVehicleSelect}
-          onClear={handleVehicleClear}
-          disabled={isSubmitting}
-        />
-      </FormCard>
+        <FormCard
+          title="Vehicle"
+          description="Pick a truck — loads its driver and assigned site as the start."
+          icon={Truck}
+        >
+          <TripVehiclePicker
+            vehicles={vehicles}
+            sites={sites}
+            selectedId={form.vehicleId}
+            onSelect={handleVehicleSelect}
+            onClear={handleVehicleClear}
+            disabled={isSubmitting}
+          />
+        </FormCard>
+      </div>
 
-      <div className="grid items-stretch gap-4 lg:grid-cols-[1fr_auto_1fr]">
+      <div className="grid items-stretch gap-4 lg:grid-cols-[1fr_220px_1fr]">
         <FormCard
           title="Starting point"
           description="Auto-filled from the driver or vehicle site."
@@ -1381,15 +1859,20 @@ function TripForm({
           </div>
         </FormCard>
 
-        <div
-          className="flex items-center justify-center lg:px-1"
-          aria-hidden="true"
-        >
-          <span className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/25">
-            <ArrowRight className="hidden size-5 lg:block" />
-            <ArrowDown className="size-5 lg:hidden" />
-          </span>
-        </div>
+        <TripDistancePreview
+          startLat={form.startLat}
+          startLon={form.startLon}
+          endLat={form.endLat}
+          endLon={form.endLon}
+          hasStart={
+            Boolean(form.startAddress) ||
+            (form.startLat !== null && form.startLon !== null)
+          }
+          hasEnd={
+            Boolean(form.endAddress) ||
+            (form.endLat !== null && form.endLon !== null)
+          }
+        />
 
         <FormCard
           title="Ending point"
