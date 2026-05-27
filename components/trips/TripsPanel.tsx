@@ -1,15 +1,20 @@
 "use client";
 
 import {
+  ArrowDown,
   ArrowLeft,
   ArrowRight,
+  Ban,
+  CircleCheck,
   Filter,
   Loader2,
   MapPin,
   Pencil,
+  Play,
   Plus,
   Route,
   Save,
+  Timer,
   Trash2,
   Truck,
   UserRound,
@@ -34,6 +39,8 @@ import {
   LocationAutocomplete,
   type PickedLocation,
 } from "@/components/shared/LocationAutocomplete";
+import { TripDriverPicker } from "@/components/trips/TripDriverPicker";
+import { TripVehiclePicker } from "@/components/trips/TripVehiclePicker";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PanelError } from "@/components/vehicles/VehicleForm";
@@ -43,18 +50,29 @@ import {
   createTrip,
   deleteTrip,
   listTrips,
+  setTripStatus,
   updateTrip,
   type CreateTripRequest,
 } from "@/lib/api/trips";
+import { listSites } from "@/lib/api/sites";
 import {
   TRIP_STATUSES,
   prettyEnum,
   type ApiDriver,
+  type ApiSite,
   type ApiTrip,
   type ApiVehicle,
+  type TripDriverSummary,
   type TripStatus,
+  type TripVehicleSummary,
 } from "@/lib/api/types";
 import { listVehicles } from "@/lib/api/vehicles";
+import {
+  findDriverForVehicle,
+  formatSiteLocation,
+  resolvePrimarySite,
+  siteToStartFields,
+} from "@/lib/trips/resolveTripStart";
 import { cn } from "@/lib/utils";
 
 const TRIP_STATUS_PILL: Record<TripStatus, string> = {
@@ -78,8 +96,6 @@ type TripFormState = {
   endState: string;
   endLat: number | null;
   endLon: number | null;
-  scheduledAt: string;
-  notes: string;
 };
 
 function emptyForm(): TripFormState {
@@ -97,8 +113,6 @@ function emptyForm(): TripFormState {
     endState: "",
     endLat: null,
     endLon: null,
-    scheduledAt: "",
-    notes: "",
   };
 }
 
@@ -117,18 +131,7 @@ function tripToForm(trip: ApiTrip): TripFormState {
     endState: trip.endState ?? "",
     endLat: trip.endLat ?? null,
     endLon: trip.endLon ?? null,
-    scheduledAt: trip.scheduledAt
-      ? toDatetimeLocalValue(trip.scheduledAt)
-      : "",
-    notes: trip.notes ?? "",
   };
-}
-
-function toDatetimeLocalValue(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function formatLocationLine(
@@ -153,6 +156,7 @@ export function TripsPanel({
   const [trips, setTrips] = useState<ApiTrip[]>([]);
   const [vehicles, setVehicles] = useState<ApiVehicle[]>([]);
   const [drivers, setDrivers] = useState<ApiDriver[]>([]);
+  const [sites, setSites] = useState<ApiSite[]>([]);
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [statusFilter, setStatusFilter] = useState<TripStatus | "ALL">("ALL");
   const [vehicleFilter, setVehicleFilter] = useState<string>("ALL");
@@ -164,17 +168,22 @@ export function TripsPanel({
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [t, v, d] = await Promise.all([
+      const [t, v, d, s] = await Promise.all([
         listTrips(),
         listVehicles(),
         listDrivers().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),
+        listSites().catch((err) => {
+          if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
+          throw err;
+        }),
       ]);
       setTrips(t);
       setVehicles(v);
       setDrivers(d);
+      setSites(s);
     } catch (err) {
       setLoadError(
         err instanceof ApiError ? err.message : "Unable to load trips.",
@@ -234,6 +243,25 @@ export function TripsPanel({
     }
   }
 
+  // Drives the Trip Checkout / Check-in / Cancel buttons. Refresh after
+  // each transition so the row picks up the new status, timestamps, and
+  // the next set of available actions in one round-trip.
+  async function handleStatusChange(
+    target: ApiTrip,
+    next: TripStatus,
+  ): Promise<void> {
+    try {
+      await setTripStatus(target.id, next);
+      await refresh();
+    } catch (err) {
+      setLoadError(
+        err instanceof ApiError
+          ? err.message
+          : "Unable to update trip status.",
+      );
+    }
+  }
+
   if (mode.kind === "create" || mode.kind === "edit") {
     const editing = mode.kind === "edit" ? mode.trip : null;
     return (
@@ -241,6 +269,7 @@ export function TripsPanel({
         initial={editing}
         vehicles={vehicles}
         drivers={drivers}
+        sites={sites}
         onCancel={() => setMode({ kind: "list" })}
         onSubmit={async (payload) => {
           if (editing) {
@@ -368,6 +397,7 @@ export function TripsPanel({
               density={density}
               onEdit={() => setMode({ kind: "edit", trip })}
               onDelete={() => setPendingDelete(trip)}
+              onStatusChange={(next) => handleStatusChange(trip, next)}
             />
           ))}
         </div>
@@ -417,18 +447,61 @@ function TripRow({
   density,
   onEdit,
   onDelete,
+  onStatusChange,
 }: {
   trip: ApiTrip;
-  vehicle: ApiVehicle | null;
-  driver: ApiDriver | null;
+  // Accept the slim summary so we can render whichever shape the trip
+  // payload provides (nested on list responses) or the full ApiVehicle we
+  // looked up locally — TripRow only needs the asset / plate fields.
+  vehicle: TripVehicleSummary | ApiVehicle | null;
+  driver: TripDriverSummary | ApiDriver | null;
   density: "comfortable" | "compact";
   onEdit: () => void;
   onDelete: () => void;
+  onStatusChange: (next: TripStatus) => Promise<void> | void;
 }) {
+  // Tracks the in-flight status action so we can disable all three buttons
+  // while a request is in progress and surface a spinner on the clicked one.
+  const [pendingAction, setPendingAction] = useState<TripStatus | null>(null);
+  const isBusy = pendingAction !== null;
+
+  async function runAction(next: TripStatus) {
+    setPendingAction(next);
+    try {
+      await onStatusChange(next);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  const startedAtMs = trip.startedAt ? Date.parse(trip.startedAt) : null;
+  const completedAtMs = trip.completedAt ? Date.parse(trip.completedAt) : null;
+
+  // While the trip is IN_PROGRESS we tick once per second so the badge shows
+  // a live elapsed time. For finished trips we just render the static
+  // start->complete delta and skip the interval entirely.
+  const liveElapsedMs = useLiveElapsed(
+    trip.status === "IN_PROGRESS" ? startedAtMs : null,
+  );
+  const elapsedMs =
+    trip.status === "IN_PROGRESS"
+      ? liveElapsedMs
+      : startedAtMs && completedAtMs
+        ? completedAtMs - startedAtMs
+        : null;
+
+  const canCheckout = trip.status === "PLANNED";
+  const canCheckin = trip.status === "IN_PROGRESS";
+  const canCancel =
+    trip.status === "PLANNED" || trip.status === "IN_PROGRESS";
+
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 transition-colors hover:border-primary/30 hover:bg-white",
+        "flex flex-wrap items-center gap-3 rounded-xl border bg-slate-50/50 transition-colors hover:bg-white",
+        trip.status === "IN_PROGRESS"
+          ? "border-amber-200 bg-amber-50/40 hover:border-amber-300"
+          : "border-slate-100 hover:border-primary/30",
         density === "compact" ? "p-3" : "p-4",
       )}
     >
@@ -443,6 +516,21 @@ function TripRow({
               : "Unknown vehicle"}
           </p>
           <TripStatusPill status={trip.status} />
+          {trip.status === "IN_PROGRESS" && elapsedMs !== null && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-bold tracking-wide text-amber-800 tabular-nums">
+              <Timer className="size-3 animate-pulse" />
+              {formatDuration(elapsedMs)}
+            </span>
+          )}
+          {trip.status === "COMPLETED" && elapsedMs !== null && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 font-mono text-[10px] font-bold tracking-wide text-success tabular-nums"
+              title={`Completed ${new Date(trip.completedAt ?? "").toLocaleString()}`}
+            >
+              <Timer className="size-3" />
+              {formatDuration(elapsedMs)}
+            </span>
+          )}
         </div>
         <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
           <MapPin className="size-3 shrink-0 text-primary" />
@@ -471,36 +559,151 @@ function TripRow({
               </span>
             </span>
           )}
-          {trip.scheduledAt && (
+          {trip.startedAt && (
             <span>
-              Scheduled{" "}
+              Checked out{" "}
               <span className="font-semibold text-primary">
-                {new Date(trip.scheduledAt).toLocaleString()}
+                {new Date(trip.startedAt).toLocaleString()}
+              </span>
+            </span>
+          )}
+          {trip.completedAt && (
+            <span>
+              Checked in{" "}
+              <span className="font-semibold text-primary">
+                {new Date(trip.completedAt).toLocaleString()}
               </span>
             </span>
           )}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label="Edit trip"
-          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-        >
-          <Pencil className="size-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label="Delete trip"
-          className="flex size-8 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10"
-        >
-          <Trash2 className="size-4" />
-        </button>
+      <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
+        {canCheckout && (
+          <TripActionButton
+            tone="success"
+            onClick={() => runAction("IN_PROGRESS")}
+            disabled={isBusy}
+            loading={pendingAction === "IN_PROGRESS"}
+            icon={Play}
+          >
+            Trip Checkout
+          </TripActionButton>
+        )}
+        {canCheckin && (
+          <TripActionButton
+            tone="primary"
+            onClick={() => runAction("COMPLETED")}
+            disabled={isBusy}
+            loading={pendingAction === "COMPLETED"}
+            icon={CircleCheck}
+          >
+            Trip Checkin
+          </TripActionButton>
+        )}
+        {canCancel && (
+          <TripActionButton
+            tone="muted"
+            onClick={() => runAction("CANCELLED")}
+            disabled={isBusy}
+            loading={pendingAction === "CANCELLED"}
+            icon={Ban}
+          >
+            Cancel Trip
+          </TripActionButton>
+        )}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onEdit}
+            disabled={isBusy}
+            aria-label="Edit trip"
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+          >
+            <Pencil className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={isBusy}
+            aria-label="Delete trip"
+            className="flex size-8 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
+}
+
+// Tiny button used by the three trip-status actions. Kept inline (rather
+// than reusing the larger <Button>) so the row stays compact at every
+// density and the tone variants can match the badge colors exactly.
+function TripActionButton({
+  tone,
+  onClick,
+  disabled,
+  loading,
+  icon: Icon,
+  children,
+}: {
+  tone: "success" | "primary" | "muted";
+  onClick: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  icon: ComponentType<{ className?: string }>;
+  children: ReactNode;
+}) {
+  const toneClass =
+    tone === "success"
+      ? "bg-success text-white hover:bg-success/90 disabled:bg-success/60"
+      : tone === "primary"
+        ? "bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-primary/60"
+        : "bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:bg-slate-100";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || loading}
+      className={cn(
+        "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-80",
+        toneClass,
+      )}
+    >
+      {loading ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <Icon className="size-3.5" />
+      )}
+      {children}
+    </button>
+  );
+}
+
+// React hook that re-renders once per second while a start timestamp is
+// present, so the elapsed-time badge updates live without re-fetching the
+// trip from the server. Returns null when no start time is set.
+function useLiveElapsed(startedAtMs: number | null): number | null {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (startedAtMs === null) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [startedAtMs]);
+  if (startedAtMs === null) return null;
+  return Math.max(0, now - startedAtMs);
+}
+
+// Formats a millisecond delta as HH:MM:SS, dropping the hours segment when
+// the duration is under an hour so short trips read more naturally.
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (hours > 0) return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  return `${pad(minutes)}:${pad(seconds)}`;
 }
 
 function TripStatusPill({ status }: { status: TripStatus }) {
@@ -538,12 +741,14 @@ function TripForm({
   initial,
   vehicles,
   drivers,
+  sites,
   onCancel,
   onSubmit,
 }: {
   initial: ApiTrip | null;
   vehicles: ApiVehicle[];
   drivers: ApiDriver[];
+  sites: ApiSite[];
   onCancel: () => void;
   onSubmit: (payload: CreateTripRequest) => Promise<void>;
 }) {
@@ -569,13 +774,23 @@ function TripForm({
         )
       : "",
   );
+  const [suggestedStartSite, setSuggestedStartSite] = useState<string | null>(
+    null,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const activeDrivers = useMemo(
-    () => drivers.filter((d) => d.status === "ACTIVE"),
-    [drivers],
-  );
+  const vehicleById = useMemo(() => {
+    const map = new Map<string, ApiVehicle>();
+    for (const v of vehicles) map.set(v.id, v);
+    return map;
+  }, [vehicles]);
+
+  const driverById = useMemo(() => {
+    const map = new Map<string, ApiDriver>();
+    for (const d of drivers) map.set(d.id, d);
+    return map;
+  }, [drivers]);
 
   function update<K extends keyof TripFormState>(
     key: K,
@@ -584,7 +799,50 @@ function TripForm({
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function applyStartFromSite(site: ApiSite) {
+    setSuggestedStartSite(site.name);
+    setForm((prev) => ({ ...prev, ...siteToStartFields(site) }));
+    setStartQuery(formatSiteLocation(site));
+  }
+
+  function handleVehicleSelect(vehicle: ApiVehicle) {
+    const linkedDriver = findDriverForVehicle(drivers, vehicle.id);
+    setForm((prev) => ({
+      ...prev,
+      vehicleId: vehicle.id,
+      driverId: linkedDriver?.id ?? "",
+    }));
+    const site = resolvePrimarySite(linkedDriver, vehicle, sites);
+    if (site) applyStartFromSite(site);
+    else setSuggestedStartSite(null);
+  }
+
+  function handleVehicleClear() {
+    setForm((prev) => ({ ...prev, vehicleId: "", driverId: "" }));
+    setSuggestedStartSite(null);
+  }
+
+  function handleDriverSelect(driver: ApiDriver) {
+    const vehicle = driver.assignedVehicleId
+      ? vehicleById.get(driver.assignedVehicleId)
+      : undefined;
+    setForm((prev) => ({
+      ...prev,
+      driverId: driver.id,
+      vehicleId: vehicle?.id ?? "",
+    }));
+    const site = resolvePrimarySite(driver, vehicle, sites);
+    if (site) applyStartFromSite(site);
+    else setSuggestedStartSite(null);
+  }
+
+  function handleDriverClear() {
+    update("driverId", "");
+    setSuggestedStartSite(null);
+  }
+
   function applyStart(picked: PickedLocation) {
+    setSuggestedStartSite(null);
     setForm((prev) => ({
       ...prev,
       startAddress: picked.address || prev.startAddress,
@@ -638,10 +896,6 @@ function TripForm({
         endState: form.endState.trim() || undefined,
         endLat: form.endLat ?? undefined,
         endLon: form.endLon ?? undefined,
-        scheduledAt: form.scheduledAt
-          ? new Date(form.scheduledAt).toISOString()
-          : undefined,
-        notes: form.notes.trim() || undefined,
       };
       await onSubmit(payload);
     } catch (err) {
@@ -680,178 +934,200 @@ function TripForm({
       {formError && <PanelError message={formError} />}
 
       <FormCard
-        title="Vehicle & driver"
-        description="Choose a registered vehicle and optionally assign a driver."
+        title="Driver"
+        description="Search drivers — loads their truck and home site as the start."
+        icon={UserRound}
+      >
+        <TripDriverPicker
+          drivers={drivers}
+          sites={sites}
+          selectedId={form.driverId}
+          onSelect={handleDriverSelect}
+          onClear={handleDriverClear}
+          disabled={isSubmitting}
+        />
+        {form.driverId && !form.vehicleId && (
+          <p className="mt-2 text-xs text-amber-700">
+            This driver has no vehicle assigned yet. Pick a vehicle below or
+            assign one from Drivers.
+          </p>
+        )}
+        {form.vehicleId && form.driverId && (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Linked:{" "}
+            <span className="font-semibold text-primary">
+              {driverById.get(form.driverId)?.firstName}{" "}
+              {driverById.get(form.driverId)?.lastName}
+            </span>
+            {" · "}
+            <span className="font-semibold text-primary">
+              {vehicleById.get(form.vehicleId)?.assetNumber ??
+                vehicleById.get(form.vehicleId)?.plateNumber}
+            </span>
+          </p>
+        )}
+      </FormCard>
+
+      <FormCard
+        title="Vehicle"
+        description="Pick a truck — loads its driver and assigned site as the start."
         icon={Truck}
       >
-        <FieldGrid>
-          <SettingsField label="Vehicle">
-            <select
-              className={fieldClass}
-              required
-              value={form.vehicleId}
-              onChange={(e) => update("vehicleId", e.target.value)}
-              disabled={isSubmitting}
-            >
-              <option value="">Select vehicle…</option>
-              {vehicles.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.assetNumber ?? v.plateNumber} — {v.plateNumber} (
-                  {prettyEnum(v.type)})
-                </option>
-              ))}
-            </select>
-          </SettingsField>
-          <SettingsField label="Driver (optional)">
-            <select
-              className={fieldClass}
-              value={form.driverId}
-              onChange={(e) => update("driverId", e.target.value)}
-              disabled={isSubmitting}
-            >
-              <option value="">No driver assigned</option>
-              {activeDrivers.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.firstName} {d.lastName} ({d.employeeId})
-                </option>
-              ))}
-            </select>
-          </SettingsField>
-          <SettingsField label="Status">
-            <select
-              className={fieldClass}
-              value={form.status}
-              onChange={(e) => update("status", e.target.value as TripStatus)}
-              disabled={isSubmitting}
-            >
-              {TRIP_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {prettyEnum(s)}
-                </option>
-              ))}
-            </select>
-          </SettingsField>
-          <SettingsField label="Scheduled (optional)">
-            <input
-              type="datetime-local"
-              className={fieldClass}
-              value={form.scheduledAt}
-              onChange={(e) => update("scheduledAt", e.target.value)}
-              disabled={isSubmitting}
-            />
-          </SettingsField>
-        </FieldGrid>
+        <TripVehiclePicker
+          vehicles={vehicles}
+          sites={sites}
+          selectedId={form.vehicleId}
+          onSelect={handleVehicleSelect}
+          onClear={handleVehicleClear}
+          disabled={isSubmitting}
+        />
       </FormCard>
 
-      <FormCard
-        title="Starting point"
-        description="Search for the departure location."
-        icon={MapPin}
-      >
-        <div className="space-y-4">
-          <SettingsField label="Search start location">
-            <LocationAutocomplete
-              value={startQuery}
-              onChange={setStartQuery}
-              onSelect={applyStart}
-              disabled={isSubmitting}
-              placeholder="Where does the trip begin?"
-            />
-          </SettingsField>
-          <FieldGrid>
-            <SettingsField label="Address">
-              <input
-                type="text"
-                required
-                value={form.startAddress}
-                onChange={(e) => update("startAddress", e.target.value)}
-                disabled={isSubmitting}
-                className={fieldClass}
-              />
-            </SettingsField>
-            <SettingsField label="City">
-              <input
-                type="text"
-                value={form.startCity}
-                onChange={(e) => update("startCity", e.target.value)}
-                disabled={isSubmitting}
-                className={fieldClass}
-              />
-            </SettingsField>
-            <SettingsField label="State">
-              <input
-                type="text"
-                value={form.startState}
-                onChange={(e) => update("startState", e.target.value)}
-                disabled={isSubmitting}
-                className={fieldClass}
-              />
-            </SettingsField>
-          </FieldGrid>
-        </div>
-      </FormCard>
-
-      <FormCard
-        title="Ending point"
-        description="Search for the destination."
-        icon={MapPin}
-      >
-        <div className="space-y-4">
-          <SettingsField label="Search end location">
-            <LocationAutocomplete
-              value={endQuery}
-              onChange={setEndQuery}
-              onSelect={applyEnd}
-              disabled={isSubmitting}
-              placeholder="Where does the trip end?"
-            />
-          </SettingsField>
-          <FieldGrid>
-            <SettingsField label="Address">
-              <input
-                type="text"
-                required
-                value={form.endAddress}
-                onChange={(e) => update("endAddress", e.target.value)}
-                disabled={isSubmitting}
-                className={fieldClass}
-              />
-            </SettingsField>
-            <SettingsField label="City">
-              <input
-                type="text"
-                value={form.endCity}
-                onChange={(e) => update("endCity", e.target.value)}
-                disabled={isSubmitting}
-                className={fieldClass}
-              />
-            </SettingsField>
-            <SettingsField label="State">
-              <input
-                type="text"
-                value={form.endState}
-                onChange={(e) => update("endState", e.target.value)}
-                disabled={isSubmitting}
-                className={fieldClass}
-              />
-            </SettingsField>
-          </FieldGrid>
-        </div>
-      </FormCard>
-
-      <FormCard title="Notes" icon={Route}>
-        <SettingsField label="Trip notes (optional)">
-          <textarea
-            value={form.notes}
-            onChange={(e) => update("notes", e.target.value)}
-            disabled={isSubmitting}
-            rows={3}
-            placeholder="Cargo details, route instructions, etc."
-            className={cn(
-              fieldClass,
-              "h-auto min-h-[5rem] resize-y py-2.5",
+      <div className="grid items-stretch gap-4 lg:grid-cols-[1fr_auto_1fr]">
+        <FormCard
+          title="Starting point"
+          description="Auto-filled from the driver or vehicle site."
+          icon={MapPin}
+        >
+          <div className="space-y-4">
+            {suggestedStartSite && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
+                Suggested start from site{" "}
+                <span className="font-semibold">{suggestedStartSite}</span>.
+                Use the search below to pick a different location.
+              </div>
             )}
-          />
+            <SettingsField label="Search start location">
+              <LocationAutocomplete
+                value={startQuery}
+                onChange={(q) => {
+                  setSuggestedStartSite(null);
+                  setStartQuery(q);
+                }}
+                onSelect={applyStart}
+                disabled={isSubmitting}
+                placeholder="Where does the trip begin?"
+              />
+            </SettingsField>
+            <FieldGrid cols={1}>
+              <SettingsField label="Address">
+                <input
+                  type="text"
+                  required
+                  value={form.startAddress}
+                  onChange={(e) => {
+                    setSuggestedStartSite(null);
+                    update("startAddress", e.target.value);
+                  }}
+                  disabled={isSubmitting}
+                  className={fieldClass}
+                />
+              </SettingsField>
+              <div className="grid grid-cols-2 gap-3">
+                <SettingsField label="City">
+                  <input
+                    type="text"
+                    value={form.startCity}
+                    onChange={(e) => {
+                      setSuggestedStartSite(null);
+                      update("startCity", e.target.value);
+                    }}
+                    disabled={isSubmitting}
+                    className={fieldClass}
+                  />
+                </SettingsField>
+                <SettingsField label="State">
+                  <input
+                    type="text"
+                    value={form.startState}
+                    onChange={(e) => {
+                      setSuggestedStartSite(null);
+                      update("startState", e.target.value);
+                    }}
+                    disabled={isSubmitting}
+                    className={fieldClass}
+                  />
+                </SettingsField>
+              </div>
+            </FieldGrid>
+          </div>
+        </FormCard>
+
+        <div
+          className="flex items-center justify-center lg:px-1"
+          aria-hidden="true"
+        >
+          <span className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/25">
+            <ArrowRight className="hidden size-5 lg:block" />
+            <ArrowDown className="size-5 lg:hidden" />
+          </span>
+        </div>
+
+        <FormCard
+          title="Ending point"
+          description="Where the trip wraps up."
+          icon={MapPin}
+        >
+          <div className="space-y-4">
+            <SettingsField label="Search end location">
+              <LocationAutocomplete
+                value={endQuery}
+                onChange={setEndQuery}
+                onSelect={applyEnd}
+                disabled={isSubmitting}
+                placeholder="Where does the trip end?"
+              />
+            </SettingsField>
+            <FieldGrid cols={1}>
+              <SettingsField label="Address">
+                <input
+                  type="text"
+                  required
+                  value={form.endAddress}
+                  onChange={(e) => update("endAddress", e.target.value)}
+                  disabled={isSubmitting}
+                  className={fieldClass}
+                />
+              </SettingsField>
+              <div className="grid grid-cols-2 gap-3">
+                <SettingsField label="City">
+                  <input
+                    type="text"
+                    value={form.endCity}
+                    onChange={(e) => update("endCity", e.target.value)}
+                    disabled={isSubmitting}
+                    className={fieldClass}
+                  />
+                </SettingsField>
+                <SettingsField label="State">
+                  <input
+                    type="text"
+                    value={form.endState}
+                    onChange={(e) => update("endState", e.target.value)}
+                    disabled={isSubmitting}
+                    className={fieldClass}
+                  />
+                </SettingsField>
+              </div>
+            </FieldGrid>
+          </div>
+        </FormCard>
+      </div>
+
+      <FormCard title="Status" icon={Route}>
+        <SettingsField label="Trip status">
+          <select
+            className={fieldClass}
+            value={form.status}
+            onChange={(e) => update("status", e.target.value as TripStatus)}
+            disabled={isSubmitting}
+          >
+            {TRIP_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {prettyEnum(s)}
+              </option>
+            ))}
+          </select>
         </SettingsField>
       </FormCard>
 

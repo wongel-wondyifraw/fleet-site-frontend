@@ -279,6 +279,12 @@ export interface ApiTrip {
   endLat?: number | null;
   endLon?: number | null;
   scheduledAt?: string | null;
+  // ISO timestamp set when the trip transitions to IN_PROGRESS via the
+  // checkout action. Powers the live elapsed-time counter in the UI.
+  startedAt?: string | null;
+  // ISO timestamp set when the trip transitions to COMPLETED via the
+  // check-in action. Required for downstream reporting (durations, costs).
+  completedAt?: string | null;
   notes?: string | null;
   vehicle?: TripVehicleSummary;
   driver?: TripDriverSummary | null;

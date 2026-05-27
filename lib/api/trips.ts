@@ -61,3 +61,16 @@ export async function updateTrip(
 export async function deleteTrip(id: string): Promise<void> {
   return apiRequest<void>(`/trips/${id}`, { method: "DELETE" });
 }
+
+// PATCH /trips/:id/status — used by the row action buttons (Trip Checkout /
+// Check-in / Cancel). Lives separate from updateTrip so the start/complete
+// timestamp side-effects are explicit.
+export async function setTripStatus(
+  id: string,
+  status: TripStatus,
+): Promise<ApiTrip> {
+  return apiRequest<ApiTrip>(`/trips/${id}/status`, {
+    method: "PATCH",
+    body: { status },
+  });
+}
