@@ -1,6 +1,6 @@
 "use client";
 
-import { Fuel, LayoutDashboard, Settings, Truck, Users } from "lucide-react";
+import { LayoutDashboard, Route, Settings, Truck, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -25,7 +25,7 @@ const NAV_ITEMS = [
     icon: Users,
     href: "/dashboard/drivers",
   },
-  { id: "fuel", label: "Fuel", icon: Fuel, href: "/dashboard/fuel" },
+  { id: "trips", label: "Trips", icon: Route, href: "/dashboard/trips" },
   {
     id: "settings",
     label: "Settings",

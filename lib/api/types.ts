@@ -234,3 +234,54 @@ export function prettyEnum(value: string): string {
     .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
     .join(" ");
 }
+
+// ---------------------------------------------------------------------------
+// Trip types - mirror backend TripStatus enum.
+// ---------------------------------------------------------------------------
+export const TRIP_STATUSES = [
+  "PLANNED",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "CANCELLED",
+] as const;
+
+export type TripStatus = (typeof TRIP_STATUSES)[number];
+
+// Slim vehicle shape nested on trip list responses.
+export interface TripVehicleSummary {
+  id: string;
+  assetNumber?: string | null;
+  plateNumber: string;
+  type: VehicleType;
+}
+
+// Slim driver shape nested on trip list responses.
+export interface TripDriverSummary {
+  id: string;
+  employeeId: string;
+  firstName: string;
+  lastName: string;
+}
+
+export interface ApiTrip {
+  id: string;
+  vehicleId: string;
+  driverId?: string | null;
+  status: TripStatus;
+  startAddress: string;
+  startCity?: string | null;
+  startState?: string | null;
+  startLat?: number | null;
+  startLon?: number | null;
+  endAddress: string;
+  endCity?: string | null;
+  endState?: string | null;
+  endLat?: number | null;
+  endLon?: number | null;
+  scheduledAt?: string | null;
+  notes?: string | null;
+  vehicle?: TripVehicleSummary;
+  driver?: TripDriverSummary | null;
+  createdAt?: string;
+  updatedAt?: string;
+}

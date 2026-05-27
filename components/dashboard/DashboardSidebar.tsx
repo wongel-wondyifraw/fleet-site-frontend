@@ -1,11 +1,11 @@
 "use client";
 
 import {
-  Fuel,
   HelpCircle,
   LayoutDashboard,
   LogOut,
   Plus,
+  Route,
   Settings,
   Users,
   Warehouse,
@@ -24,7 +24,7 @@ const SIDEBAR_NAV = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { label: "Vehicle Registry", icon: Warehouse, href: "/dashboard/vehicles" },
   { label: "Drivers", icon: Users, href: "/dashboard/drivers" },
-  { label: "Fuel Tracking", icon: Fuel, href: "/dashboard/fuel" },
+  { label: "Trip Management", icon: Route, href: "/dashboard/trips" },
   { label: "Maintenance", icon: Wrench, href: "/dashboard/maintenance" },
 ] as const;
 
