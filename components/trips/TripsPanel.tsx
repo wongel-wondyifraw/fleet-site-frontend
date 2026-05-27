@@ -7,8 +7,10 @@ import {
   Ban,
   CircleCheck,
   Filter,
+  Info,
   Loader2,
   MapPin,
+  Navigation,
   Pencil,
   Play,
   Plus,
@@ -24,6 +26,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type FormEvent,
@@ -163,6 +166,10 @@ export function TripsPanel({
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ApiTrip | null>(null);
+  // Trip queued for cancel confirmation. Kept separate from delete because
+  // cancel is reversible-ish (the row keeps a CANCELLED record) so we don't
+  // want to share the destructive copy.
+  const [pendingCancel, setPendingCancel] = useState<ApiTrip | null>(null);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -397,6 +404,7 @@ export function TripsPanel({
               density={density}
               onEdit={() => setMode({ kind: "edit", trip })}
               onDelete={() => setPendingDelete(trip)}
+              onRequestCancel={() => setPendingCancel(trip)}
               onStatusChange={(next) => handleStatusChange(trip, next)}
             />
           ))}
@@ -436,6 +444,44 @@ export function TripsPanel({
           if (pendingDelete) await handleConfirmedDelete(pendingDelete);
         }}
       />
+
+      <ConfirmDialog
+        open={pendingCancel !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingCancel(null);
+        }}
+        title="Cancel this trip?"
+        description={
+          pendingCancel ? (
+            <>
+              Mark the trip from{" "}
+              <span className="font-semibold text-primary">
+                {formatLocationLine(
+                  pendingCancel.startAddress,
+                  pendingCancel.startCity,
+                )}
+              </span>{" "}
+              to{" "}
+              <span className="font-semibold text-primary">
+                {formatLocationLine(
+                  pendingCancel.endAddress,
+                  pendingCancel.endCity,
+                )}
+              </span>{" "}
+              as cancelled? The record stays in the list but no further
+              checkout / check-in is possible.
+            </>
+          ) : null
+        }
+        confirmLabel="Cancel trip"
+        destructive
+        onConfirm={async () => {
+          if (pendingCancel) {
+            await handleStatusChange(pendingCancel, "CANCELLED");
+            setPendingCancel(null);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -447,6 +493,7 @@ function TripRow({
   density,
   onEdit,
   onDelete,
+  onRequestCancel,
   onStatusChange,
 }: {
   trip: ApiTrip;
@@ -458,6 +505,9 @@ function TripRow({
   density: "comfortable" | "compact";
   onEdit: () => void;
   onDelete: () => void;
+  // Opens the cancel-confirmation dialog. The actual status transition
+  // runs from the panel after the user confirms.
+  onRequestCancel: () => void;
   onStatusChange: (next: TripStatus) => Promise<void> | void;
 }) {
   // Tracks the in-flight status action so we can disable all three buttons
@@ -522,15 +572,6 @@ function TripRow({
               {formatDuration(elapsedMs)}
             </span>
           )}
-          {trip.status === "COMPLETED" && elapsedMs !== null && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 font-mono text-[10px] font-bold tracking-wide text-success tabular-nums"
-              title={`Completed ${new Date(trip.completedAt ?? "").toLocaleString()}`}
-            >
-              <Timer className="size-3" />
-              {formatDuration(elapsedMs)}
-            </span>
-          )}
         </div>
         <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
           <MapPin className="size-3 shrink-0 text-primary" />
@@ -559,7 +600,11 @@ function TripRow({
               </span>
             </span>
           )}
-          {trip.startedAt && (
+          {/* Check-out / check-in timestamps moved into the TripTimesInfo
+              popover next to "Time taken" on completed trips. For in-progress
+              trips we still surface the start time so the row carries some
+              schedule context without the user having to open anything. */}
+          {trip.status === "IN_PROGRESS" && trip.startedAt && (
             <span>
               Checked out{" "}
               <span className="font-semibold text-primary">
@@ -567,17 +612,17 @@ function TripRow({
               </span>
             </span>
           )}
-          {trip.completedAt && (
-            <span>
-              Checked in{" "}
-              <span className="font-semibold text-primary">
-                {new Date(trip.completedAt).toLocaleString()}
-              </span>
-            </span>
-          )}
         </div>
       </div>
       <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
+        {trip.status === "COMPLETED" && (
+          <TripCompletedStats
+            durationMs={elapsedMs}
+            distanceKm={getTripDistanceKm(trip)}
+            startedAt={trip.startedAt}
+            completedAt={trip.completedAt}
+          />
+        )}
         {canCheckout && (
           <TripActionButton
             tone="success"
@@ -603,9 +648,8 @@ function TripRow({
         {canCancel && (
           <TripActionButton
             tone="muted"
-            onClick={() => runAction("CANCELLED")}
+            onClick={onRequestCancel}
             disabled={isBusy}
-            loading={pendingAction === "CANCELLED"}
             icon={Ban}
           >
             Cancel Trip
@@ -678,6 +722,229 @@ function TripActionButton({
       {children}
     </button>
   );
+}
+
+// Compact vertical summary rendered in place of the action buttons for
+// COMPLETED trips. Two flat rows (time, distance) stacked on top of each
+// other and separated by a hairline rule — deliberately chrome-free so
+// the panel reads as inline metadata, not a pair of buttons.
+function TripCompletedStats({
+  durationMs,
+  distanceKm,
+  startedAt,
+  completedAt,
+}: {
+  durationMs: number | null;
+  distanceKm: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}) {
+  return (
+    <div className="mr-auto flex min-w-[170px] flex-col divide-y divide-slate-200/70 sm:mr-10">
+      <CompletedStatCell
+        icon={Timer}
+        label="Time taken"
+        value={durationMs !== null ? formatDuration(durationMs) : "—"}
+        tone="success"
+        infoSlot={
+          <TripTimesInfo
+            startedAt={startedAt ?? null}
+            completedAt={completedAt ?? null}
+          />
+        }
+      />
+      <CompletedStatCell
+        icon={Navigation}
+        label="Distance"
+        // TODO: replace with measured route distance once GPS tracking
+        // ships. For now this is the straight-line distance between the
+        // saved start/end coordinates (LocationIQ-picked) or a placeholder.
+        value={distanceKm !== null ? formatDistance(distanceKm) : "—"}
+        tone="primary"
+      />
+    </div>
+  );
+}
+
+function CompletedStatCell({
+  icon: Icon,
+  label,
+  value,
+  tone,
+  infoSlot,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  tone: "success" | "primary";
+  infoSlot?: ReactNode;
+}) {
+  const iconColor = tone === "success" ? "text-success" : "text-primary";
+  const valueColor = tone === "success" ? "text-success" : "text-primary";
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <Icon className={cn("size-3.5 shrink-0", iconColor)} />
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+        {label}
+        {infoSlot}
+      </span>
+      <span
+        className={cn(
+          "ml-auto font-mono text-sm font-bold tabular-nums",
+          valueColor,
+        )}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// Small info affordance next to the "Time taken" label that exposes the
+// raw checkout/check-in timestamps. On desktop (>= sm) it behaves as a
+// hover/focus tooltip anchored to the icon; on mobile it opens a centered
+// modal-style sheet because hover isn't available and an anchored popover
+// would be cramped on a small screen.
+function TripTimesInfo({
+  startedAt,
+  completedAt,
+}: {
+  startedAt: string | null;
+  completedAt: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const checkedOut = startedAt ? new Date(startedAt).toLocaleString() : "—";
+  const checkedIn = completedAt ? new Date(completedAt).toLocaleString() : "—";
+
+  return (
+    <span ref={wrapRef} className="group/info relative inline-flex">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((prev) => !prev);
+        }}
+        className="inline-flex items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-primary focus:text-primary focus:outline-none"
+        aria-label="Show check-out and check-in times"
+        aria-expanded={open}
+      >
+        <Info className="size-3" />
+      </button>
+
+      {/* Mobile-only backdrop. Sits behind the modal, captures taps to close. */}
+      {open && (
+        <span
+          className="fixed inset-0 z-40 bg-black/40 sm:hidden"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen(false);
+          }}
+          aria-hidden
+        />
+      )}
+
+      <span
+        role="dialog"
+        className={cn(
+          // Mobile: centered modal sheet anchored to the viewport.
+          "fixed inset-x-4 top-1/2 z-50 -translate-y-1/2 rounded-xl border border-slate-200 bg-white p-4 text-left normal-case shadow-xl",
+          // Desktop: small popover anchored to the icon.
+          "sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:mt-1.5 sm:w-[240px] sm:translate-y-0 sm:p-3",
+          open ? "block" : "hidden",
+          // Desktop hover/focus also reveals the popover.
+          "sm:group-hover/info:block sm:group-focus-within/info:block",
+        )}
+      >
+        <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase sm:text-[10px]">
+          Trip times
+        </p>
+        <dl className="mt-2 space-y-1.5 text-xs sm:mt-1.5 sm:text-[11px]">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted-foreground">Checked out</dt>
+            <dd className="text-right font-semibold text-primary">
+              {checkedOut}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted-foreground">Checked in</dt>
+            <dd className="text-right font-semibold text-primary">
+              {checkedIn}
+            </dd>
+          </div>
+        </dl>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen(false);
+          }}
+          className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-700 hover:bg-slate-200 sm:hidden"
+        >
+          Close
+        </button>
+      </span>
+    </span>
+  );
+}
+
+// Resolves a "distance" to render for a trip. Prefers the haversine
+// straight-line between saved start/end coordinates so trips picked from
+// LocationIQ show a real number; falls back to null so the stats cell can
+// render a placeholder. Replace this once real route tracking is wired up.
+function getTripDistanceKm(trip: ApiTrip): number | null {
+  const { startLat, startLon, endLat, endLon } = trip;
+  if (
+    typeof startLat !== "number" ||
+    typeof startLon !== "number" ||
+    typeof endLat !== "number" ||
+    typeof endLon !== "number"
+  ) {
+    return null;
+  }
+  return haversineKm(startLat, startLon, endLat, endLon);
+}
+
+// Standard great-circle distance in kilometres. Accurate enough for the
+// rough trip overview the UI shows; not a substitute for real route data.
+function haversineKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const R = 6371; // Earth radius in km
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function formatDistance(km: number): string {
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  if (km < 10) return `${km.toFixed(1)} km`;
+  return `${Math.round(km)} km`;
 }
 
 // React hook that re-renders once per second while a start timestamp is
