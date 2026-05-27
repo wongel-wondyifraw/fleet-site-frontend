@@ -5,19 +5,19 @@
 //
 // Why we built our own rather than pulling in a library: we only need a
 // handful of features (success + error variants, auto-dismiss, manual
-// close, queue) and the styling has to match the FleetSite tokens
-// precisely. The library equivalents (sonner, react-hot-toast, etc.) come
-// with their own theming opinions and add a non-trivial bundle.
+// close, queue, slide animations) and the styling has to match the
+// FleetSite tokens precisely. The library equivalents (sonner,
+// react-hot-toast, etc.) come with their own theming opinions and add a
+// non-trivial bundle.
 //
 // Layout:
-// - Mobile (default viewport): fixed banner stack pinned to the top of
-//   the screen, full width, slides in from above. This is what the user
-//   requested ("on the mobile ui all success and failures must have a
-//   banner from top").
-// - Desktop (>= lg): the same provider can still be used, but it renders
-//   into the bottom-right corner where toast notifications are commonly
-//   placed. Existing inline error/success panels keep working untouched
-//   so the desktop experience matches what was already shipped.
+// - Mobile (default viewport): fixed banner stack anchored just below
+//   the fixed top bar (top-[76px], mirroring the dashboard <main>
+//   padding), full width, slides in from above and out the same way.
+// - Desktop (>= lg): the same provider renders into the bottom-right
+//   corner where toasts are commonly placed. Existing inline panels
+//   keep working untouched so the desktop experience matches what was
+//   already shipped.
 
 import {
   createContext,
@@ -45,9 +45,14 @@ export interface ToastInput {
   durationMs?: number;
 }
 
+// Internal lifecycle state used to drive the slide-in / slide-out CSS
+// transitions on each banner without needing a third-party animation lib.
+type ToastState = "entering" | "open" | "leaving";
+
 interface ToastRecord extends Required<Omit<ToastInput, "title">> {
   id: number;
   title?: string;
+  state: ToastState;
 }
 
 interface ToastContextValue {
@@ -65,22 +70,52 @@ const DEFAULT_DURATION_MS: Record<ToastVariant, number> = {
   error: 6000,
 };
 
+// Has to match the `duration-300` Tailwind utility on the banner: when
+// the user dismisses (or the auto timer fires) we flip the state to
+// "leaving", wait this long for the CSS transition to finish, and only
+// then remove the node so React can run the slide-out smoothly.
+const EXIT_ANIMATION_MS = 250;
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
   // Monotonically increasing ID so React keys are stable even after a
   // toast is removed and a new one with the same content is added.
   const nextIdRef = useRef(1);
-  // Track each toast's dismiss timer so we can clear it on manual close.
-  const timersRef = useRef<Map<number, number>>(new Map());
+  // Two parallel timer maps:
+  //  - autoTimers: the per-toast auto-dismiss schedule (variant-based).
+  //  - exitTimers: the short follow-up scheduled by dismissToast that
+  //    actually unmounts the banner once its slide-out has finished.
+  const autoTimersRef = useRef<Map<number, number>>(new Map());
+  const exitTimersRef = useRef<Map<number, number>>(new Map());
 
-  const dismissToast = useCallback((id: number) => {
+  const removeToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
-    const timer = timersRef.current.get(id);
-    if (timer !== undefined) {
-      window.clearTimeout(timer);
-      timersRef.current.delete(id);
-    }
+    exitTimersRef.current.delete(id);
   }, []);
+
+  const dismissToast = useCallback(
+    (id: number) => {
+      // Cancel any pending auto-dismiss so it doesn't race the manual close.
+      const autoTimer = autoTimersRef.current.get(id);
+      if (autoTimer !== undefined) {
+        window.clearTimeout(autoTimer);
+        autoTimersRef.current.delete(id);
+      }
+      // Idempotent: if a leaving animation is already underway, leave it.
+      const existingExit = exitTimersRef.current.get(id);
+      if (existingExit !== undefined) return;
+
+      setToasts((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, state: "leaving" } : t)),
+      );
+      const exitTimer = window.setTimeout(
+        () => removeToast(id),
+        EXIT_ANIMATION_MS,
+      );
+      exitTimersRef.current.set(id, exitTimer);
+    },
+    [removeToast],
+  );
 
   const showToast = useCallback(
     (input: ToastInput) => {
@@ -93,24 +128,30 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         message: input.message,
         title: input.title,
         durationMs,
+        state: "entering",
       };
       setToasts((prev) => [...prev, record]);
+      // Auto-dismiss after the variant-specific duration; banner handles
+      // its own enter animation on mount.
       if (durationMs > 0) {
         const timer = window.setTimeout(() => dismissToast(id), durationMs);
-        timersRef.current.set(id, timer);
+        autoTimersRef.current.set(id, timer);
       }
       return id;
     },
     [dismissToast],
   );
 
-  // Clear pending timers on unmount so we don't fire dismiss into an
-  // already-unmounted tree (would warn in StrictMode dev builds).
+  // Flush any in-flight timers when the provider unmounts to avoid setting
+  // state on an unmounted tree (would warn in StrictMode dev builds).
   useEffect(() => {
-    const timers = timersRef.current;
+    const auto = autoTimersRef.current;
+    const exit = exitTimersRef.current;
     return () => {
-      for (const timer of timers.values()) window.clearTimeout(timer);
-      timers.clear();
+      for (const t of auto.values()) window.clearTimeout(t);
+      for (const t of exit.values()) window.clearTimeout(t);
+      auto.clear();
+      exit.clear();
     };
   }, []);
 
@@ -178,36 +219,61 @@ function ToastBanner({
   toast: ToastRecord;
   onDismiss: (id: number) => void;
 }) {
+  // Drives the slide-in transition. We mount in the "entering" state
+  // (off-screen + transparent) and flip to "open" on the next frame so
+  // the browser actually applies the transition between the two states.
+  // Without the rAF gate the element appears already-open with no anim.
+  const [hasEntered, setHasEntered] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setHasEntered(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
   const Icon =
     toast.variant === "success"
       ? CheckCircle2
       : toast.variant === "error"
         ? TriangleAlert
         : Info;
-  const tone =
+
+  // Variant only changes the leading icon color. The body uses the
+  // requested palette across the board: gray surface, primary-blue text.
+  const iconColor =
     toast.variant === "success"
-      ? "border-success/30 bg-success/10 text-success"
+      ? "text-success"
       : toast.variant === "error"
-        ? "border-destructive/30 bg-destructive/10 text-destructive"
-        : "border-primary/30 bg-primary/10 text-primary";
+        ? "text-destructive"
+        : "text-primary";
+
+  const isLeaving = toast.state === "leaving";
+  const isOpen = hasEntered && !isLeaving;
+
   return (
     <div
       role="status"
       aria-live={toast.variant === "error" ? "assertive" : "polite"}
       className={cn(
-        "pointer-events-auto flex items-start gap-3 rounded-xl border bg-white px-3 py-2.5 shadow-lg ring-1 ring-black/5 animate-in slide-in-from-top-2 fade-in",
-        tone,
+        "pointer-events-auto flex items-start gap-3.5 rounded-xl border border-slate-300 bg-slate-200 px-4 py-3.5 text-primary shadow-xl ring-1 ring-black/5 transition-all duration-300 ease-out",
+        // Slide + fade between the entering / open / leaving states. We
+        // use `-translate-y-3` on mobile so the banner enters from above
+        // the header, and `translate-y-3` on desktop so the bottom-right
+        // stack slides in from below.
+        isOpen
+          ? "translate-y-0 opacity-100"
+          : "-translate-y-3 opacity-0 lg:translate-y-3 lg:-translate-x-0",
       )}
     >
-      <Icon className="mt-0.5 size-5 shrink-0" aria-hidden />
+      <Icon className={cn("mt-0.5 size-6 shrink-0", iconColor)} aria-hidden />
       <div className="min-w-0 flex-1 text-left">
         {toast.title && (
-          <p className="text-sm font-semibold text-primary">{toast.title}</p>
+          <p className="text-base leading-tight font-semibold text-primary">
+            {toast.title}
+          </p>
         )}
         <p
           className={cn(
-            "text-xs leading-snug",
-            toast.title ? "text-muted-foreground" : "text-primary",
+            "leading-snug text-primary",
+            toast.title ? "mt-0.5 text-sm" : "text-sm font-medium",
           )}
         >
           {toast.message}
@@ -216,10 +282,10 @@ function ToastBanner({
       <button
         type="button"
         onClick={() => onDismiss(toast.id)}
-        className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-black/5 hover:text-primary"
+        className="-mt-1 -mr-1 shrink-0 rounded-md p-1.5 text-primary/70 transition-colors hover:bg-slate-300/70 hover:text-primary focus:bg-slate-300/70 focus:text-primary focus:outline-none"
         aria-label="Dismiss notification"
       >
-        <X className="size-3.5" />
+        <X className="size-4" />
       </button>
     </div>
   );
