@@ -3,6 +3,7 @@
 import { Bell } from "lucide-react";
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
+import { InstallPWAButton } from "@/components/pwa/InstallPWAButton";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/AuthContext";
 
@@ -25,6 +26,10 @@ export function DashboardMobileTopBar() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Install-as-app shortcut. Self-hides when the PWA is already
+              installed or the current browser doesn't expose an install
+              prompt API (iOS Safari, etc.). */}
+          <InstallPWAButton />
           <Button
             variant="ghost"
             size="icon-sm"

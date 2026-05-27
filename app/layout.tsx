@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   // Apple devices ignore the manifest's icons array - they look for
   // <link rel="apple-touch-icon"> instead.
   icons: {
-    apple: [{ url: "/Fleetsite.png", sizes: "180x180", type: "image/png" }],
+    apple: [{ url: "/icon-180.png", sizes: "180x180", type: "image/png" }],
   },
   // Formats addresses / phone numbers as plain text instead of auto-linking
   // them, which is what we want for a tool-style app.

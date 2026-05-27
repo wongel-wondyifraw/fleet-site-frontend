@@ -18,13 +18,20 @@
  * old caches get cleaned up on activate.
  */
 
-const CACHE_VERSION = "fleetsite-v1";
+const CACHE_VERSION = "fleetsite-v2";
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const PRECACHE = `${CACHE_VERSION}-precache`;
 
 // Minimal list of files needed for the offline experience. Keep this small:
 // every entry has to download successfully or install() fails.
-const PRECACHE_URLS = ["/offline.html", "/manifest.webmanifest"];
+const PRECACHE_URLS = [
+  "/offline.html",
+  "/manifest.webmanifest",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/maskable-icon-192.png",
+  "/maskable-icon-512.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
