@@ -17,7 +17,6 @@ import {
   IdCard,
   Loader2,
   Mail,
-  Phone,
   Plus,
   Save,
   Search,
@@ -37,6 +36,7 @@ import {
   SettingsField,
   fieldClass,
 } from "@/components/settings/SettingsShared";
+import { PhoneInput } from "@/components/shared/PhoneInput";
 import { Button } from "@/components/ui/button";
 import { PanelError } from "@/components/vehicles/VehicleForm";
 import { ApiError } from "@/lib/api/client";
@@ -159,7 +159,9 @@ export function DriverForm({
     isoDate(initial?.licenseExpiry),
   );
   const [hireDate, setHireDate] = useState(isoDate(initial?.hireDate));
-  const [phoneNumber, setPhoneNumber] = useState(initial?.phoneNumber ?? "");
+  const [phoneNumber, setPhoneNumber] = useState(
+    initial?.phoneNumber ?? "+251",
+  );
   const [email, setEmail] = useState(initial?.email ?? "");
   // homeSite is a free-text column on the entity; we model it here as the
   // site *name* so the dropdown shows nice labels and search-by-site works.
@@ -225,9 +227,12 @@ export function DriverForm({
     if (!licenseNumber.trim()) return "License number is required.";
     if (!licenseExpiry) return "License expiry date is required.";
     if (!hireDate) return "Hire date is required.";
-    if (!phoneNumber.trim()) return "Phone number is required.";
+    const trimmedPhone = phoneNumber.trim();
+    if (!trimmedPhone || trimmedPhone === "+251") {
+      return "Phone number is required.";
+    }
     // Loose phone check that matches the backend regex.
-    if (!/^[+\d][\d\s\-()]{5,}$/.test(phoneNumber.trim())) {
+    if (!/^[+\d][\d\s\-()]{5,}$/.test(trimmedPhone)) {
       return "Phone number format looks invalid.";
     }
     if (email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
@@ -462,13 +467,10 @@ export function DriverForm({
 
       <FieldGrid>
         <SettingsField label="Phone number">
-          <IconInput
-            icon={Phone}
+          <PhoneInput
             value={phoneNumber}
             onChange={setPhoneNumber}
-            placeholder="+1 555 0100"
             disabled={isSubmitting}
-            type="tel"
           />
         </SettingsField>
         <SettingsField label="Email" hint="Optional">

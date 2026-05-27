@@ -14,7 +14,6 @@ import {
   Hash,
   IdCard,
   Loader2,
-  Phone,
   Plus,
   Save,
   Search,
@@ -35,6 +34,7 @@ import {
   SettingsField,
   fieldClass,
 } from "@/components/settings/SettingsShared";
+import { PhoneInput } from "@/components/shared/PhoneInput";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api/client";
 import { type CreateDriverRequest } from "@/lib/api/drivers";
@@ -133,7 +133,7 @@ function emptyNewDriverForm(): NewDriverFormState {
     licenseNumber: "",
     licenseClass: "PUBLIC_1",
     licenseExpiry: oneYearFromTodayIso(),
-    phoneNumber: "",
+    phoneNumber: "+251",
     email: "",
     hireDate: todayIsoDate(),
   };
@@ -799,17 +799,11 @@ function NewDriverSubForm({
           />
         </SettingsField>
         <SettingsField label="Phone number">
-          <div className="relative">
-            <Phone className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="tel"
-              value={form.phoneNumber}
-              onChange={(e) => onChange("phoneNumber", e.target.value)}
-              disabled={disabled}
-              placeholder="+1 555 123 4567"
-              className={`${fieldClass} pl-9`}
-            />
-          </div>
+          <PhoneInput
+            value={form.phoneNumber}
+            onChange={(v) => onChange("phoneNumber", v)}
+            disabled={disabled}
+          />
         </SettingsField>
         <SettingsField label="License number">
           <input
@@ -889,7 +883,9 @@ function validateNewDriver(payload: CreateDriverRequest): string | null {
   if (!payload.firstName) return "Driver: first name is required.";
   if (!payload.lastName) return "Driver: last name is required.";
   if (!payload.licenseNumber) return "Driver: license number is required.";
-  if (!payload.phoneNumber) return "Driver: phone number is required.";
+  if (!payload.phoneNumber || payload.phoneNumber === "+251") {
+    return "Driver: phone number is required.";
+  }
   if (!/^[+\d][\d\s\-()]{5,}$/.test(payload.phoneNumber)) {
     return "Driver: phone number looks invalid.";
   }

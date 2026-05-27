@@ -2,6 +2,8 @@
 
 import {
   AlertCircle,
+  Eye,
+  EyeOff,
   Gavel,
   Loader2,
   Lock,
@@ -33,6 +35,7 @@ export function MobileLogin() {
   // Form state: controlled inputs + UI flags.
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -82,10 +85,12 @@ export function MobileLogin() {
           <LoginForm
             email={email}
             password={password}
+            showPassword={showPassword}
             errorMessage={errorMessage}
             isAuthenticating={isAuthenticating}
             onEmailChange={(e) => setEmail(e.target.value)}
             onPasswordChange={(e) => setPassword(e.target.value)}
+            onTogglePassword={() => setShowPassword((v) => !v)}
           />
         </form>
       </div>
@@ -101,17 +106,21 @@ export function MobileLogin() {
 function LoginForm({
   email,
   password,
+  showPassword,
   errorMessage,
   isAuthenticating,
   onEmailChange,
   onPasswordChange,
+  onTogglePassword,
 }: {
   email: string;
   password: string;
+  showPassword: boolean;
   errorMessage: string | null;
   isAuthenticating: boolean;
   onEmailChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onPasswordChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onTogglePassword: () => void;
 }) {
   return (
     <div className="w-full space-y-6">
@@ -127,15 +136,13 @@ function LoginForm({
           onChange={onEmailChange}
           disabled={isAuthenticating}
         />
-        <MobileField
+        <MobilePasswordField
           id="mobile-password"
           label="Password"
-          icon={Lock}
-          type="password"
-          autoComplete="current-password"
-          placeholder="••••••••"
           value={password}
+          showPassword={showPassword}
           onChange={onPasswordChange}
+          onToggle={onTogglePassword}
           disabled={isAuthenticating}
         />
       </div>
@@ -190,6 +197,68 @@ function ErrorBanner({ message }: { message: string }) {
     >
       <AlertCircle className="mt-0.5 size-4 flex-shrink-0" />
       <span>{message}</span>
+    </div>
+  );
+}
+
+// Password field with show/hide toggle — mirrors DesktopLogin PasswordInput.
+function MobilePasswordField({
+  id,
+  label,
+  value,
+  showPassword,
+  onChange,
+  onToggle,
+  disabled,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  showPassword: boolean;
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label
+        htmlFor={id}
+        className="font-label-caps text-label-caps px-1 uppercase text-muted-foreground"
+      >
+        {label}
+      </Label>
+      <div className="group relative">
+        <Lock className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
+        <Input
+          id={id}
+          name={id}
+          type={showPassword ? "text" : "password"}
+          autoComplete="current-password"
+          placeholder="••••••••"
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+          className={cn(
+            "h-12 border-border bg-transparent pr-12 pl-10 placeholder:text-outline-variant",
+            "focus-visible:border-primary focus-visible:ring-primary/30",
+          )}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="absolute top-1/2 right-1 size-9 -translate-y-1/2 text-muted-foreground hover:text-primary"
+          aria-label={showPassword ? "Hide password" : "Show password"}
+          onClick={onToggle}
+          disabled={disabled}
+        >
+          {showPassword ? (
+            <EyeOff className="size-5" />
+          ) : (
+            <Eye className="size-5" />
+          )}
+        </Button>
+      </div>
     </div>
   );
 }
