@@ -1,6 +1,6 @@
 "use client";
 
-import { Phone } from "lucide-react";
+import { Phone } from "@/lib/icons";
 import { useMemo } from "react";
 
 import { fieldClass } from "@/components/settings/SettingsShared";

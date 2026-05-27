@@ -9,7 +9,7 @@ import {
   Lock,
   LogIn,
   Mail,
-} from "lucide-react";
+} from "@/lib/icons";
 import { useRouter } from "next/navigation";
 import {
   useState,

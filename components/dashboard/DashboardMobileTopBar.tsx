@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell } from "lucide-react";
+import { Bell } from "@/lib/icons";
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
 import { InstallPWAButton } from "@/components/pwa/InstallPWAButton";

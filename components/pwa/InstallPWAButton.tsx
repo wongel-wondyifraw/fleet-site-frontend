@@ -12,7 +12,7 @@
 //    display mode (i.e. it was installed) or on iOS Safari where the
 //    Add-to-Home-Screen flow lives in the system share sheet and there is
 //    no programmatic prompt API.
-import { Download } from "lucide-react";
+import { Download } from "@/lib/icons";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";

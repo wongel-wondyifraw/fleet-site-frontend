@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Filter, Search, UserRound, X } from "lucide-react";
+import { Building2, Filter, Search, UserRound, X } from "@/lib/icons";
 import { useMemo, useState } from "react";
 
 import { fieldClass } from "@/components/settings/SettingsShared";

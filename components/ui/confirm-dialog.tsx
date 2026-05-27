@@ -3,7 +3,7 @@
 // One-shot confirmation dialog used in place of `window.confirm`. Wraps the
 // shadcn-style AlertDialog primitives so a destructive action only needs to
 // say "delete X?" and provide the actual handler.
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/lib/icons";
 import { useState, type ReactNode } from "react";
 
 import {

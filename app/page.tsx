@@ -2,7 +2,7 @@
 
 // Login page: if the user is already authenticated, redirect to the dashboard.
 // Otherwise render the responsive login layouts (mobile + desktop variants).
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/lib/icons";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 

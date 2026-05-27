@@ -18,7 +18,7 @@ import {
   User as UserIcon,
   UserPlus,
   X,
-} from "lucide-react";
+} from "@/lib/icons";
 import Link from "next/link";
 import {
   useCallback,

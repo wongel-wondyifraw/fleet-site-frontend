@@ -1,6 +1,6 @@
 "use client";
 
-import { Users } from "lucide-react";
+import { Users } from "@/lib/icons";
 
 import { DriversPanel } from "@/components/drivers/DriversPanel";
 import { SettingsSection } from "@/components/settings/SettingsShared";

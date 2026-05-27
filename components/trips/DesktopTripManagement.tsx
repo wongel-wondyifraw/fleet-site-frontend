@@ -1,6 +1,6 @@
 "use client";
 
-import { Route } from "lucide-react";
+import { Route } from "@/lib/icons";
 
 import { SettingsSection } from "@/components/settings/SettingsShared";
 import { TripsPanel } from "@/components/trips/TripsPanel";

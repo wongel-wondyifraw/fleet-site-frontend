@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Truck, X } from "lucide-react";
+import { Search, Truck, X } from "@/lib/icons";
 import { useMemo, useState } from "react";
 
 import { fieldClass } from "@/components/settings/SettingsShared";

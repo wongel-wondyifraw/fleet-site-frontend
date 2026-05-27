@@ -20,7 +20,7 @@ import {
   Truck,
   UserRound,
   X,
-} from "lucide-react";
+} from "@/lib/icons";
 import {
   useCallback,
   useEffect,

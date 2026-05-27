@@ -8,7 +8,7 @@ import {
   Loader2,
   Lock,
   Mail,
-} from "lucide-react";
+} from "@/lib/icons";
 import { useRouter } from "next/navigation";
 import {
   FormEvent,

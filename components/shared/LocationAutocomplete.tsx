@@ -7,7 +7,7 @@
 // input when the API key isn't configured (or the request fails).
 //
 // Docs: https://docs.locationiq.com/docs/autocomplete
-import { Loader2, MapPin, Search } from "lucide-react";
+import { Loader2, MapPin, Search } from "@/lib/icons";
 import {
   useCallback,
   useEffect,

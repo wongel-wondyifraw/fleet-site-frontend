@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Clock, LogOut, Mail, User, Users } from "lucide-react";
+import { Building2, Clock, LogOut, Mail, User, Users } from "@/lib/icons";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 

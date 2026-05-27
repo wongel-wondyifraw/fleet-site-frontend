@@ -18,7 +18,7 @@ import {
   Trash2,
   Truck,
   User as UserIcon,
-} from "lucide-react";
+} from "@/lib/icons";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {

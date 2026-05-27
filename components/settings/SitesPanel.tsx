@@ -16,7 +16,7 @@ import {
   Trash2,
   Users,
   X,
-} from "lucide-react";
+} from "@/lib/icons";
 import {
   useCallback,
   useEffect,

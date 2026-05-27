@@ -1,19 +1,17 @@
 "use client";
 
 import {
-  HelpCircle,
+  Clock,
   LayoutDashboard,
   LogOut,
-  Plus,
   Route,
   Settings,
   Users,
   Warehouse,
-  Wrench,
-} from "lucide-react";
+} from "@/lib/icons";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
 import { Button } from "@/components/ui/button";
@@ -27,7 +25,11 @@ const SIDEBAR_NAV = [
   { label: "Vehicle Registry", icon: Warehouse, href: "/dashboard/vehicles" },
   { label: "Drivers", icon: Users, href: "/dashboard/drivers" },
   { label: "Trip Management", icon: Route, href: "/dashboard/trips" },
-  { label: "Maintenance", icon: Wrench, href: "/dashboard/maintenance" },
+  {
+    label: "Attendance Management",
+    icon: Clock,
+    href: "/dashboard/attendance",
+  },
 ] as const;
 
 // Match exact dashboard root or any nested subpath under the nav href.
@@ -44,6 +46,34 @@ function formatRole(role: string): string {
     .join(" ");
 }
 
+// Formats a Date as e.g. "Oct 24, 2023 · 08:42 AM".
+function formatNow(date: Date): string {
+  const datePart = date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const timePart = date.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${datePart} · ${timePart}`;
+}
+
+// Live wall-clock string. Empty on first render to avoid SSR/CSR hydration
+// drift; populates after mount and ticks every 30s (resolution is minutes).
+function useLiveNow(): string {
+  const [now, setNow] = useState<string>("");
+
+  useEffect(() => {
+    setNow(formatNow(new Date()));
+    const id = setInterval(() => setNow(formatNow(new Date())), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  return now;
+}
+
 export function DashboardSidebar() {
   const pathname = usePathname() ?? "";
   // Pull current user + logout helper from auth context for the footer card.
@@ -51,6 +81,8 @@ export function DashboardSidebar() {
   const router = useRouter();
   // Drives the sign-out confirmation dialog so a misclick can't end the session.
   const [confirmSignOutOpen, setConfirmSignOutOpen] = useState(false);
+  // Live date + time string for the sidebar header.
+  const nowLabel = useLiveNow();
 
   // Logout: clear auth state then send the user back to the login page.
   function handleLogout() {
@@ -60,14 +92,10 @@ export function DashboardSidebar() {
 
   return (
     <aside className="fixed top-0 left-0 z-40 hidden h-full w-[var(--spacing-sidebar)] flex-col border-r border-slate-200/80 bg-white px-4 py-5 lg:flex">
-      <div className="mb-5 flex flex-col items-center gap-3 rounded-2xl bg-slate-50 px-4 py-5 ring-1 ring-black/5">
+      <div className="mb-5 flex min-h-[210px] flex-col items-center justify-center gap-1.5 rounded-2xl bg-slate-50 px-4 py-5 ring-1 ring-black/5">
         <FleetSiteLogo size="sidebar" />
-        <span className="text-base leading-none font-bold text-primary">
+        <span className="-mt-[15px] text-xl leading-none font-bold tracking-wide text-primary">
           FleetSite
-        </span>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-success/15 px-3 py-1 text-[11px] font-semibold text-success">
-          <span className="size-1.5 rounded-full bg-success" />
-          Site Active
         </span>
       </div>
 
@@ -90,8 +118,11 @@ export function DashboardSidebar() {
         </div>
       )}
 
-      <p className="font-label-caps mb-6 text-center text-[10px] tracking-wide text-muted-foreground uppercase">
-        Oct 24, 2023 · 08:42 AM
+      <p
+        className="font-label-caps mb-6 text-center text-[10px] tracking-wide text-muted-foreground uppercase"
+        suppressHydrationWarning
+      >
+        {nowLabel || "\u00A0"}
       </p>
 
       <nav className="flex-1 space-y-1">
@@ -116,27 +147,12 @@ export function DashboardSidebar() {
       </nav>
 
       <div className="mt-4 space-y-3">
-        <Link
-          href="/dashboard/vehicles"
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-md shadow-primary/25 transition-colors hover:bg-surface-tint"
-        >
-          <Plus className="size-4" />
-          Add New Vehicle
-        </Link>
-        <div className="flex gap-2">
-          <SidebarFooterLink
-            href="/dashboard/settings"
-            icon={Settings}
-            label="Settings"
-            active={isActive(pathname, "/dashboard/settings")}
-          />
-          <SidebarFooterLink
-            href="/dashboard/support"
-            icon={HelpCircle}
-            label="Support"
-            active={isActive(pathname, "/dashboard/support")}
-          />
-        </div>
+        <SidebarFooterLink
+          href="/dashboard/settings"
+          icon={Settings}
+          label="Settings"
+          active={isActive(pathname, "/dashboard/settings")}
+        />
         {/* Logout: opens a confirmation dialog before clearing the JWT/user. */}
         <Button
           type="button"

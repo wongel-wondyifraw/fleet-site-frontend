@@ -7,7 +7,7 @@ import {
   ShieldCheck,
   User,
   Users,
-} from "lucide-react";
+} from "@/lib/icons";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, type ComponentType } from "react";
 

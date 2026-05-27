@@ -20,7 +20,7 @@ import {
   User as UserIcon,
   UserPlus,
   X,
-} from "lucide-react";
+} from "@/lib/icons";
 import {
   useMemo,
   useState,

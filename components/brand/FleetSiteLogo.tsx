@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 const sizeClasses = {
   xs: "h-9 w-9",
-  sidebar: "h-16 w-16",
+  sidebar: "h-28 w-28",
   sm: "h-48 w-48",
   md: "h-56 w-56",
   lg: "h-64 w-64",
@@ -10,7 +10,7 @@ const sizeClasses = {
 
 const sizePixels = {
   xs: 36,
-  sidebar: 64,
+  sidebar: 112,
   sm: 192,
   md: 224,
   lg: 256,

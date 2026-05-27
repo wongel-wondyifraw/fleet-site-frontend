@@ -4,7 +4,7 @@
 // - shows a loading state while we hydrate auth from localStorage
 // - redirects unauthenticated users to the login page
 // - renders children only when a real user is present
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/lib/icons";
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 

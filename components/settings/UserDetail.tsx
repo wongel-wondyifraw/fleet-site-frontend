@@ -23,7 +23,7 @@ import {
   Trash2,
   UserCog,
   X,
-} from "lucide-react";
+} from "@/lib/icons";
 import Link from "next/link";
 import {
   useCallback,

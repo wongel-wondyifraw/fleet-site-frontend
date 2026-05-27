@@ -1,6 +1,6 @@
 "use client";
 
-import { Truck } from "lucide-react";
+import { Truck } from "@/lib/icons";
 
 import { SettingsSection } from "@/components/settings/SettingsShared";
 import { VehiclesPanel } from "@/components/vehicles/VehiclesPanel";

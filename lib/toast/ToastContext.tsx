@@ -30,7 +30,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { CheckCircle2, Info, TriangleAlert, X } from "lucide-react";
+import { CheckCircle2, Info, TriangleAlert, X } from "@/lib/icons";
 
 import { cn } from "@/lib/utils";
 

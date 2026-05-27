@@ -18,7 +18,7 @@ import {
   Truck,
   UserPlus,
   UserRound,
-} from "lucide-react";
+} from "@/lib/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {

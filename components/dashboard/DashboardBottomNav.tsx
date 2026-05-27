@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Route, Settings, Truck, Users } from "lucide-react";
+import { LayoutDashboard, Route, Settings, Truck, Users } from "@/lib/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
