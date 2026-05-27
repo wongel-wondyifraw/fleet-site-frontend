@@ -391,7 +391,7 @@ export function TripsPanel({
 
       {loadError && <PanelError message={loadError} />}
 
-      {isLoading ? (
+      {isLoading && trips.length === 0 ? (
         <div className="flex items-center justify-center rounded-xl border border-slate-100 bg-slate-50/50 p-8">
           <Loader2 className="size-5 animate-spin text-primary" />
         </div>

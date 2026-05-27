@@ -145,9 +145,11 @@ function ToastViewport({
   if (toasts.length === 0) return null;
   return (
     <>
-      {/* Mobile: stacked banners pinned to the top of the viewport. */}
+      {/* Mobile: stacked banners pinned just below the fixed top bar. The
+          dashboard layout offsets <main> with pt-[76px] for the same
+          header — we mirror that so toasts never sit underneath it. */}
       <div
-        className="pointer-events-none fixed inset-x-0 top-0 z-[60] flex flex-col gap-2 px-3 pt-[max(env(safe-area-inset-top),0.75rem)] lg:hidden"
+        className="pointer-events-none fixed inset-x-0 top-[76px] z-[60] flex flex-col gap-2 px-3 pt-1 lg:hidden"
         role="region"
         aria-label="Notifications"
       >
