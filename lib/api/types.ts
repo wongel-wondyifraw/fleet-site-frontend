@@ -289,6 +289,10 @@ export interface ApiTrip {
   // time by the client (LocationIQ driving distance with a haversine
   // fallback). Nullable for trips checked in before this field shipped.
   distanceKm?: number | null;
+  // Round-trip flag — when true the driver returns to the starting
+  // location, so the distance preview and check-in distance include the
+  // return leg (A → B → A) instead of just A → B.
+  isRoundTrip?: boolean;
   notes?: string | null;
   vehicle?: TripVehicleSummary;
   driver?: TripDriverSummary | null;

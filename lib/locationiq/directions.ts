@@ -26,7 +26,9 @@ export interface DrivingDistanceResult {
 
 // Cache key = "lon1,lat1->lon2,lat2" with 6 decimal places (~11cm) which
 // is plenty for distance computation and means we de-dupe lookups even
-// when the user nudges a marker by a tiny amount.
+// when the user nudges a marker by a tiny amount. The round-trip
+// variant is keyed separately so toggling the "Returns here" checkbox
+// can never serve a stale one-way distance.
 const cache = new Map<string, DrivingDistanceResult | null>();
 
 function cacheKey(
@@ -34,9 +36,11 @@ function cacheKey(
   startLon: number,
   endLat: number,
   endLon: number,
+  roundTrip: boolean,
 ): string {
   const fix = (n: number) => n.toFixed(6);
-  return `${fix(startLon)},${fix(startLat)}->${fix(endLon)},${fix(endLat)}`;
+  const base = `${fix(startLon)},${fix(startLat)}->${fix(endLon)},${fix(endLat)}`;
+  return roundTrip ? `${base}|rt` : base;
 }
 
 // Forward-geocode helper. Used when a flow populates an address from a
@@ -87,20 +91,30 @@ export async function fetchDrivingDistance(
   endLat: number,
   endLon: number,
   signal?: AbortSignal,
+  // When true, requests A → B → A from the routing API so the result's
+  // distance/duration cover the full round trip in one call. The
+  // returned `distance` field on OSRM responses is the sum of all legs,
+  // so the caller doesn't need to double anything.
+  roundTrip: boolean = false,
 ): Promise<DrivingDistanceResult | null> {
   const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_API_KEY ?? "";
   if (!apiKey) return null;
 
-  const key = cacheKey(startLat, startLon, endLat, endLon);
+  const key = cacheKey(startLat, startLon, endLat, endLon, roundTrip);
   if (cache.has(key)) {
     return cache.get(key) ?? null;
   }
 
   // The OSRM-compatible endpoint expects {lon,lat};{lon,lat}. We disable
-  // the geometry overview because we only need the summary metrics.
+  // the geometry overview because we only need the summary metrics. For
+  // a round trip we append the starting waypoint again so the response
+  // reflects A → B → A as a single, summed route.
+  const waypoints = roundTrip
+    ? `${startLon},${startLat};${endLon},${endLat};${startLon},${startLat}`
+    : `${startLon},${startLat};${endLon},${endLat}`;
   const url =
     `https://us1.locationiq.com/v1/directions/driving/` +
-    `${startLon},${startLat};${endLon},${endLat}` +
+    `${waypoints}` +
     `?key=${encodeURIComponent(apiKey)}&overview=false&steps=false`;
 
   try {

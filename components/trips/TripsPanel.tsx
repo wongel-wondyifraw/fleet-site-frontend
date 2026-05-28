@@ -45,7 +45,6 @@ import {
   type PickedLocation,
 } from "@/components/shared/LocationAutocomplete";
 import { TripDriverPicker } from "@/components/trips/TripDriverPicker";
-import { TripVehiclePicker } from "@/components/trips/TripVehiclePicker";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PanelError } from "@/components/vehicles/VehicleForm";
@@ -84,7 +83,6 @@ import {
 } from "@/lib/api/types";
 import { listVehicles } from "@/lib/api/vehicles";
 import {
-  findDriverForVehicle,
   formatSiteLocation,
   resolvePrimarySite,
   siteToStartFields,
@@ -112,6 +110,7 @@ type TripFormState = {
   endState: string;
   endLat: number | null;
   endLon: number | null;
+  isRoundTrip: boolean;
 };
 
 function emptyForm(): TripFormState {
@@ -129,6 +128,7 @@ function emptyForm(): TripFormState {
     endState: "",
     endLat: null,
     endLon: null,
+    isRoundTrip: false,
   };
 }
 
@@ -147,6 +147,7 @@ function tripToForm(trip: ApiTrip): TripFormState {
     endState: trip.endState ?? "",
     endLat: trip.endLat ?? null,
     endLon: trip.endLon ?? null,
+    isRoundTrip: trip.isRoundTrip ?? false,
   };
 }
 
@@ -1510,15 +1511,14 @@ function TripRow({
 
         if (!start || !end) return;
 
+        const oneWayStraight = haversineKm(
+          start.lat,
+          start.lon,
+          end.lat,
+          end.lon,
+        );
         if (!cancelled && !abort.signal.aborted) {
-          setDistanceKm(
-            haversineKm(
-              start.lat,
-              start.lon,
-              end.lat,
-              end.lon,
-            ),
-          );
+          setDistanceKm(trip.isRoundTrip ? oneWayStraight * 2 : oneWayStraight);
         }
 
         const driving = await fetchDrivingDistance(
@@ -1527,6 +1527,7 @@ function TripRow({
           end.lat,
           end.lon,
           abort.signal,
+          trip.isRoundTrip ?? false,
         );
 
         if (!driving) return;
@@ -1558,6 +1559,7 @@ function TripRow({
     trip.endAddress,
     trip.endCity,
     trip.endState,
+    trip.isRoundTrip,
   ]);
 
   const canCheckout = trip.status === "PLANNED";
@@ -2015,18 +2017,22 @@ async function resolveCheckinDistanceKm(
 
     if (!start || !end) return null;
 
+    const roundTrip = trip.isRoundTrip ?? false;
     const driving = await fetchDrivingDistance(
       start.lat,
       start.lon,
       end.lat,
       end.lon,
       abort.signal,
+      roundTrip,
     );
     if (driving) return driving.distanceKm;
 
     // Driving failed — settle for the straight-line so the record at
-    // least carries something useful.
-    return haversineKm(start.lat, start.lon, end.lat, end.lon);
+    // least carries something useful. Round trips double it since the
+    // driver covers each leg once.
+    const oneWay = haversineKm(start.lat, start.lon, end.lat, end.lon);
+    return roundTrip ? oneWay * 2 : oneWay;
   } catch {
     return null;
   } finally {
@@ -2096,6 +2102,7 @@ function TripDistancePreview({
   endLon,
   hasStart,
   hasEnd,
+  isRoundTrip,
 }: {
   startLat: number | null;
   startLon: number | null;
@@ -2103,6 +2110,10 @@ function TripDistancePreview({
   endLon: number | null;
   hasStart: boolean;
   hasEnd: boolean;
+  // When true, the preview reflects the full A → B → A route. Driving
+  // mode forwards the flag to the routing API as a third waypoint;
+  // straight-line mode doubles the haversine distance.
+  isRoundTrip: boolean;
 }) {
   const haveBothCoords =
     startLat !== null &&
@@ -2110,7 +2121,7 @@ function TripDistancePreview({
     endLat !== null &&
     endLon !== null;
 
-  const straightLineKm = haveBothCoords
+  const oneWayStraightKm = haveBothCoords
     ? haversineKm(
         startLat as number,
         startLon as number,
@@ -2118,6 +2129,15 @@ function TripDistancePreview({
         endLon as number,
       )
     : null;
+  // Round trips double the straight-line distance since the driver
+  // covers each leg once. Driving mode is handled below by passing the
+  // flag to the routing API, which returns the full A→B→A distance.
+  const straightLineKm =
+    oneWayStraightKm !== null
+      ? isRoundTrip
+        ? oneWayStraightKm * 2
+        : oneWayStraightKm
+      : null;
 
   const [drivingKm, setDrivingKm] = useState<number | null>(null);
   const [drivingDurationSec, setDrivingDurationSec] = useState<number | null>(
@@ -2145,6 +2165,7 @@ function TripDistancePreview({
         endLat as number,
         endLon as number,
         controller.signal,
+        isRoundTrip,
       );
       if (controller.signal.aborted) return;
       if (result) {
@@ -2163,7 +2184,7 @@ function TripDistancePreview({
       controller.abort();
       setIsFetchingRoute(false);
     };
-  }, [haveBothCoords, startLat, startLon, endLat, endLon]);
+  }, [haveBothCoords, startLat, startLon, endLat, endLon, isRoundTrip]);
 
   const km = drivingKm ?? straightLineKm;
   const isDriving = drivingKm !== null;
@@ -2177,7 +2198,7 @@ function TripDistancePreview({
     >
       <div className="flex flex-col items-center gap-0.5 leading-tight">
         <span className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
-          Distance
+          {isRoundTrip ? "Round-trip distance" : "Distance"}
         </span>
         <span
           className={cn(
@@ -2463,23 +2484,6 @@ function TripForm({
     });
   }
 
-  function handleVehicleSelect(vehicle: ApiVehicle) {
-    const linkedDriver = findDriverForVehicle(drivers, vehicle.id);
-    setForm((prev) => ({
-      ...prev,
-      vehicleId: vehicle.id,
-      driverId: linkedDriver?.id ?? "",
-    }));
-    const site = resolvePrimarySite(linkedDriver, vehicle, sites);
-    if (site) applyStartFromSite(site);
-    else setSuggestedStartSite(null);
-  }
-
-  function handleVehicleClear() {
-    setForm((prev) => ({ ...prev, vehicleId: "", driverId: "" }));
-    setSuggestedStartSite(null);
-  }
-
   function handleDriverSelect(driver: ApiDriver) {
     const vehicle = driver.assignedVehicleId
       ? vehicleById.get(driver.assignedVehicleId)
@@ -2495,7 +2499,10 @@ function TripForm({
   }
 
   function handleDriverClear() {
-    update("driverId", "");
+    // Clear the auto-linked vehicle alongside the driver so the form
+    // doesn't drift into an inconsistent state with a stranded vehicle
+    // assignment after the Vehicle FormCard was removed.
+    setForm((prev) => ({ ...prev, driverId: "", vehicleId: "" }));
     setSuggestedStartSite(null);
   }
 
@@ -2560,6 +2567,7 @@ function TripForm({
         endState: form.endState.trim() || undefined,
         endLat: form.endLat ?? undefined,
         endLon: form.endLon ?? undefined,
+        isRoundTrip: form.isRoundTrip,
       };
       await onSubmit(payload);
     } catch (err) {
@@ -2597,66 +2605,53 @@ function TripForm({
 
       {formError && <PanelError message={formError} />}
 
-      {/* Driver + Vehicle cards sit side-by-side from `lg` upwards so the
-          form fits above the fold without scrolling. On mobile the grid
-          collapses to a single column and the cards stack like before. */}
-      <div className="grid items-stretch gap-4 lg:grid-cols-2">
-        <FormCard
-          title="Driver"
-          description="Search drivers — loads their truck and home site as the start."
-          icon={UserRound}
-        >
-          <TripDriverPicker
-            drivers={drivers}
-            sites={sites}
-            selectedId={form.driverId}
-            onSelect={handleDriverSelect}
-            onClear={handleDriverClear}
-            disabled={isSubmitting}
-          />
-          {selectedDriverIsBusy && (
-            <p className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive">
-              {busyDriverName} is currently on an in-progress trip. Check that
-              trip in or cancel it before adding another one for this driver.
-            </p>
-          )}
-          {form.driverId && !form.vehicleId && (
-            <p className="mt-2 text-xs text-amber-700">
-              This driver has no vehicle assigned yet. Pick a vehicle from the
-              card next to this one or assign one from Drivers.
-            </p>
-          )}
-          {form.vehicleId && form.driverId && (
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Linked:{" "}
-              <span className="font-semibold text-primary">
-                {driverById.get(form.driverId)?.firstName}{" "}
-                {driverById.get(form.driverId)?.lastName}
-              </span>
-              {" · "}
-              <span className="font-semibold text-primary">
-                {vehicleById.get(form.vehicleId)?.assetNumber ??
-                  vehicleById.get(form.vehicleId)?.plateNumber}
-              </span>
-            </p>
-          )}
-        </FormCard>
-
-        <FormCard
-          title="Vehicle"
-          description="Pick a truck — loads its driver and assigned site as the start."
-          icon={Truck}
-        >
-          <TripVehiclePicker
-            vehicles={vehicles}
-            sites={sites}
-            selectedId={form.vehicleId}
-            onSelect={handleVehicleSelect}
-            onClear={handleVehicleClear}
-            disabled={isSubmitting}
-          />
-        </FormCard>
-      </div>
+      {/* Driver picks. The vehicle is no longer a separate card — the
+          driver's assigned truck is rendered as an inline tag right
+          next to their name once a driver is selected. Picking a
+          driver still auto-fills the vehicle id and the start site
+          via `handleDriverSelect`. */}
+      <FormCard
+        title="Driver"
+        description="Search drivers — loads their assigned truck and home site as the start."
+        icon={UserRound}
+      >
+        <TripDriverPicker
+          drivers={drivers}
+          sites={sites}
+          selectedId={form.driverId}
+          onSelect={handleDriverSelect}
+          onClear={handleDriverClear}
+          disabled={isSubmitting}
+        />
+        {selectedDriverIsBusy && (
+          <p className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive">
+            {busyDriverName} is currently on an in-progress trip. Check that
+            trip in or cancel it before adding another one for this driver.
+          </p>
+        )}
+        {form.driverId && !form.vehicleId && (
+          <p className="mt-2 text-xs text-amber-700">
+            This driver has no vehicle assigned yet. Assign one from the
+            Drivers page before planning a trip.
+          </p>
+        )}
+        {form.vehicleId && form.driverId && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+              Driving
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+              <Truck className="size-3.5" />
+              {vehicleById.get(form.vehicleId)?.assetNumber ?? "—"}
+              {vehicleById.get(form.vehicleId)?.plateNumber && (
+                <span className="font-mono text-[11px] font-medium text-primary/70">
+                  · {vehicleById.get(form.vehicleId)?.plateNumber}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+      </FormCard>
 
       <div className="grid items-stretch gap-4 lg:grid-cols-[1fr_220px_1fr]">
         <FormCard
@@ -2728,20 +2723,40 @@ function TripForm({
           </div>
         </FormCard>
 
-        <TripDistancePreview
-          startLat={form.startLat}
-          startLon={form.startLon}
-          endLat={form.endLat}
-          endLon={form.endLon}
-          hasStart={
-            Boolean(form.startAddress) ||
-            (form.startLat !== null && form.startLon !== null)
-          }
-          hasEnd={
-            Boolean(form.endAddress) ||
-            (form.endLat !== null && form.endLon !== null)
-          }
-        />
+        <div className="flex flex-col items-center gap-3 lg:gap-2">
+          <TripDistancePreview
+            startLat={form.startLat}
+            startLon={form.startLon}
+            endLat={form.endLat}
+            endLon={form.endLon}
+            hasStart={
+              Boolean(form.startAddress) ||
+              (form.startLat !== null && form.startLon !== null)
+            }
+            hasEnd={
+              Boolean(form.endAddress) ||
+              (form.endLat !== null && form.endLon !== null)
+            }
+            isRoundTrip={form.isRoundTrip}
+          />
+          {/* Round-trip toggle. When checked the distance preview and
+              the persisted distance computed at check-in cover both
+              legs (A → B → A). Unchecked falls back to the one-way
+              distance the routing API returns by default. */}
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10">
+            <input
+              type="checkbox"
+              checked={form.isRoundTrip}
+              onChange={(e) => update("isRoundTrip", e.target.checked)}
+              disabled={isSubmitting}
+              className="size-3.5 rounded border-primary/40 text-primary focus:ring-primary/30"
+            />
+            Returns here
+            <span className="text-[10px] font-normal text-primary/60">
+              (round trip)
+            </span>
+          </label>
+        </div>
 
         <FormCard
           title="Ending point"

@@ -17,6 +17,9 @@ export interface CreateTripRequest {
   endLat?: number;
   endLon?: number;
   scheduledAt?: string;
+  // When true, the trip is a round trip and the client computes
+  // distance as A → B → A (or via OSRM with the return waypoint).
+  isRoundTrip?: boolean;
   notes?: string;
 }
 
