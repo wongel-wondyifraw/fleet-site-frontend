@@ -295,3 +295,15 @@ export interface ApiTrip {
   createdAt?: string;
   updatedAt?: string;
 }
+
+// Effective trip target returned by GET /trip-targets/effective. `count`
+// is the value the UI should display for the requested date (override
+// if present, otherwise default). `defaultCount` and `isOverride` let
+// the UI render a "Reset" affordance only when it actually changes
+// anything.
+export interface ApiTripTargetEffective {
+  date: string;
+  count: number;
+  isOverride: boolean;
+  defaultCount: number;
+}

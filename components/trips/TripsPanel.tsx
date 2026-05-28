@@ -4,6 +4,9 @@ import {
   ArrowLeft,
   ArrowRight,
   Ban,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
   CircleCheck,
   Filter,
   Info,
@@ -58,6 +61,11 @@ import {
 } from "@/lib/api/trips";
 import { listSites } from "@/lib/api/sites";
 import {
+  clearTripTargetOverride,
+  getEffectiveTripTarget,
+  setTripTargetOverride,
+} from "@/lib/api/tripTargets";
+import {
   fetchDrivingDistance,
   geocodeAddress,
 } from "@/lib/locationiq/directions";
@@ -68,6 +76,7 @@ import {
   type ApiDriver,
   type ApiSite,
   type ApiTrip,
+  type ApiTripTargetEffective,
   type ApiVehicle,
   type TripDriverSummary,
   type TripStatus,
@@ -150,6 +159,38 @@ function formatLocationLine(
   return parts.join(", ");
 }
 
+// Picks the timestamp that best represents "when this trip happened" so
+// the date tabs can group rows naturally. Completed trips fall on their
+// check-in date, in-progress on their checkout, planned on their
+// scheduled (or fallback created) date.
+function getTripEffectiveDate(trip: ApiTrip): Date | null {
+  const iso =
+    trip.completedAt ?? trip.startedAt ?? trip.scheduledAt ?? trip.createdAt;
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+// Formats a Date as YYYY-MM-DD in the user's local timezone — matches
+// the `<input type="date">` value format so the custom-date filter
+// compares cleanly via string equality.
+function toLocalDateKey(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// "Today" / "Yesterday" / "Choose Date" date filter for the trips list.
+// Choose Date pairs with a single YYYY-MM-DD value the user picks below.
+type DateFilter = "TODAY" | "YESTERDAY" | "CUSTOM";
+
+type TripGroup = {
+  key: string;
+  driverId: string | null;
+  trips: ApiTrip[];
+};
+
 type Mode =
   | { kind: "list" }
   | { kind: "create" }
@@ -167,6 +208,13 @@ export function TripsPanel({
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [statusFilter, setStatusFilter] = useState<TripStatus | "ALL">("ALL");
   const [vehicleFilter, setVehicleFilter] = useState<string>("ALL");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("TODAY");
+  // Date the user picked in the "Choose Date" tab. Stored as a
+  // YYYY-MM-DD string so it lines up with both the native date input
+  // and `toLocalDateKey` for comparison.
+  const [customDate, setCustomDate] = useState<string>(() =>
+    toLocalDateKey(new Date()),
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ApiTrip | null>(null);
@@ -174,6 +222,18 @@ export function TripsPanel({
   // cancel is reversible-ish (the row keeps a CANCELLED record) so we don't
   // want to share the destructive copy.
   const [pendingCancel, setPendingCancel] = useState<ApiTrip | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
+  // Effective "expected trips per day" target for the active date.
+  // Backed by the /trip-targets API: returns the override for the date
+  // if one exists, otherwise the global default (seeded to 25 on first
+  // backend access). Donut charts and the editor input below the date
+  // tabs both read from this.
+  const [targetState, setTargetState] = useState<ApiTripTargetEffective | null>(
+    null,
+  );
+  const [isSavingTarget, setIsSavingTarget] = useState(false);
   const { showToast } = useToast();
 
   const refresh = useCallback(async () => {
@@ -221,13 +281,137 @@ export function TripsPanel({
     return map;
   }, [drivers]);
 
+  // Drivers currently on an IN_PROGRESS trip. We block creating new
+  // trips for these drivers (and surface a warning in the trip form) so
+  // the operator can't pile on additional work while someone is still
+  // on the road. Mirrors the backend rule in TripService.create.
+  const busyDriverIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of trips) {
+      if (t.status === "IN_PROGRESS" && t.driverId) set.add(t.driverId);
+    }
+    return set;
+  }, [trips]);
+
+  // Resolve the date the active date tab is asking us to match. Computed
+  // up front so the filter loop doesn't recreate `Date` objects per row.
+  const targetDateKey = useMemo(() => {
+    if (dateFilter === "TODAY") return toLocalDateKey(new Date());
+    if (dateFilter === "YESTERDAY") {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      return toLocalDateKey(d);
+    }
+    return customDate;
+  }, [dateFilter, customDate]);
+
   const filteredTrips = useMemo(() => {
     return trips.filter((t) => {
       if (statusFilter !== "ALL" && t.status !== statusFilter) return false;
-      if (vehicleFilter !== "ALL" && t.vehicleId !== vehicleFilter) return false;
+      if (vehicleFilter !== "ALL" && t.vehicleId !== vehicleFilter)
+        return false;
+      const tripDate = getTripEffectiveDate(t);
+      // Trips with no usable timestamp can't match any specific date,
+      // so they fall out of the filtered list while a date tab is on.
+      if (!tripDate) return false;
+      if (toLocalDateKey(tripDate) !== targetDateKey) return false;
       return true;
     });
-  }, [trips, statusFilter, vehicleFilter]);
+  }, [trips, statusFilter, vehicleFilter, targetDateKey]);
+
+  const groupedTrips = useMemo<TripGroup[]>(() => {
+    const map = new Map<string, TripGroup>();
+    for (const trip of filteredTrips) {
+      const key = trip.driverId ?? `__solo_${trip.id}`;
+      const existing = map.get(key);
+      if (existing) existing.trips.push(trip);
+      else map.set(key, { key, driverId: trip.driverId ?? null, trips: [trip] });
+    }
+    return Array.from(map.values());
+  }, [filteredTrips]);
+
+  function toggleGroup(key: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  // Refresh the effective target whenever the active date changes. We
+  // intentionally don't bind it to `targetState` so a fresh fetch can
+  // overwrite an earlier optimistic save without looping. AbortController
+  // protects against the user flipping tabs faster than the API responds.
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+    (async () => {
+      try {
+        const next = await getEffectiveTripTarget(
+          targetDateKey,
+          controller.signal,
+        );
+        if (!cancelled) setTargetState(next);
+      } catch (err) {
+        // Auth bounces and aborts are expected when navigating; swallow
+        // those so the trips panel still renders. Anything else surfaces
+        // as a toast since the donut quietly degrades to "no target".
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof ApiError && err.isAuth) return;
+        if (!cancelled) {
+          showToast({
+            variant: "error",
+            message:
+              err instanceof ApiError
+                ? err.message
+                : "Unable to load daily trip target.",
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [targetDateKey, showToast]);
+
+  async function handleSaveTarget(nextCount: number) {
+    if (!Number.isFinite(nextCount) || nextCount < 0) return;
+    setIsSavingTarget(true);
+    try {
+      const result = await setTripTargetOverride(
+        targetDateKey,
+        Math.floor(nextCount),
+      );
+      setTargetState(result);
+    } catch (err) {
+      showToast({
+        variant: "error",
+        message:
+          err instanceof ApiError ? err.message : "Unable to update target.",
+      });
+    } finally {
+      setIsSavingTarget(false);
+    }
+  }
+
+  async function handleResetTarget() {
+    if (!targetState?.isOverride) return;
+    setIsSavingTarget(true);
+    try {
+      const result = await clearTripTargetOverride(targetDateKey);
+      setTargetState(result);
+    } catch (err) {
+      showToast({
+        variant: "error",
+        message:
+          err instanceof ApiError ? err.message : "Unable to reset target.",
+      });
+    } finally {
+      setIsSavingTarget(false);
+    }
+  }
 
   async function handleCreate(payload: CreateTripRequest): Promise<void> {
     try {
@@ -318,6 +502,7 @@ export function TripsPanel({
         vehicles={vehicles}
         drivers={drivers}
         sites={sites}
+        busyDriverIds={busyDriverIds}
         onCancel={() => setMode({ kind: "list" })}
         onSubmit={async (payload) => {
           if (editing) {
@@ -359,32 +544,87 @@ export function TripsPanel({
                 ))}
               </select>
             </div>
-            <div className="relative w-full sm:w-56">
-              <Truck className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <select
-                value={vehicleFilter}
-                onChange={(e) => setVehicleFilter(e.target.value)}
-                className={`${fieldClass} pl-9`}
-                aria-label="Filter by vehicle"
-              >
-                <option value="ALL">All vehicles</option>
-                {vehicles.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.assetNumber ?? v.plateNumber}
-                  </option>
-                ))}
-              </select>
+            {/* Vehicle + date-filter row.
+                - On mobile the wrapper is a flex row so the vehicle
+                  select and the collapsed date button each take half
+                  the width, sitting inline next to each other.
+                - From `sm` upwards we use `contents` so the wrapper
+                  disappears from layout and both children participate
+                  in the parent wrap-row directly with their own widths.
+                  The mobile date button is hidden on `sm+` because the
+                  full date tabs render below the filter block instead. */}
+            <div className="flex gap-2 sm:contents">
+              <div className="relative flex-1 sm:w-56 sm:flex-initial">
+                <Truck className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                <select
+                  value={vehicleFilter}
+                  onChange={(e) => setVehicleFilter(e.target.value)}
+                  className={`${fieldClass} pl-9`}
+                  aria-label="Filter by vehicle"
+                >
+                  <option value="ALL">All vehicles</option>
+                  {vehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.assetNumber ?? v.plateNumber}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="relative flex-1 sm:hidden">
+                <TripDateFilterMenu
+                  value={dateFilter}
+                  onChange={setDateFilter}
+                  customDate={customDate}
+                  onCustomDateChange={setCustomDate}
+                />
+              </div>
             </div>
           </div>
         </div>
-        <Button
-          onClick={() => setMode({ kind: "create" })}
-          disabled={vehicles.length === 0}
-          className="h-10 gap-2 self-start rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint sm:self-auto"
-        >
-          <Plus className="size-4" />
-          Create Trip
-        </Button>
+        {/* Mobile: wrap the daily-target editor inline to the LEFT of
+            the Create Trip button so the action row makes use of the
+            full width. `sm:contents` removes the wrapper at the sm
+            breakpoint and up, so the button hops back to being a
+            direct child of the header row with its desktop alignment
+            intact. */}
+        <div className="flex items-center justify-between gap-2 sm:contents">
+          <div className="min-w-0 flex-1 sm:hidden">
+            <DailyTargetEditor
+              target={targetState}
+              isSaving={isSavingTarget}
+              onSave={handleSaveTarget}
+              onReset={handleResetTarget}
+            />
+          </div>
+          <Button
+            onClick={() => setMode({ kind: "create" })}
+            disabled={vehicles.length === 0}
+            className="h-10 shrink-0 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint sm:self-auto"
+          >
+            <Plus className="size-4" />
+            Create Trip
+          </Button>
+        </div>
+      </div>
+
+      {/* Date tabs + daily target editor (desktop). Tabs render only at
+          `sm+` — on mobile the collapsed date button inside the filter
+          row above handles date selection, and the editor sits inline
+          with the Create Trip button above. The whole row is hidden
+          below `sm` to avoid a duplicate editor. */}
+      <div className="hidden flex-col gap-2 sm:flex sm:flex-row sm:items-center sm:gap-3">
+        <TripDateTabs
+          value={dateFilter}
+          onChange={setDateFilter}
+          customDate={customDate}
+          onCustomDateChange={setCustomDate}
+        />
+        <DailyTargetEditor
+          target={targetState}
+          isSaving={isSavingTarget}
+          onSave={handleSaveTarget}
+          onReset={handleResetTarget}
+        />
       </div>
 
       {vehicles.length === 0 && !isLoading && (
@@ -408,7 +648,20 @@ export function TripsPanel({
             <p className="text-sm font-medium text-primary">
               No trips match your filters.
             </p>
-            {(statusFilter !== "ALL" || vehicleFilter !== "ALL") && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Showing{" "}
+              <span className="font-semibold text-primary">
+                {dateFilter === "TODAY"
+                  ? "today"
+                  : dateFilter === "YESTERDAY"
+                    ? "yesterday"
+                    : customDate || "the selected date"}
+              </span>
+              .
+            </p>
+            {(statusFilter !== "ALL" ||
+              vehicleFilter !== "ALL" ||
+              dateFilter !== "TODAY") && (
               <Button
                 type="button"
                 variant="outline"
@@ -416,6 +669,7 @@ export function TripsPanel({
                 onClick={() => {
                   setStatusFilter("ALL");
                   setVehicleFilter("ALL");
+                  setDateFilter("TODAY");
                 }}
                 className="mt-3 h-8 gap-1 rounded-lg border-slate-200 bg-white px-3 text-xs"
               >
@@ -426,31 +680,61 @@ export function TripsPanel({
         )
       ) : (
         <div className="space-y-2">
-          {filteredTrips.map((trip) => (
-            <TripRow
-              key={trip.id}
-              trip={trip}
-              vehicle={
-                trip.vehicle ??
-                vehicleById.get(trip.vehicleId) ??
-                null
-              }
-              driver={
-                trip.driverId
-                  ? (trip.driver ??
-                      driverById.get(trip.driverId) ??
-                      null)
-                  : null
-              }
-              density={density}
-              onEdit={() => setMode({ kind: "edit", trip })}
-              onDelete={() => setPendingDelete(trip)}
-              onRequestCancel={() => setPendingCancel(trip)}
-              onStatusChange={(next, options) =>
-                handleStatusChange(trip, next, options)
-              }
-            />
-          ))}
+          {groupedTrips.map((group) => {
+            if (group.trips.length === 1) {
+              const trip = group.trips[0];
+              return (
+                <TripRow
+                  key={trip.id}
+                  trip={trip}
+                  vehicle={trip.vehicle ?? vehicleById.get(trip.vehicleId) ?? null}
+                  driver={
+                    trip.driverId
+                      ? (trip.driver ?? driverById.get(trip.driverId) ?? null)
+                      : null
+                  }
+                  density={density}
+                  onEdit={() => setMode({ kind: "edit", trip })}
+                  onDelete={() => setPendingDelete(trip)}
+                  onRequestCancel={() => setPendingCancel(trip)}
+                  onStatusChange={(next, options) =>
+                    handleStatusChange(trip, next, options)
+                  }
+                />
+              );
+            }
+
+            return (
+              <TripGroupCard
+                key={group.key}
+                groupKey={group.key}
+                trips={group.trips}
+                driver={
+                  group.driverId
+                    ? (driverById.get(group.driverId) ?? group.trips[0]?.driver ?? null)
+                    : null
+                }
+                density={density}
+                expanded={expandedGroups.has(group.key)}
+                targetCount={targetState?.count ?? null}
+                onToggle={() => toggleGroup(group.key)}
+                resolveVehicle={(trip) =>
+                  trip.vehicle ?? vehicleById.get(trip.vehicleId) ?? null
+                }
+                resolveDriver={(trip) =>
+                  trip.driverId
+                    ? (trip.driver ?? driverById.get(trip.driverId) ?? null)
+                    : null
+                }
+                onEdit={(trip) => setMode({ kind: "edit", trip })}
+                onDelete={(trip) => setPendingDelete(trip)}
+                onRequestCancel={(trip) => setPendingCancel(trip)}
+                onStatusChange={(trip, next, options) =>
+                  handleStatusChange(trip, next, options)
+                }
+              />
+            );
+          })}
         </div>
       )}
 
@@ -526,6 +810,538 @@ export function TripsPanel({
         }}
       />
     </div>
+  );
+}
+
+// Inline editor for the "expected trips per day" target. Reads the
+// effective target for the active date from the parent and writes back
+// via the /trip-targets API on commit. Renders a tiny number input
+// inside a primary-blue chip so it sits flush next to the date tabs
+// without crowding them. Shows a "Reset" affordance only when the
+// active date has an override (so users can revert to the default).
+function DailyTargetEditor({
+  target,
+  isSaving,
+  onSave,
+  onReset,
+}: {
+  target: ApiTripTargetEffective | null;
+  isSaving: boolean;
+  onSave: (count: number) => Promise<void> | void;
+  onReset: () => Promise<void> | void;
+}) {
+  // Local string state lets the user type freely (incl. transient empty)
+  // without fighting React's controlled-input invariants. We commit on
+  // blur or Enter, so quickly tweaking the value during typing doesn't
+  // hammer the API.
+  const [draft, setDraft] = useState<string>(
+    target ? String(target.count) : "",
+  );
+
+  useEffect(() => {
+    if (target) setDraft(String(target.count));
+  }, [target]);
+
+  async function commit() {
+    if (!target) return;
+    const parsed = Number.parseInt(draft, 10);
+    if (Number.isNaN(parsed) || parsed < 0) {
+      // Revert the field to the last known good value so the row never
+      // shows a garbage entry once focus leaves.
+      setDraft(String(target.count));
+      return;
+    }
+    if (parsed === target.count) return;
+    await onSave(parsed);
+  }
+
+  // Used by the custom blue stepper buttons. Clamps to [0, 1000] and
+  // commits immediately so the donut updates without waiting for blur.
+  async function step(delta: number) {
+    if (!target) return;
+    const base = Number.parseInt(draft, 10);
+    const current = Number.isFinite(base) ? base : target.count;
+    const next = Math.max(0, Math.min(1000, current + delta));
+    setDraft(String(next));
+    if (next === target.count) return;
+    await onSave(next);
+  }
+
+  const disabled = !target || isSaving;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-1.5 text-sm">
+      <span className="text-[10px] font-semibold tracking-wide text-primary/70 uppercase">
+        Daily target
+      </span>
+      <div className="flex items-stretch overflow-hidden rounded-md border border-primary/30 bg-white">
+        <input
+          type="number"
+          min={0}
+          max={1000}
+          inputMode="numeric"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => void commit()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.currentTarget as HTMLInputElement).blur();
+            }
+          }}
+          disabled={disabled}
+          aria-label="Expected trips for the selected day"
+          // Hide the native browser spin buttons — we replace them with
+          // the always-visible solid-blue stack on the right.
+          className="w-12 border-0 bg-transparent px-2 py-0.5 text-center text-sm font-bold text-primary tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:m-0"
+        />
+        <div className="flex flex-col border-l border-primary/30">
+          <button
+            type="button"
+            onClick={() => void step(1)}
+            disabled={disabled}
+            aria-label="Increase daily target"
+            className="flex h-1/2 w-6 items-center justify-center bg-primary text-white transition-colors hover:bg-primary/90 active:bg-primary/80 disabled:opacity-50"
+          >
+            <ChevronUp className="size-3.5" strokeWidth={3} />
+          </button>
+          <button
+            type="button"
+            onClick={() => void step(-1)}
+            disabled={disabled}
+            aria-label="Decrease daily target"
+            className="flex h-1/2 w-6 items-center justify-center border-t border-white/30 bg-primary text-white transition-colors hover:bg-primary/90 active:bg-primary/80 disabled:opacity-50"
+          >
+            <ChevronDown className="size-3.5" strokeWidth={3} />
+          </button>
+        </div>
+      </div>
+      <span className="text-[11px] text-primary/70">trips</span>
+      {target?.isOverride && (
+        <button
+          type="button"
+          onClick={() => void onReset()}
+          disabled={isSaving}
+          className="text-[11px] font-semibold text-primary/70 underline-offset-2 hover:text-primary hover:underline disabled:opacity-50"
+        >
+          Reset to default ({target.defaultCount})
+        </button>
+      )}
+      {isSaving && <Loader2 className="size-3.5 animate-spin text-primary" />}
+    </div>
+  );
+}
+
+// Compact mobile-only variant of the date filter. Renders as a single
+// button that shows the currently selected day (Today / Yesterday /
+// the picked date). Tapping it opens a dropdown panel beneath the
+// button with all three options, plus the date input when the user
+// picks "Choose Date". Used in the filter row alongside the vehicle
+// select so the two split the row 50/50 on small screens.
+function TripDateFilterMenu({
+  value,
+  onChange,
+  customDate,
+  onCustomDateChange,
+}: {
+  value: DateFilter;
+  onChange: (next: DateFilter) => void;
+  customDate: string;
+  onCustomDateChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const dateInputRef = useRef<HTMLInputElement>(null);
+
+  // Close the dropdown on outside click / Escape. Mirrors the pattern
+  // already used by `TripTimesInfo` further down the file.
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const activeLabel =
+    value === "TODAY"
+      ? "Today"
+      : value === "YESTERDAY"
+        ? "Yesterday"
+        : customDate || "Choose date";
+
+  const options: { id: DateFilter; label: string }[] = [
+    { id: "TODAY", label: "Today" },
+    { id: "YESTERDAY", label: "Yesterday" },
+    { id: "CUSTOM", label: "Choose Date" },
+  ];
+
+  function handleSelect(next: DateFilter) {
+    onChange(next);
+    if (next === "CUSTOM") {
+      // Keep the panel open so the date input is reachable, and try to
+      // pop the native picker straight away on browsers that support it.
+      window.setTimeout(() => {
+        dateInputRef.current?.focus();
+        const el = dateInputRef.current as
+          | (HTMLInputElement & { showPicker?: () => void })
+          | null;
+        el?.showPicker?.();
+      }, 0);
+    } else {
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Filter by date"
+        className={cn(
+          "flex h-10 w-full items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 text-sm font-semibold text-primary transition-colors",
+          "hover:bg-primary/10 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25",
+        )}
+      >
+        <Calendar className="size-4 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1 truncate text-left">{activeLabel}</span>
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 text-primary transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Date filter options"
+          className="absolute top-full right-0 left-0 z-30 mt-1.5 rounded-xl border border-primary/20 bg-white p-1.5 shadow-lg shadow-primary/10"
+        >
+          {options.map((opt) => {
+            const isActive = value === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                role="option"
+                aria-selected={isActive}
+                onClick={() => handleSelect(opt.id)}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors",
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                    : "text-primary/80 hover:bg-primary/10 hover:text-primary",
+                )}
+              >
+                {opt.id === "CUSTOM" && <Calendar className="size-4" />}
+                {opt.label}
+              </button>
+            );
+          })}
+          {value === "CUSTOM" && (
+            <div className="relative mt-1.5">
+              <Calendar className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-primary" />
+              <input
+                ref={dateInputRef}
+                type="date"
+                value={customDate}
+                onChange={(e) => onCustomDateChange(e.target.value)}
+                max={toLocalDateKey(new Date())}
+                aria-label="Pick a date"
+                className={cn(
+                  fieldClass,
+                  "border-primary/30 bg-primary/5 pl-9 text-primary focus:border-primary focus:ring-primary/40",
+                )}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Date filter tabs that sit above the trips list. Today / Yesterday
+// behave like normal segmented controls. "Choose Date" reveals a native
+// date input the user can type into or open the picker on; clicking the
+// tab while it's already active also re-focuses the input so they can
+// quickly change the day. The custom date stays even when the user
+// switches tabs, so flipping back doesn't lose their selection.
+function TripDateTabs({
+  value,
+  onChange,
+  customDate,
+  onCustomDateChange,
+}: {
+  value: DateFilter;
+  onChange: (next: DateFilter) => void;
+  customDate: string;
+  onCustomDateChange: (next: string) => void;
+}) {
+  const dateInputRef = useRef<HTMLInputElement>(null);
+  const tabs: { id: DateFilter; label: string }[] = [
+    { id: "TODAY", label: "Today" },
+    { id: "YESTERDAY", label: "Yesterday" },
+    { id: "CUSTOM", label: "Choose Date" },
+  ];
+
+  function handleTabClick(next: DateFilter) {
+    onChange(next);
+    if (next === "CUSTOM") {
+      // Defer so the input is in the DOM before we try to focus it.
+      window.setTimeout(() => {
+        dateInputRef.current?.focus();
+        // showPicker isn't on every browser yet (Safari < 16), so the
+        // focus above is the dependable part; this just upgrades the
+        // experience on Chromium / Firefox.
+        const el = dateInputRef.current as
+          | (HTMLInputElement & { showPicker?: () => void })
+          | null;
+        el?.showPicker?.();
+      }, 0);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+      <div
+        role="tablist"
+        aria-label="Filter trips by date"
+        className="inline-flex w-full items-center rounded-xl border border-primary/20 bg-primary/5 p-1 shadow-sm shadow-primary/10 sm:w-auto"
+      >
+        {tabs.map((tab) => {
+          const isActive = value === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => handleTabClick(tab.id)}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors sm:flex-initial",
+                isActive
+                  ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                  : "text-primary/80 hover:bg-primary/10 hover:text-primary",
+              )}
+            >
+              {tab.id === "CUSTOM" && <Calendar className="size-3.5" />}
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {value === "CUSTOM" && (
+        <div className="relative w-full sm:w-48">
+          <Calendar className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-primary" />
+          <input
+            ref={dateInputRef}
+            type="date"
+            value={customDate}
+            onChange={(e) => onCustomDateChange(e.target.value)}
+            max={toLocalDateKey(new Date())}
+            aria-label="Pick a date"
+            className={cn(
+              fieldClass,
+              "border-primary/30 bg-primary/5 pl-9 text-primary focus:border-primary focus:ring-primary/40",
+            )}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TripGroupCard({
+  groupKey,
+  trips,
+  driver,
+  density,
+  expanded,
+  targetCount,
+  onToggle,
+  resolveVehicle,
+  resolveDriver,
+  onEdit,
+  onDelete,
+  onRequestCancel,
+  onStatusChange,
+}: {
+  groupKey: string;
+  trips: ApiTrip[];
+  driver: TripDriverSummary | ApiDriver | null;
+  density: "comfortable" | "compact";
+  expanded: boolean;
+  // Daily expected-trips target for the active date. Drives the donut
+  // fill. Null while the value is still loading (the donut falls back
+  // to a static-looking ring with the count in the middle).
+  targetCount: number | null;
+  onToggle: () => void;
+  resolveVehicle: (trip: ApiTrip) => TripVehicleSummary | ApiVehicle | null;
+  resolveDriver: (trip: ApiTrip) => TripDriverSummary | ApiDriver | null;
+  onEdit: (trip: ApiTrip) => void;
+  onDelete: (trip: ApiTrip) => void;
+  onRequestCancel: (trip: ApiTrip) => void;
+  onStatusChange: (
+    trip: ApiTrip,
+    next: TripStatus,
+    options?: { distanceKm?: number | null },
+  ) => Promise<void> | void;
+}) {
+  const regionId = `trip-group-${groupKey}`;
+  const statusCounts = TRIP_STATUSES.map((status) => ({
+    status,
+    count: trips.filter((trip) => trip.status === status).length,
+  })).filter((entry) => entry.count > 0);
+  // Donut count = planned + completed only. In-progress and cancelled
+  // trips are intentionally excluded so the donut tracks "trips that
+  // count toward the day's target" and not the raw row count.
+  const donutCount = trips.filter(
+    (trip) => trip.status === "PLANNED" || trip.status === "COMPLETED",
+  ).length;
+  const driverName = driver
+    ? `${driver.firstName} ${driver.lastName}`
+    : "Unassigned driver";
+
+  return (
+    <div className="rounded-xl border border-primary/20 bg-primary/5 shadow-sm shadow-primary/10">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={regionId}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <UserRound className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-primary">{driverName}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {statusCounts.map(({ status, count }) => (
+              <span
+                key={status}
+                className={cn(
+                  "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase",
+                  TRIP_STATUS_PILL[status],
+                )}
+              >
+                {count} {status.replace("_", " ")}
+              </span>
+            ))}
+          </div>
+        </div>
+        <TripDonutBadge count={donutCount} target={targetCount} />
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 text-primary transition-transform",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
+      {expanded && (
+        <div
+          id={regionId}
+          role="region"
+          aria-label={`Trips for ${driverName}`}
+          className="space-y-2 border-t border-primary/15 bg-white/60 p-3 pl-4"
+        >
+          {trips.map((trip) => (
+            <TripRow
+              key={trip.id}
+              trip={trip}
+              vehicle={resolveVehicle(trip)}
+              driver={resolveDriver(trip)}
+              density={density}
+              onEdit={() => onEdit(trip)}
+              onDelete={() => onDelete(trip)}
+              onRequestCancel={() => onRequestCancel(trip)}
+              onStatusChange={(next, options) => onStatusChange(trip, next, options)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Circular donut badge that displays trip progress toward the day
+// target. The middle text is the integer count of PLANNED + COMPLETED
+// trips (cancelled and in-progress are intentionally excluded by the
+// caller). The arc fill is `count / target`, clamped at 100% so a
+// driver who over-delivered still shows a full ring instead of
+// wrapping past 360 deg. When `target` is missing or zero, the ring
+// renders as a thin background only and we lean on the centered count
+// to carry the meaning.
+function TripDonutBadge({
+  count,
+  target,
+}: {
+  count: number;
+  target: number | null;
+}) {
+  const size = 44;
+  const strokeWidth = 4;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const ratio =
+    target && target > 0 ? Math.min(count / target, 1) : 0;
+  const dashOffset = circumference - circumference * ratio;
+  const label = target
+    ? `${count} of ${target} target trips`
+    : `${count} trips counted`;
+
+  return (
+    <span
+      className="relative inline-flex shrink-0 items-center justify-center text-primary"
+      style={{ width: size, height: size }}
+      role="img"
+      aria-label={label}
+    >
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeOpacity={0.15}
+          strokeWidth={strokeWidth}
+        />
+        {target ? (
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={dashOffset}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            style={{ transition: "stroke-dashoffset 400ms ease-out" }}
+          />
+        ) : null}
+      </svg>
+      <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-bold tabular-nums">
+        {count}
+      </span>
+    </span>
   );
 }
 
@@ -748,6 +1564,12 @@ function TripRow({
   const canCheckin = trip.status === "IN_PROGRESS";
   const canCancel =
     trip.status === "PLANNED" || trip.status === "IN_PROGRESS";
+  // Editing is restricted to PLANNED trips — once a trip has moved on
+  // it becomes historical and can only change via the dedicated status
+  // transition. Delete is hidden while IN_PROGRESS so a mid-flight trip
+  // can't be wiped out without going through Check-in or Cancel first.
+  const canEdit = trip.status === "PLANNED";
+  const canDelete = trip.status !== "IN_PROGRESS";
 
   return (
     <div
@@ -763,31 +1585,19 @@ function TripRow({
         <Route className="size-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="truncate text-sm font-semibold text-primary">
-            {vehicle
-              ? `${vehicle.assetNumber ?? vehicle.plateNumber} · ${vehicle.plateNumber}`
-              : "Unknown vehicle"}
-          </p>
-          <TripStatusPill status={trip.status} />
-          {trip.status === "IN_PROGRESS" && elapsedMs !== null && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-bold tracking-wide text-amber-800 tabular-nums">
-              <Timer className="size-3 animate-pulse" />
-              {formatDuration(elapsedMs)}
-            </span>
-          )}
-        </div>
-        <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-          <MapPin className="size-3 shrink-0 text-primary" />
-          <span className="truncate font-medium text-primary">
+        {/* Primary line: trip route. This is the row's headline now —
+            the asset / plate string used to live here but it was
+            visually outweighing the route. */}
+        <p className="flex flex-wrap items-center gap-1.5 text-base font-bold text-primary">
+          <span className="truncate">
             {formatLocationLine(
               trip.startAddress,
               trip.startCity,
               trip.startState,
             )}
           </span>
-          <ArrowRight className="size-3 shrink-0" />
-          <span className="truncate font-medium text-primary">
+          <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">
             {formatLocationLine(
               trip.endAddress,
               trip.endCity,
@@ -795,13 +1605,32 @@ function TripRow({
             )}
           </span>
         </p>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-          {driver && (
-            <span className="inline-flex items-center gap-1">
-              <UserRound className="size-3" />
-              <span className="font-semibold text-primary">
-                {driver.firstName} {driver.lastName}
-              </span>
+        {/* Secondary: driver name — the next thing the eye should grab. */}
+        {driver && (
+          <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-primary/85">
+            <UserRound className="size-3.5 shrink-0" />
+            <span className="truncate">
+              {driver.firstName} {driver.lastName}
+            </span>
+          </p>
+        )}
+        {/* Tertiary metadata: vehicle id, status pill, timer, last
+            checkout time. Smaller and muted so it stays in the
+            background. */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <Truck className="size-3 shrink-0" />
+            <span className="font-medium">
+              {vehicle
+                ? `${vehicle.assetNumber ?? vehicle.plateNumber} · ${vehicle.plateNumber}`
+                : "Unknown vehicle"}
+            </span>
+          </span>
+          <TripStatusPill status={trip.status} />
+          {trip.status === "IN_PROGRESS" && elapsedMs !== null && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-bold tracking-wide text-amber-800 tabular-nums">
+              <Timer className="size-3 animate-pulse" />
+              {formatDuration(elapsedMs)}
             </span>
           )}
           {/* Check-out / check-in timestamps moved into the TripTimesInfo
@@ -860,26 +1689,32 @@ function TripRow({
             Cancel Trip
           </TripActionButton>
         )}
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onEdit}
-            disabled={isBusy}
-            aria-label="Edit trip"
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-50"
-          >
-            <Pencil className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={isBusy}
-            aria-label="Delete trip"
-            className="flex size-8 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-          >
-            <Trash2 className="size-4" />
-          </button>
-        </div>
+        {(canEdit || canDelete) && (
+          <div className="flex items-center gap-1">
+            {canEdit && (
+              <button
+                type="button"
+                onClick={onEdit}
+                disabled={isBusy}
+                aria-label="Edit trip"
+                className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+              >
+                <Pencil className="size-4" />
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={isBusy}
+                aria-label="Delete trip"
+                className="flex size-8 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1524,6 +2359,7 @@ function TripForm({
   vehicles,
   drivers,
   sites,
+  busyDriverIds,
   onCancel,
   onSubmit,
 }: {
@@ -1531,6 +2367,11 @@ function TripForm({
   vehicles: ApiVehicle[];
   drivers: ApiDriver[];
   sites: ApiSite[];
+  // Drivers that already have an IN_PROGRESS trip. Used to block
+  // creating a second concurrent trip for the same driver before the
+  // backend has to reject it. Editing an existing PLANNED trip is
+  // unaffected unless the user tries to switch to a busy driver.
+  busyDriverIds: Set<string>;
   onCancel: () => void;
   onSubmit: (payload: CreateTripRequest) => Promise<void>;
 }) {
@@ -1573,6 +2414,22 @@ function TripForm({
     for (const d of drivers) map.set(d.id, d);
     return map;
   }, [drivers]);
+
+  // Flag the picked driver if they're currently on an IN_PROGRESS trip
+  // elsewhere. We only flag on create or when the driver is actually
+  // being swapped out, mirroring the backend `assertDriverNotBusy`
+  // check that skips when the driver is unchanged.
+  const initialDriverId = initial?.driverId ?? null;
+  const selectedDriverIsBusy =
+    !!form.driverId &&
+    form.driverId !== initialDriverId &&
+    busyDriverIds.has(form.driverId);
+  const busyDriverName = selectedDriverIsBusy
+    ? (() => {
+        const d = driverById.get(form.driverId);
+        return d ? `${d.firstName} ${d.lastName}` : "This driver";
+      })()
+    : null;
 
   function update<K extends keyof TripFormState>(
     key: K,
@@ -1680,6 +2537,12 @@ function TripForm({
       setFormError("Starting and ending locations are required.");
       return;
     }
+    if (selectedDriverIsBusy) {
+      setFormError(
+        `${busyDriverName ?? "This driver"} is currently on an in-progress trip. Check that trip in or cancel it before adding another one.`,
+      );
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -1751,6 +2614,12 @@ function TripForm({
             onClear={handleDriverClear}
             disabled={isSubmitting}
           />
+          {selectedDriverIsBusy && (
+            <p className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive">
+              {busyDriverName} is currently on an in-progress trip. Check that
+              trip in or cancel it before adding another one for this driver.
+            </p>
+          )}
           {form.driverId && !form.vehicleId && (
             <p className="mt-2 text-xs text-amber-700">
               This driver has no vehicle assigned yet. Pick a vehicle from the
@@ -1955,7 +2824,7 @@ function TripForm({
         </Button>
         <Button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || selectedDriverIsBusy}
           className="h-10 gap-2 rounded-xl bg-primary px-5 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
         >
           {isSubmitting ? (
