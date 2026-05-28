@@ -311,3 +311,68 @@ export interface ApiTripTargetEffective {
   isOverride: boolean;
   defaultCount: number;
 }
+
+// ---------------------------------------------------------------------------
+// Attendance roster types - mirror backend AttendanceDay / AttendancePunch.
+// EXPECTED is the lazy default before any punches; PRESENT/ON_BREAK/DONE are
+// derived from the punch stream; ABSENT only applies to past dates with no
+// DAY_IN; ON_LEAVE is a manual override that survives recalculation.
+// ---------------------------------------------------------------------------
+export const ATTENDANCE_DAY_STATUSES = [
+  "EXPECTED",
+  "PRESENT",
+  "ON_BREAK",
+  "DONE",
+  "ABSENT",
+  "ON_LEAVE",
+] as const;
+
+export type AttendanceDayStatus = (typeof ATTENDANCE_DAY_STATUSES)[number];
+
+// Discrete clock events on an AttendanceDay. DAY_IN/DAY_OUT bracket the
+// shift; LUNCH_* and MAINT_* are paired in/out events for breaks within it.
+export const ATTENDANCE_PUNCH_TYPES = [
+  "DAY_IN",
+  "DAY_OUT",
+  "LUNCH_OUT",
+  "LUNCH_IN",
+  "MAINT_OUT",
+  "MAINT_IN",
+] as const;
+
+export type AttendancePunchType = (typeof ATTENDANCE_PUNCH_TYPES)[number];
+
+// One punch event against an AttendanceDay. Voided punches are kept so the
+// audit trail stays intact - UI filters them out of derived calculations.
+export interface ApiAttendancePunch {
+  id: string;
+  dayId: string;
+  type: AttendancePunchType;
+  // ISO timestamp.
+  at: string;
+  actorUserId?: string | null;
+  note?: string | null;
+  correctedFromPunchId?: string | null;
+  isVoided: boolean;
+  createdAt?: string;
+}
+
+// One row per (driver, site, calendar day). Returned by GET /attendance/roster
+// with `driver`, `site`, and `punches` joined in. `status` is the derived
+// roll-up state (or ON_LEAVE when manually overridden).
+export interface ApiAttendanceDay {
+  id: string;
+  driverId: string;
+  siteId: string;
+  // YYYY-MM-DD calendar day.
+  date: string;
+  shift: "DAY" | "NIGHT" | "SPLIT";
+  expected: boolean;
+  status: AttendanceDayStatus;
+  notes?: string | null;
+  driver?: ApiDriver | null;
+  site?: ApiSite | null;
+  punches?: ApiAttendancePunch[];
+  createdAt?: string;
+  updatedAt?: string;
+}
