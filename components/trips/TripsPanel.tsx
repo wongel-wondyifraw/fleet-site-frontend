@@ -18,6 +18,7 @@ import {
   Plus,
   Route,
   Save,
+  Search,
   Timer,
   Trash2,
   Truck,
@@ -209,6 +210,10 @@ export function TripsPanel({
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [statusFilter, setStatusFilter] = useState<TripStatus | "ALL">("ALL");
   const [vehicleFilter, setVehicleFilter] = useState<string>("ALL");
+  // Free-text search across the active date's trips. Matched against the
+  // driver, vehicle, and start/end location fields so the operator can
+  // narrow the list without flipping filter dropdowns.
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [dateFilter, setDateFilter] = useState<DateFilter>("TODAY");
   // Date the user picked in the "Choose Date" tab. Stored as a
   // YYYY-MM-DD string so it lines up with both the native date input
@@ -307,6 +312,7 @@ export function TripsPanel({
   }, [dateFilter, customDate]);
 
   const filteredTrips = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return trips.filter((t) => {
       if (statusFilter !== "ALL" && t.status !== statusFilter) return false;
       if (vehicleFilter !== "ALL" && t.vehicleId !== vehicleFilter)
@@ -316,9 +322,39 @@ export function TripsPanel({
       // so they fall out of the filtered list while a date tab is on.
       if (!tripDate) return false;
       if (toLocalDateKey(tripDate) !== targetDateKey) return false;
-      return true;
+      if (!q) return true;
+      // Resolve nested summaries first, then fall back to the locally
+      // looked-up records so the search works whether the API returned
+      // joined data or not.
+      const vehicle = t.vehicle ?? vehicleById.get(t.vehicleId) ?? null;
+      const driver = t.driverId
+        ? (t.driver ?? driverById.get(t.driverId) ?? null)
+        : null;
+      const hay = [
+        driver
+          ? `${driver.firstName ?? ""} ${driver.lastName ?? ""}`.trim()
+          : "",
+        driver?.employeeId ?? "",
+        vehicle?.assetNumber ?? "",
+        vehicle?.plateNumber ?? "",
+        t.startAddress ?? "",
+        t.startCity ?? "",
+        t.endAddress ?? "",
+        t.endCity ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
     });
-  }, [trips, statusFilter, vehicleFilter, targetDateKey]);
+  }, [
+    trips,
+    statusFilter,
+    vehicleFilter,
+    targetDateKey,
+    searchQuery,
+    vehicleById,
+    driverById,
+  ]);
 
   const groupedTrips = useMemo<TripGroup[]>(() => {
     const map = new Map<string, TripGroup>();
@@ -518,7 +554,7 @@ export function TripsPanel({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <p className="text-sm text-muted-foreground">
             <span className="font-semibold text-primary">
@@ -526,36 +562,63 @@ export function TripsPanel({
             </span>{" "}
             of {trips.length} {trips.length === 1 ? "trip" : "trips"} shown
           </p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <div className="relative w-full sm:w-44">
-              <Filter className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <select
-                value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(e.target.value as TripStatus | "ALL")
-                }
-                className={`${fieldClass} pl-9`}
-                aria-label="Filter by status"
-              >
-                <option value="ALL">All statuses</option>
-                {TRIP_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {prettyEnum(s)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {/* Vehicle + date-filter row.
-                - On mobile the wrapper is a flex row so the vehicle
-                  select and the collapsed date button each take half
-                  the width, sitting inline next to each other.
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            {/* Search + status row.
+                - Mobile: the wrapper is a flex row so the search input
+                  and the status select each take half the width and
+                  sit inline.
                 - From `sm` upwards we use `contents` so the wrapper
-                  disappears from layout and both children participate
-                  in the parent wrap-row directly with their own widths.
-                  The mobile date button is hidden on `sm+` because the
-                  full date tabs render below the filter block instead. */}
+                  disappears from layout and the search reclaims its
+                  desktop-wide treatment while the status drops out
+                  (the desktop variant lives in the controls row
+                  below). */}
             <div className="flex gap-2 sm:contents">
-              <div className="relative flex-1 sm:w-56 sm:flex-initial">
+              {/* Free-text search. Filters trips by driver, vehicle, or
+                  start/end location within the active date. Grows to
+                  roughly the same right edge as the controls row below
+                  (date tabs + status + vehicle + target editor), so the
+                  two rows feel column-aligned. Capped via max-w so it
+                  doesn't push into the Create Trip button on the
+                  right. */}
+              <div className="relative flex-1 sm:max-w-4xl">
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search driver, vehicle, location"
+                  aria-label="Search trips"
+                  className={`${fieldClass} pl-9 ${searchQuery ? "pr-9" : ""}`}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    aria-label="Clear search"
+                    className="absolute top-1/2 right-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-slate-100 hover:text-primary"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+              {/* Mobile status filter — a compact 40x40 icon button that
+                  opens a dropdown with the status options. Replaces
+                  the half-width native select so the search input can
+                  reclaim the bulk of the row. Desktop equivalent lives
+                  in the date-tabs row below alongside the target
+                  editor. */}
+              <div className="sm:hidden">
+                <TripStatusFilterMenu
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                />
+              </div>
+            </div>
+            {/* Mobile vehicle + date-filter row. The whole wrapper is
+                hidden on `sm+` because the desktop equivalents live
+                in the second row beside the date tabs. */}
+            <div className="flex gap-2 sm:hidden">
+              <div className="relative flex-1">
                 <Truck className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
                 <select
                   value={vehicleFilter}
@@ -571,7 +634,7 @@ export function TripsPanel({
                   ))}
                 </select>
               </div>
-              <div className="relative flex-1 sm:hidden">
+              <div className="relative flex-1">
                 <TripDateFilterMenu
                   value={dateFilter}
                   onChange={setDateFilter}
@@ -608,18 +671,53 @@ export function TripsPanel({
         </div>
       </div>
 
-      {/* Date tabs + daily target editor (desktop). Tabs render only at
-          `sm+` — on mobile the collapsed date button inside the filter
-          row above handles date selection, and the editor sits inline
-          with the Create Trip button above. The whole row is hidden
-          below `sm` to avoid a duplicate editor. */}
-      <div className="hidden flex-col gap-2 sm:flex sm:flex-row sm:items-center sm:gap-3">
+      {/* Date tabs + status / vehicle / daily-target controls (desktop).
+          The first row up top now owns the search input full-width and
+          all the small controls live here together — date tabs lead,
+          then the dropdowns, then the target editor on the right.
+          Hidden below `sm` — mobile keeps the dropdowns and the
+          collapsed date button up in the filter row above. */}
+      <div className="hidden flex-wrap items-center gap-3 sm:flex">
         <TripDateTabs
           value={dateFilter}
           onChange={setDateFilter}
           customDate={customDate}
           onCustomDateChange={setCustomDate}
         />
+        <div className="relative w-44">
+          <Filter className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <select
+            value={statusFilter}
+            onChange={(e) =>
+              setStatusFilter(e.target.value as TripStatus | "ALL")
+            }
+            className={`${fieldClass} pl-9`}
+            aria-label="Filter by status"
+          >
+            <option value="ALL">All statuses</option>
+            {TRIP_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {prettyEnum(s)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="relative w-56">
+          <Truck className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <select
+            value={vehicleFilter}
+            onChange={(e) => setVehicleFilter(e.target.value)}
+            className={`${fieldClass} pl-9`}
+            aria-label="Filter by vehicle"
+          >
+            <option value="ALL">All vehicles</option>
+            {vehicles.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.assetNumber ?? v.plateNumber}
+              </option>
+            ))}
+          </select>
+        </div>
         <DailyTargetEditor
           target={targetState}
           isSaving={isSavingTarget}
@@ -647,7 +745,9 @@ export function TripsPanel({
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center">
             <Route className="mx-auto mb-2 size-6 text-muted-foreground" />
             <p className="text-sm font-medium text-primary">
-              No trips match your filters.
+              {searchQuery.trim()
+                ? `No trips match "${searchQuery.trim()}".`
+                : "No trips match your filters."}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               Showing{" "}
@@ -662,7 +762,8 @@ export function TripsPanel({
             </p>
             {(statusFilter !== "ALL" ||
               vehicleFilter !== "ALL" ||
-              dateFilter !== "TODAY") && (
+              dateFilter !== "TODAY" ||
+              searchQuery.trim() !== "") && (
               <Button
                 type="button"
                 variant="outline"
@@ -671,6 +772,7 @@ export function TripsPanel({
                   setStatusFilter("ALL");
                   setVehicleFilter("ALL");
                   setDateFilter("TODAY");
+                  setSearchQuery("");
                 }}
                 className="mt-3 h-8 gap-1 rounded-lg border-slate-200 bg-white px-3 text-xs"
               >
@@ -929,6 +1031,99 @@ function DailyTargetEditor({
         </button>
       )}
       {isSaving && <Loader2 className="size-3.5 animate-spin text-primary" />}
+    </div>
+  );
+}
+
+function TripStatusFilterMenu({
+  value,
+  onChange,
+}: {
+  value: TripStatus | "ALL";
+  onChange: (next: TripStatus | "ALL") => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const options: { id: TripStatus | "ALL"; label: string }[] = [
+    { id: "ALL", label: "All statuses" },
+    ...TRIP_STATUSES.map((status) => ({
+      id: status,
+      label: prettyEnum(status),
+    })),
+  ];
+
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Filter by status"
+        className={cn(
+          "inline-flex size-10 items-center justify-center rounded-xl border transition-colors",
+          value === "ALL"
+            ? "border-slate-200 bg-white text-muted-foreground hover:bg-slate-50 hover:text-primary"
+            : "border-primary/30 bg-primary/5 text-primary hover:bg-primary/10",
+          "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25",
+        )}
+      >
+        <Filter className="size-4" />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Status filter options"
+          className="absolute top-full right-0 z-30 mt-1.5 min-w-48 rounded-xl border border-primary/20 bg-white p-1.5 shadow-lg shadow-primary/10"
+        >
+          {options.map((opt) => {
+            const isActive = value === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                role="option"
+                aria-selected={isActive}
+                onClick={() => {
+                  onChange(opt.id);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors",
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                    : "text-primary/80 hover:bg-primary/10 hover:text-primary",
+                )}
+              >
+                <span>{opt.label}</span>
+                <CircleCheck
+                  className={cn(
+                    "size-4 shrink-0 transition-opacity",
+                    isActive ? "opacity-100" : "opacity-0",
+                  )}
+                />
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Route, Settings, Truck, Users } from "@/lib/icons";
+import { Clock, LayoutDashboard, Route, Truck, Users } from "@/lib/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -27,10 +27,10 @@ const NAV_ITEMS = [
   },
   { id: "trips", label: "Trips", icon: Route, href: "/dashboard/trips" },
   {
-    id: "settings",
-    label: "Settings",
-    icon: Settings,
-    href: "/dashboard/settings",
+    id: "attendance",
+    label: "Attendance",
+    icon: Clock,
+    href: "/dashboard/attendance",
   },
 ] as const;
 
