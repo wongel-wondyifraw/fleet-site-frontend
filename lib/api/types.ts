@@ -300,6 +300,27 @@ export interface ApiTrip {
   updatedAt?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Custom trip routes - admin-defined start/end presets surfaced on the
+// trip-creation form as "Custom" pickers. Mirrors backend CustomTripRoute.
+// ---------------------------------------------------------------------------
+export interface ApiCustomTripRoute {
+  id: string;
+  startName: string;
+  // City / state are persisted silently. Older rows or settings-form
+  // submissions may leave them empty, so both reads and writes treat
+  // them as optional / nullable.
+  startCity?: string | null;
+  startState?: string | null;
+  endName: string;
+  endCity?: string | null;
+  endState?: string | null;
+  // Admin-entered driving distance in kilometres between start and end.
+  distanceKm: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // Effective trip target returned by GET /trip-targets/effective. `count`
 // is the value the UI should display for the requested date (override
 // if present, otherwise default). `defaultCount` and `isOverride` let

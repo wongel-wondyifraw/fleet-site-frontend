@@ -112,6 +112,22 @@ function toPicked(result: LocationIQResult): PickedLocation {
   };
 }
 
+// A locally-stored option (e.g. an admin-defined Custom Trip Route)
+// surfaced inside the suggestion dropdown alongside LocationIQ results.
+// `payload` is what gets handed back via `onSelect` when the user picks
+// the option, so the caller never has to reconcile two callback shapes.
+export interface CustomLocationOption {
+  id: string;
+  // Primary label rendered in the dropdown row.
+  name: string;
+  // Optional metadata used both for free-text matching against the
+  // user's query and as the muted secondary line in the row.
+  city?: string | null;
+  state?: string | null;
+  // What `onSelect` receives when this option is chosen.
+  payload: PickedLocation;
+}
+
 export interface LocationAutocompleteProps {
   // Controlled text inside the search input.
   value: string;
@@ -125,6 +141,10 @@ export interface LocationAutocompleteProps {
   countryCodes?: string;
   // Optional id for label association.
   id?: string;
+  // Locally-stored suggestions (e.g. Custom Trip Routes) rendered at
+  // the top of the dropdown, tagged so the source is unambiguous.
+  // Filtered by the same query string the LocationIQ request uses.
+  customOptions?: CustomLocationOption[];
 }
 
 export function LocationAutocomplete({
@@ -135,6 +155,7 @@ export function LocationAutocomplete({
   disabled,
   countryCodes,
   id,
+  customOptions,
 }: LocationAutocompleteProps) {
   const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_API_KEY ?? "";
   const resolvedCountryCodes = useMemo(
@@ -243,6 +264,60 @@ export function LocationAutocomplete({
     };
   }, [value, apiKey, resolvedCountryCodes]);
 
+  // Locally filter the caller-supplied custom options against the same
+  // query the LocationIQ request uses. Substring match across name +
+  // city + state so a single keyword (e.g. a route or a city name)
+  // surfaces the matching presets even with a typo'd full name.
+  const filteredCustomOptions = useMemo<CustomLocationOption[]>(() => {
+    if (!customOptions || customOptions.length === 0) return [];
+    const q = value.trim().toLowerCase();
+    if (!q) return customOptions;
+    return customOptions.filter((opt) => {
+      const hay = [opt.name, opt.city ?? "", opt.state ?? ""]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [customOptions, value]);
+
+  // Merged option list — customs first, then LocationIQ — so a single
+  // active index and a single keyboard handler can drive the whole
+  // dropdown without juggling two lists.
+  type MergedOption =
+    | { kind: "custom"; option: CustomLocationOption }
+    | { kind: "iq"; result: LocationIQResult };
+
+  const mergedOptions = useMemo<MergedOption[]>(() => {
+    const list: MergedOption[] = filteredCustomOptions.map((option) => ({
+      kind: "custom" as const,
+      option,
+    }));
+    for (const r of results) list.push({ kind: "iq", result: r });
+    return list;
+  }, [filteredCustomOptions, results]);
+
+  // Reset active index when the underlying option list changes so we
+  // never highlight a slot that no longer exists.
+  useEffect(() => {
+    setActiveIndex(mergedOptions.length > 0 ? 0 : -1);
+  }, [mergedOptions.length]);
+
+  const chooseCustom = useCallback(
+    (option: CustomLocationOption) => {
+      // Treat custom selections like LocationIQ ones: stop the next
+      // debounced fetch (justPickedRef), echo the picked name into the
+      // input, hand the structured payload back to the parent, and
+      // collapse the dropdown.
+      justPickedRef.current = true;
+      onChange(option.payload.displayName || option.name);
+      onSelect(option.payload);
+      setOpen(false);
+      setResults([]);
+      setActiveIndex(-1);
+    },
+    [onChange, onSelect],
+  );
+
   const choose = useCallback(
     (result: LocationIQResult) => {
       const picked = toPicked(result);
@@ -256,27 +331,32 @@ export function LocationAutocomplete({
     [onChange, onSelect],
   );
 
+  function chooseMerged(opt: MergedOption) {
+    if (opt.kind === "custom") chooseCustom(opt.option);
+    else choose(opt.result);
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
-      if (results.length === 0) return;
+      if (mergedOptions.length === 0) return;
       e.preventDefault();
       setOpen(true);
-      setActiveIndex((prev) => (prev + 1) % results.length);
+      setActiveIndex((prev) => (prev + 1) % mergedOptions.length);
       return;
     }
     if (e.key === "ArrowUp") {
-      if (results.length === 0) return;
+      if (mergedOptions.length === 0) return;
       e.preventDefault();
       setOpen(true);
       setActiveIndex((prev) =>
-        prev <= 0 ? results.length - 1 : prev - 1,
+        prev <= 0 ? mergedOptions.length - 1 : prev - 1,
       );
       return;
     }
     if (e.key === "Enter") {
-      if (open && activeIndex >= 0 && results[activeIndex]) {
+      if (open && activeIndex >= 0 && mergedOptions[activeIndex]) {
         e.preventDefault();
-        choose(results[activeIndex]);
+        chooseMerged(mergedOptions[activeIndex]);
       }
       return;
     }
@@ -288,12 +368,19 @@ export function LocationAutocomplete({
     }
   }
 
+  // Show the dropdown whenever we have something useful to render:
+  // a custom match, a LocationIQ result, an error, or an active fetch
+  // for a sufficiently-long query. This relaxes the minimum-length
+  // gate so custom presets can surface even on a short keyword.
+  const hasCustomMatches = filteredCustomOptions.length > 0;
+  const queryLongEnoughForIQ = value.trim().length >= MIN_QUERY_LEN;
   const showDropdown =
     open &&
     !disabled &&
-    !!apiKey &&
-    value.trim().length >= MIN_QUERY_LEN &&
-    (isLoading || results.length > 0 || !!error);
+    (hasCustomMatches ||
+      (!!apiKey &&
+        queryLongEnoughForIQ &&
+        (isLoading || results.length > 0 || !!error)));
 
   const activeOptionId =
     activeIndex >= 0 ? `${listboxId}-opt-${activeIndex}` : undefined;
@@ -339,7 +426,7 @@ export function LocationAutocomplete({
           role="listbox"
           className="absolute z-30 mt-1.5 max-h-72 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
         >
-          {error ? (
+          {error && !hasCustomMatches ? (
             <li
               role="option"
               aria-selected={false}
@@ -347,7 +434,7 @@ export function LocationAutocomplete({
             >
               {error}
             </li>
-          ) : results.length === 0 && !isLoading ? (
+          ) : mergedOptions.length === 0 && !isLoading ? (
             <li
               role="option"
               aria-selected={false}
@@ -356,15 +443,57 @@ export function LocationAutocomplete({
               No matching places found.
             </li>
           ) : (
-            results.map((result, index) => {
+            mergedOptions.map((opt, index) => {
               const isActive = index === activeIndex;
+              const commonClass = cn(
+                "flex cursor-pointer items-start gap-2 rounded-lg px-3 py-2 text-sm",
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-primary hover:bg-slate-50",
+              );
+              if (opt.kind === "custom") {
+                const { option } = opt;
+                const sub = [option.city ?? "", option.state ?? ""]
+                  .filter(Boolean)
+                  .join(", ");
+                return (
+                  <li
+                    key={`custom-${option.id}`}
+                    id={`${listboxId}-opt-${index}`}
+                    role="option"
+                    aria-selected={isActive}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      chooseCustom(option);
+                    }}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    className={commonClass}
+                  >
+                    <MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-center gap-1.5 truncate font-semibold">
+                        <span className="truncate">{option.name}</span>
+                        <span className="inline-flex items-center rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-blue-700 uppercase">
+                          Custom
+                        </span>
+                      </p>
+                      {sub && (
+                        <p className="truncate text-[11px] text-muted-foreground">
+                          {sub}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                );
+              }
+              const { result } = opt;
               const heading = result.display_place ?? result.display_name;
               const sub =
                 result.display_address ??
                 (result.display_place ? result.display_name : "");
               return (
                 <li
-                  key={`${result.place_id}-${index}`}
+                  key={`iq-${result.place_id}-${index}`}
                   id={`${listboxId}-opt-${index}`}
                   role="option"
                   aria-selected={isActive}
@@ -375,12 +504,7 @@ export function LocationAutocomplete({
                     choose(result);
                   }}
                   onMouseEnter={() => setActiveIndex(index)}
-                  className={cn(
-                    "flex cursor-pointer items-start gap-2 rounded-lg px-3 py-2 text-sm",
-                    isActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-primary hover:bg-slate-50",
-                  )}
+                  className={commonClass}
                 >
                   <MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0">

@@ -1,6 +1,14 @@
 "use client";
 
-import { Building2, Clock, LogOut, Mail, User, Users } from "@/lib/icons";
+import {
+  Building2,
+  Clock,
+  LogOut,
+  Mail,
+  Route,
+  User,
+  Users,
+} from "@/lib/icons";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -9,6 +17,7 @@ import {
   SettingsSection,
   fieldClass,
 } from "@/components/settings/SettingsShared";
+import { CustomTripRoutesPanel } from "@/components/settings/CustomTripRoutesPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
 import { Button } from "@/components/ui/button";
@@ -108,6 +117,14 @@ export function MobileSettings() {
         icon={Building2}
       >
         <SitesPanel density="compact" />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Trip Settings"
+        description="Save custom start and end points for the trip form."
+        icon={Route}
+      >
+        <CustomTripRoutesPanel density="compact" />
       </SettingsSection>
 
       {/* User management - only rendered for ADMIN accounts. */}

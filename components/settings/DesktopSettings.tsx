@@ -4,6 +4,7 @@ import {
   Building2,
   Clock,
   Mail,
+  Route,
   ShieldCheck,
   User,
   Users,
@@ -17,6 +18,7 @@ import {
   SettingsSection,
   fieldClass,
 } from "@/components/settings/SettingsShared";
+import { CustomTripRoutesPanel } from "@/components/settings/CustomTripRoutesPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
 import { formatRole } from "@/lib/api/types";
@@ -24,12 +26,17 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { cn } from "@/lib/utils";
 
 // Each settings section is identified by a stable string id.
-type SectionId = "profile" | "sites" | "users";
+type SectionId = "profile" | "sites" | "trips" | "users";
 
 // Narrowing helper for the `?section=` query param. Keeping this here (next to
 // the SectionId definition) means the union and the runtime guard can't drift.
 function isValidSection(value: string | null): value is SectionId {
-  return value === "profile" || value === "sites" || value === "users";
+  return (
+    value === "profile" ||
+    value === "sites" ||
+    value === "trips" ||
+    value === "users"
+  );
 }
 
 // Metadata for one section in the sub-sidebar.
@@ -55,6 +62,12 @@ const SECTIONS: SectionMeta[] = [
     label: "Sites",
     description: "Add & edit sites",
     icon: Building2,
+  },
+  {
+    id: "trips",
+    label: "Trip Settings",
+    description: "Custom start & end points",
+    icon: Route,
   },
   {
     id: "users",
@@ -210,6 +223,7 @@ function ActivePanel({
     >
       {section === "profile" ? <ProfilePanel /> : null}
       {section === "sites" ? <SitesPanel /> : null}
+      {section === "trips" ? <CustomTripRoutesPanel /> : null}
       {section === "users" ? <UserManagementPanel /> : null}
     </SettingsSection>
   );
@@ -222,6 +236,8 @@ function panelDescription(section: SectionId): string {
       return "Your account details and contact information.";
     case "sites":
       return "Add new construction sites and edit existing ones.";
+    case "trips":
+      return "Save reusable start and end points to surface as Custom presets on the trip form.";
     case "users":
       return "Invite teammates and assign their roles and sites.";
   }

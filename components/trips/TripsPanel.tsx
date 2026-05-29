@@ -36,6 +36,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { CustomTag } from "@/components/settings/CustomTripRoutesPanel";
 import {
   FieldGrid,
   SettingsField,
@@ -43,6 +44,7 @@ import {
 } from "@/components/settings/SettingsShared";
 import {
   LocationAutocomplete,
+  type CustomLocationOption,
   type PickedLocation,
 } from "@/components/shared/LocationAutocomplete";
 import { TripDriverPicker } from "@/components/trips/TripDriverPicker";
@@ -59,6 +61,7 @@ import {
   updateTrip,
   type CreateTripRequest,
 } from "@/lib/api/trips";
+import { listCustomTripRoutes } from "@/lib/api/customTripRoutes";
 import { listSites } from "@/lib/api/sites";
 import {
   clearTripTargetOverride,
@@ -73,6 +76,7 @@ import { useToast } from "@/lib/toast/ToastContext";
 import {
   TRIP_STATUSES,
   prettyEnum,
+  type ApiCustomTripRoute,
   type ApiDriver,
   type ApiSite,
   type ApiTrip,
@@ -207,6 +211,10 @@ export function TripsPanel({
   const [vehicles, setVehicles] = useState<ApiVehicle[]>([]);
   const [drivers, setDrivers] = useState<ApiDriver[]>([]);
   const [sites, setSites] = useState<ApiSite[]>([]);
+  // Admin-defined start/end presets surfaced on the trip-creation form
+  // as "Custom" pickers. Tolerated as empty on auth failures so the
+  // panel keeps working for non-admin viewers.
+  const [customRoutes, setCustomRoutes] = useState<ApiCustomTripRoute[]>([]);
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [statusFilter, setStatusFilter] = useState<TripStatus | "ALL">("ALL");
   const [vehicleFilter, setVehicleFilter] = useState<string>("ALL");
@@ -246,7 +254,7 @@ export function TripsPanel({
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [t, v, d, s] = await Promise.all([
+      const [t, v, d, s, r] = await Promise.all([
         listTrips(),
         listVehicles(),
         listDrivers().catch((err) => {
@@ -257,11 +265,17 @@ export function TripsPanel({
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
+        listCustomTripRoutes().catch((err) => {
+          if (err instanceof ApiError && err.isAuth)
+            return [] as ApiCustomTripRoute[];
+          throw err;
+        }),
       ]);
       setTrips(t);
       setVehicles(v);
       setDrivers(d);
       setSites(s);
+      setCustomRoutes(r);
     } catch (err) {
       setLoadError(
         err instanceof ApiError ? err.message : "Unable to load trips.",
@@ -496,6 +510,23 @@ export function TripsPanel({
     }
   }
 
+  // Reschedules a PLANNED trip that drifted into a past date back to
+  // today by stamping `scheduledAt` with the current time. The trip's
+  // effective date (used by the Today / Yesterday tabs) is derived
+  // from `scheduledAt` for planned rows, so this is sufficient to
+  // move it into the Today bucket without touching anything else.
+  async function handleMoveToToday(target: ApiTrip): Promise<void> {
+    try {
+      await updateTrip(target.id, { scheduledAt: new Date().toISOString() });
+      await refresh();
+      showToast({ variant: "success", message: "Trip moved to today." });
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : "Unable to move trip.";
+      showToast({ variant: "error", message });
+    }
+  }
+
   // Drives the Trip Checkout / Check-in / Cancel buttons. Refresh after
   // each transition so the row picks up the new status, timestamps, and
   // the next set of available actions in one round-trip.
@@ -539,6 +570,7 @@ export function TripsPanel({
         vehicles={vehicles}
         drivers={drivers}
         sites={sites}
+        customRoutes={customRoutes}
         busyDriverIds={busyDriverIds}
         onCancel={() => setMode({ kind: "list" })}
         onSubmit={async (payload) => {
@@ -797,9 +829,11 @@ export function TripsPanel({
                       : null
                   }
                   density={density}
+                  customRoutes={customRoutes}
                   onEdit={() => setMode({ kind: "edit", trip })}
                   onDelete={() => setPendingDelete(trip)}
                   onRequestCancel={() => setPendingCancel(trip)}
+                  onMoveToToday={() => handleMoveToToday(trip)}
                   onStatusChange={(next, options) =>
                     handleStatusChange(trip, next, options)
                   }
@@ -820,6 +854,7 @@ export function TripsPanel({
                 density={density}
                 expanded={expandedGroups.has(group.key)}
                 targetCount={targetState?.count ?? null}
+                customRoutes={customRoutes}
                 onToggle={() => toggleGroup(group.key)}
                 resolveVehicle={(trip) =>
                   trip.vehicle ?? vehicleById.get(trip.vehicleId) ?? null
@@ -832,6 +867,7 @@ export function TripsPanel({
                 onEdit={(trip) => setMode({ kind: "edit", trip })}
                 onDelete={(trip) => setPendingDelete(trip)}
                 onRequestCancel={(trip) => setPendingCancel(trip)}
+                onMoveToToday={(trip) => handleMoveToToday(trip)}
                 onStatusChange={(trip, next, options) =>
                   handleStatusChange(trip, next, options)
                 }
@@ -1369,12 +1405,14 @@ function TripGroupCard({
   density,
   expanded,
   targetCount,
+  customRoutes,
   onToggle,
   resolveVehicle,
   resolveDriver,
   onEdit,
   onDelete,
   onRequestCancel,
+  onMoveToToday,
   onStatusChange,
 }: {
   groupKey: string;
@@ -1386,12 +1424,20 @@ function TripGroupCard({
   // fill. Null while the value is still loading (the donut falls back
   // to a static-looking ring with the count in the middle).
   targetCount: number | null;
+  // Admin-defined start/end presets, threaded through so each row's
+  // distance display + check-in flow can prefer a saved route's
+  // admin-recorded distance over a LocationIQ geocode/route guess.
+  customRoutes: ApiCustomTripRoute[];
   onToggle: () => void;
   resolveVehicle: (trip: ApiTrip) => TripVehicleSummary | ApiVehicle | null;
   resolveDriver: (trip: ApiTrip) => TripDriverSummary | ApiDriver | null;
   onEdit: (trip: ApiTrip) => void;
   onDelete: (trip: ApiTrip) => void;
   onRequestCancel: (trip: ApiTrip) => void;
+  // Reschedules a PLANNED trip that drifted into the past back to
+  // today. Wired into the row's "Move to Today" action button which
+  // replaces the Checkout / Cancel buttons for stale planned rows.
+  onMoveToToday: (trip: ApiTrip) => void;
   onStatusChange: (
     trip: ApiTrip,
     next: TripStatus,
@@ -1403,11 +1449,11 @@ function TripGroupCard({
     status,
     count: trips.filter((trip) => trip.status === status).length,
   })).filter((entry) => entry.count > 0);
-  // Donut count = planned + completed only. In-progress and cancelled
-  // trips are intentionally excluded so the donut tracks "trips that
-  // count toward the day's target" and not the raw row count.
+  // Donut count = COMPLETED only. The donut tracks "trips that
+  // actually finished today" toward the day's target, so PLANNED,
+  // IN_PROGRESS, and CANCELLED rows are intentionally excluded.
   const donutCount = trips.filter(
-    (trip) => trip.status === "PLANNED" || trip.status === "COMPLETED",
+    (trip) => trip.status === "COMPLETED",
   ).length;
   const driverName = driver
     ? `${driver.firstName} ${driver.lastName}`
@@ -1463,9 +1509,11 @@ function TripGroupCard({
               vehicle={resolveVehicle(trip)}
               driver={resolveDriver(trip)}
               density={density}
+              customRoutes={customRoutes}
               onEdit={() => onEdit(trip)}
               onDelete={() => onDelete(trip)}
               onRequestCancel={() => onRequestCancel(trip)}
+              onMoveToToday={() => onMoveToToday(trip)}
               onStatusChange={(next, options) => onStatusChange(trip, next, options)}
             />
           ))}
@@ -1476,13 +1524,14 @@ function TripGroupCard({
 }
 
 // Circular donut badge that displays trip progress toward the day
-// target. The middle text is the integer count of PLANNED + COMPLETED
-// trips (cancelled and in-progress are intentionally excluded by the
-// caller). The arc fill is `count / target`, clamped at 100% so a
-// driver who over-delivered still shows a full ring instead of
-// wrapping past 360 deg. When `target` is missing or zero, the ring
-// renders as a thin background only and we lean on the centered count
-// to carry the meaning.
+// target. The middle text is the integer count of COMPLETED trips
+// (planned, in-progress, and cancelled are intentionally excluded
+// by the caller so the donut tracks actual completion only). The
+// arc fill is `count / target`, clamped at 100% so a driver who
+// over-delivered still shows a full ring instead of wrapping past
+// 360 deg. When `target` is missing or zero, the ring renders as a
+// thin background only and we lean on the centered count to carry
+// the meaning.
 function TripDonutBadge({
   count,
   target,
@@ -1546,9 +1595,11 @@ function TripRow({
   vehicle,
   driver,
   density,
+  customRoutes,
   onEdit,
   onDelete,
   onRequestCancel,
+  onMoveToToday,
   onStatusChange,
 }: {
   trip: ApiTrip;
@@ -1558,16 +1609,33 @@ function TripRow({
   vehicle: TripVehicleSummary | ApiVehicle | null;
   driver: TripDriverSummary | ApiDriver | null;
   density: "comfortable" | "compact";
+  // Saved Custom Trip Routes. When the trip's start/end address line
+  // matches one, we use its admin-recorded distance for both the
+  // check-in payload and the completed-row display instead of falling
+  // back to LocationIQ (which can't be trusted for short names with no
+  // coordinates).
+  customRoutes?: ApiCustomTripRoute[];
   onEdit: () => void;
   onDelete: () => void;
   // Opens the cancel-confirmation dialog. The actual status transition
   // runs from the panel after the user confirms.
   onRequestCancel: () => void;
+  // Reschedules a stale PLANNED trip back to today. Wired to the
+  // "Move to Today" action that replaces Checkout / Cancel when a
+  // planned trip's effective date has drifted into the past.
+  onMoveToToday: () => void;
   onStatusChange: (
     next: TripStatus,
     options?: { distanceKm?: number | null },
   ) => Promise<void> | void;
 }) {
+  // Pre-compute the matching custom route once so every distance code
+  // path in this row (check-in resolver, initial display state, and
+  // background upgrade effect) reads from the same source of truth.
+  const matchedCustomRoute = useMemo(
+    () => findMatchingCustomRoute(trip, customRoutes),
+    [trip, customRoutes],
+  );
   // Tracks the in-flight status action so we can disable all three buttons
   // while a request is in progress and surface a spinner on the clicked one.
   const [pendingAction, setPendingAction] = useState<TripStatus | null>(null);
@@ -1596,7 +1664,7 @@ function TripRow({
       // fall through with no distance if it doesn't resolve in time.
       let distanceKm: number | null = null;
       if (next === "COMPLETED") {
-        distanceKm = await resolveCheckinDistanceKm(trip);
+        distanceKm = await resolveCheckinDistanceKm(trip, customRoutes);
       }
       await onStatusChange(next, distanceKm !== null ? { distanceKm } : {});
       if (next === "IN_PROGRESS") {
@@ -1633,13 +1701,18 @@ function TripRow({
         : null;
 
   // Distance shown on the completed row. Priority order:
-  //   1. `trip.distanceKm` persisted on the trip itself (set when the
+  //   1. Admin-recorded distance from a matching Custom Trip Route.
+  //      Wins over `trip.distanceKm` so historic trips that were
+  //      checked-in before this fix (and therefore carry a bogus
+  //      LocationIQ-derived distance) self-correct on next render.
+  //   2. `trip.distanceKm` persisted on the trip itself (set when the
   //      user tapped Check-in via setTripStatus).
-  //   2. Straight-line distance from saved start/end coords (instant
+  //   3. Straight-line distance from saved start/end coords (instant
   //      fallback for older trips without the persisted figure).
-  //   3. Driving distance from LocationIQ Directions after geocoding the
+  //   4. Driving distance from LocationIQ Directions after geocoding the
   //      saved addresses — last-resort upgrade for legacy trips.
   const [distanceKm, setDistanceKm] = useState<number | null>(() => {
+    if (matchedCustomRoute) return customRouteDistanceKm(trip, matchedCustomRoute);
     if (typeof trip.distanceKm === "number") return trip.distanceKm;
     return trip.status === "COMPLETED" ? getTripDistanceKm(trip) : null;
   });
@@ -1652,6 +1725,15 @@ function TripRow({
     async function compute() {
       if (trip.status !== "COMPLETED") {
         if (!cancelled) setDistanceKm(null);
+        return;
+      }
+
+      // A matching Custom Trip Route always wins — its distance is
+      // authoritative and we don't want a stale persisted value
+      // displayed when we have a known-good admin-entered figure.
+      if (matchedCustomRoute) {
+        if (!cancelled)
+          setDistanceKm(customRouteDistanceKm(trip, matchedCustomRoute));
         return;
       }
 
@@ -1755,18 +1837,36 @@ function TripRow({
     trip.endCity,
     trip.endState,
     trip.isRoundTrip,
+    matchedCustomRoute,
   ]);
 
-  const canCheckout = trip.status === "PLANNED";
+  // A PLANNED trip whose effective date has slipped past today (the
+  // driver never checked out on its scheduled day). Compared against
+  // the user's local "today" key so the rule lines up with the date
+  // tabs above the list.
+  const isPlannedFromPast = useMemo(() => {
+    if (trip.status !== "PLANNED") return false;
+    const effective = getTripEffectiveDate(trip);
+    if (!effective) return false;
+    return toLocalDateKey(effective) < toLocalDateKey(new Date());
+  }, [trip]);
+
+  // Stale planned trips swap their checkout / cancel buttons for a
+  // single "Move to Today" + "Delete" pair, so the regular workflow
+  // controls hide. Otherwise the usual rules apply.
+  const canCheckout = trip.status === "PLANNED" && !isPlannedFromPast;
   const canCheckin = trip.status === "IN_PROGRESS";
   const canCancel =
-    trip.status === "PLANNED" || trip.status === "IN_PROGRESS";
+    (trip.status === "PLANNED" || trip.status === "IN_PROGRESS") &&
+    !isPlannedFromPast;
   // Editing is restricted to PLANNED trips — once a trip has moved on
   // it becomes historical and can only change via the dedicated status
   // transition. Delete is hidden while IN_PROGRESS so a mid-flight trip
   // can't be wiped out without going through Check-in or Cancel first.
-  const canEdit = trip.status === "PLANNED";
-  const canDelete = trip.status !== "IN_PROGRESS";
+  // For stale planned trips the tiny edit / delete cluster is hidden
+  // because "Move to Today" + "Delete" already covers the actions.
+  const canEdit = trip.status === "PLANNED" && !isPlannedFromPast;
+  const canDelete = trip.status !== "IN_PROGRESS" && !isPlannedFromPast;
 
   return (
     <div
@@ -1854,6 +1954,26 @@ function TripRow({
             completedAt={trip.completedAt}
           />
         )}
+        {isPlannedFromPast && (
+          <>
+            <TripActionButton
+              tone="primary"
+              onClick={onMoveToToday}
+              disabled={isBusy}
+              icon={Calendar}
+            >
+              Move to Today
+            </TripActionButton>
+            <TripActionButton
+              tone="destructive"
+              onClick={onDelete}
+              disabled={isBusy}
+              icon={Trash2}
+            >
+              Delete
+            </TripActionButton>
+          </>
+        )}
         {canCheckout && (
           <TripActionButton
             tone="success"
@@ -1928,7 +2048,7 @@ function TripActionButton({
   icon: Icon,
   children,
 }: {
-  tone: "success" | "primary" | "muted";
+  tone: "success" | "primary" | "muted" | "destructive";
   onClick: () => void;
   disabled?: boolean;
   loading?: boolean;
@@ -1940,7 +2060,9 @@ function TripActionButton({
       ? "bg-success text-white hover:bg-success/90 disabled:bg-success/60"
       : tone === "primary"
         ? "bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-primary/60"
-        : "bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:bg-slate-100";
+        : tone === "destructive"
+          ? "bg-destructive text-white hover:bg-destructive/90 disabled:bg-destructive/60"
+          : "bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:bg-slate-100";
   return (
     <button
       type="button"
@@ -2148,11 +2270,111 @@ function TripTimesInfo({
   );
 }
 
-// Resolves a "distance" to render for a trip. Prefers the persisted
-// `distanceKm` saved by the backend when the user checked in; falls
-// back to the haversine straight-line between saved start/end
-// coordinates if there's no persisted figure yet (older trips).
-function getTripDistanceKm(trip: ApiTrip): number | null {
+// Locates a saved Custom Trip Route whose endpoints match the trip's
+// addresses in either direction (forward A→B or reverse B→A). The
+// admin-recorded distance is the same either way, so reusing a saved
+// route's number for the reverse leg is correct and saves the user
+// from having to register the inverse pairing explicitly.
+//
+// Returns null when no route lines up — including the obvious case
+// where the caller hasn't loaded any custom routes yet. Matching is
+// case / whitespace-insensitive and ignores city / state (which are
+// persisted silently and may be empty on either side).
+function findMatchingCustomRoute(
+  trip: ApiTrip,
+  customRoutes: ApiCustomTripRoute[] | undefined,
+): ApiCustomTripRoute | null {
+  if (!customRoutes || customRoutes.length === 0) return null;
+  const norm = (s: string | null | undefined) =>
+    (s ?? "").trim().toLowerCase();
+  const startName = norm(trip.startAddress);
+  const endName = norm(trip.endAddress);
+  if (!startName || !endName) return null;
+  return (
+    customRoutes.find((r) => {
+      const a = norm(r.startName);
+      const b = norm(r.endName);
+      return (
+        (a === startName && b === endName) ||
+        (b === startName && a === endName)
+      );
+    }) ?? null
+  );
+}
+
+// Returns the admin-recorded distance for a custom-route trip, doubled
+// for round trips so the figure matches what the driver actually drove.
+function customRouteDistanceKm(
+  trip: ApiTrip,
+  route: ApiCustomTripRoute,
+): number {
+  return trip.isRoundTrip ? route.distanceKm * 2 : route.distanceKm;
+}
+
+// Flattens every saved route's endpoints into autocomplete options for
+// the trip form, deduped by normalized name. The same list is used on
+// both sides of the form (`side` only changes the option id prefix so
+// React keys stay unique) because a saved A→B route should be just as
+// pickable as a start for the B→A return leg.
+function buildCustomEndpointOptions(
+  customRoutes: ApiCustomTripRoute[],
+  side: "start" | "end",
+): CustomLocationOption[] {
+  const seen = new Set<string>();
+  const options: CustomLocationOption[] = [];
+  const norm = (s: string | null | undefined) =>
+    (s ?? "").trim().toLowerCase();
+  const push = (
+    routeId: string,
+    role: "start" | "end",
+    name: string,
+    city: string | null | undefined,
+    state: string | null | undefined,
+  ) => {
+    const key = norm(name);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    options.push({
+      id: `${side}-${routeId}-${role}`,
+      name,
+      city: city ?? "",
+      state: state ?? "",
+      payload: {
+        address: name,
+        city: city ?? "",
+        state: state ?? "",
+        lat: null,
+        lon: null,
+        displayName: formatLocationLine(name, city ?? "", state ?? ""),
+        // The picker doesn't have a real LocationIQ row to attach,
+        // so we hand back a stub the consumer ignores. Cast keeps
+        // PickedLocation's `raw` typing happy without leaking the
+        // shape outward.
+        raw: { display_name: name } as unknown as PickedLocation["raw"],
+      },
+    });
+  };
+  for (const r of customRoutes) {
+    push(r.id, "start", r.startName, r.startCity, r.startState);
+    push(r.id, "end", r.endName, r.endCity, r.endState);
+  }
+  return options;
+}
+
+// Resolves a "distance" to render for a trip. Prefers, in order:
+//   1. The matching saved Custom Trip Route's distance. Custom routes
+//      carry an admin-entered distance that we always trust over any
+//      LocationIQ-derived figure, because they typically have no
+//      lat/lon and the geocoder is easily fooled by short generic
+//      names like "North Depot".
+//   2. The persisted `trip.distanceKm` (set when the user checked in).
+//   3. The haversine straight-line between saved start/end coords.
+function getTripDistanceKm(
+  trip: ApiTrip,
+  customRoutes?: ApiCustomTripRoute[],
+): number | null {
+  const matched = findMatchingCustomRoute(trip, customRoutes);
+  if (matched) return customRouteDistanceKm(trip, matched);
   if (typeof trip.distanceKm === "number") return trip.distanceKm;
   const { startLat, startLon, endLat, endLon } = trip;
   if (
@@ -2168,17 +2390,24 @@ function getTripDistanceKm(trip: ApiTrip): number | null {
 
 // Computes the distance to persist when the user taps Trip Check-in.
 // Tries (in order):
-//   1. Real driving distance from LocationIQ Directions, using saved
+//   1. The admin-recorded distance from a matching Custom Trip Route.
+//      Trusted over LocationIQ because custom routes carry no lat/lon
+//      and short generic names ("North Depot") confuse the geocoder.
+//   2. Real driving distance from LocationIQ Directions, using saved
 //      coords when available, or geocoding the addresses otherwise.
-//   2. Straight-line distance from any coords we can find (saved or
+//   3. Straight-line distance from any coords we can find (saved or
 //      geocoded).
-//   3. null — give up rather than blocking the check-in indefinitely.
+//   4. null — give up rather than blocking the check-in indefinitely.
 //
 // We cap the whole resolution at ~5 seconds so a slow API call can
 // never strand a driver who's trying to close out a trip in the field.
 async function resolveCheckinDistanceKm(
   trip: ApiTrip,
+  customRoutes?: ApiCustomTripRoute[],
 ): Promise<number | null> {
+  const matched = findMatchingCustomRoute(trip, customRoutes);
+  if (matched) return customRouteDistanceKm(trip, matched);
+
   const abort = new AbortController();
   // Safety net: bail out if LocationIQ is being slow / unreachable so
   // the check-in still completes.
@@ -2575,6 +2804,7 @@ function TripForm({
   vehicles,
   drivers,
   sites,
+  customRoutes,
   busyDriverIds,
   onCancel,
   onSubmit,
@@ -2583,6 +2813,9 @@ function TripForm({
   vehicles: ApiVehicle[];
   drivers: ApiDriver[];
   sites: ApiSite[];
+  // Saved admin-defined start/end presets surfaced on this form as
+  // blue "Custom" picker chips below the autocomplete inputs.
+  customRoutes: ApiCustomTripRoute[];
   // Drivers that already have an IN_PROGRESS trip. Used to block
   // creating a second concurrent trip for the same driver before the
   // backend has to reject it. Editing an existing PLANNED trip is
@@ -2723,6 +2956,55 @@ function TripForm({
       endLon: picked.lon,
     }));
   }
+
+  // Pre-shape the saved custom routes into LocationAutocomplete
+  // options so each side of the form can render them inline within
+  // its dropdown.
+  //
+  // Both endpoints of every saved route contribute to BOTH the start
+  // and end pickers: the admin only registers one direction (A → B),
+  // but the same pairing can be driven in reverse (B → A) for the
+  // same distance, so both A and B should be selectable as either
+  // start or end. Results are deduped by normalized name so two
+  // routes sharing an endpoint don't produce two identical chips.
+  //
+  // The `payload` is what `applyStart` / `applyEnd` already know how
+  // to consume, so picking a custom suggestion flows through the
+  // same code path as a LocationIQ suggestion.
+  const customStartOptions = useMemo<CustomLocationOption[]>(
+    () =>
+      buildCustomEndpointOptions(customRoutes, "start"),
+    [customRoutes],
+  );
+
+  const customEndOptions = useMemo<CustomLocationOption[]>(
+    () =>
+      buildCustomEndpointOptions(customRoutes, "end"),
+    [customRoutes],
+  );
+
+  // When both halves of the form match the same saved Custom route —
+  // in either direction — we surface the admin-recorded distance
+  // instead of trying to recompute it (Custom routes have no lat/lon).
+  // The reverse-direction match means a single saved A→B preset
+  // automatically works for the B→A return trip without the admin
+  // needing to register the inverse pairing.
+  const matchedCustomRoute = useMemo(() => {
+    const norm = (s: string | null | undefined) =>
+      (s ?? "").trim().toLowerCase();
+    const sName = norm(form.startAddress);
+    const eName = norm(form.endAddress);
+    if (!sName || !eName) return null;
+    return (
+      customRoutes.find((r) => {
+        const a = norm(r.startName);
+        const b = norm(r.endName);
+        return (
+          (a === sName && b === eName) || (b === sName && a === eName)
+        );
+      }) ?? null
+    );
+  }, [customRoutes, form.startAddress, form.endAddress]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -2873,6 +3155,7 @@ function TripForm({
                 onSelect={applyStart}
                 disabled={isSubmitting}
                 placeholder="Where does the trip begin?"
+                customOptions={customStartOptions}
               />
             </SettingsField>
             <FieldGrid cols={1}>
@@ -2889,32 +3172,6 @@ function TripForm({
                   className={fieldClass}
                 />
               </SettingsField>
-              <div className="grid grid-cols-2 gap-3">
-                <SettingsField label="City">
-                  <input
-                    type="text"
-                    value={form.startCity}
-                    onChange={(e) => {
-                      setSuggestedStartSite(null);
-                      update("startCity", e.target.value);
-                    }}
-                    disabled={isSubmitting}
-                    className={fieldClass}
-                  />
-                </SettingsField>
-                <SettingsField label="State">
-                  <input
-                    type="text"
-                    value={form.startState}
-                    onChange={(e) => {
-                      setSuggestedStartSite(null);
-                      update("startState", e.target.value);
-                    }}
-                    disabled={isSubmitting}
-                    className={fieldClass}
-                  />
-                </SettingsField>
-              </div>
             </FieldGrid>
           </div>
         </FormCard>
@@ -2935,6 +3192,23 @@ function TripForm({
             }
             isRoundTrip={form.isRoundTrip}
           />
+          {/* Saved-distance hint shown when both start and end correspond
+              to the same Custom Trip Route. Lets the operator confirm the
+              admin-recorded distance will be used (Custom routes have no
+              lat/lon today, so the live preview can't compute it). */}
+          {matchedCustomRoute && (
+            <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
+              <CustomTag />
+              <span>
+                Saved distance:{" "}
+                {formatDistance(
+                  form.isRoundTrip
+                    ? matchedCustomRoute.distanceKm * 2
+                    : matchedCustomRoute.distanceKm,
+                )}
+              </span>
+            </div>
+          )}
           {/* Round-trip toggle. When checked the distance preview and
               the persisted distance computed at check-in cover both
               legs (A → B → A). Unchecked falls back to the one-way
@@ -2967,6 +3241,7 @@ function TripForm({
                 onSelect={applyEnd}
                 disabled={isSubmitting}
                 placeholder="Where does the trip end?"
+                customOptions={customEndOptions}
               />
             </SettingsField>
             <FieldGrid cols={1}>
@@ -2980,26 +3255,6 @@ function TripForm({
                   className={fieldClass}
                 />
               </SettingsField>
-              <div className="grid grid-cols-2 gap-3">
-                <SettingsField label="City">
-                  <input
-                    type="text"
-                    value={form.endCity}
-                    onChange={(e) => update("endCity", e.target.value)}
-                    disabled={isSubmitting}
-                    className={fieldClass}
-                  />
-                </SettingsField>
-                <SettingsField label="State">
-                  <input
-                    type="text"
-                    value={form.endState}
-                    onChange={(e) => update("endState", e.target.value)}
-                    disabled={isSubmitting}
-                    className={fieldClass}
-                  />
-                </SettingsField>
-              </div>
             </FieldGrid>
           </div>
         </FormCard>
@@ -3085,3 +3340,4 @@ function FormCard({
     </div>
   );
 }
+
