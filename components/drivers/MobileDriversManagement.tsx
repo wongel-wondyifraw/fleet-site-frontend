@@ -16,7 +16,7 @@ export function MobileDriversManagement() {
         </p>
         <h1 className="text-lg font-semibold text-primary">Drivers</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Add, edit, and assign drivers to sites.
+          Add, edit, and assign drivers to vehicles.
         </p>
       </header>
 

@@ -60,6 +60,7 @@ import {
   type VehicleType,
 } from "@/lib/api/types";
 import type { CreateVehicleRequest } from "@/lib/api/vehicles";
+import { vehicleSiteName } from "@/lib/drivers/resolveDriverSite";
 import { cn } from "@/lib/utils";
 
 // Vehicle selection emitted by the form. The caller decides what to do with
@@ -124,7 +125,7 @@ export function DriverForm({
 }: {
   // Pass the driver record to edit; pass `null` to render the create form.
   initial: ApiDriver | null;
-  // Available sites for the home-site dropdown and inline new-vehicle form.
+  // Available sites for the inline new-vehicle form (vehicle assigned site).
   sites: ApiSite[];
   // Full list of vehicles - the form filters to unassigned ones (plus the
   // currently-linked one when editing) for the assignment picker.
@@ -163,9 +164,6 @@ export function DriverForm({
     initial?.phoneNumber ?? "+251",
   );
   const [email, setEmail] = useState(initial?.email ?? "");
-  // homeSite is a free-text column on the entity; we model it here as the
-  // site *name* so the dropdown shows nice labels and search-by-site works.
-  const [homeSite, setHomeSite] = useState(initial?.homeSite ?? "");
   const [status, setStatus] = useState<DriverStatus>(
     initial?.status ?? "ACTIVE",
   );
@@ -249,7 +247,7 @@ export function DriverForm({
       }
       const mileage = parseNumericField(newVehicleForm.mileage);
       if (!Number.isFinite(mileage) || mileage < 0) {
-        return "Vehicle: mileage must be a number 0 or greater.";
+        return "Vehicle: fuel consumption must be a number 0 or greater.";
       }
     }
     return null;
@@ -268,34 +266,7 @@ export function DriverForm({
     // Coalesce empty optional strings to undefined / null so the backend
     // can tell "leave it" from "clear it".
     const trimmedEmail = email.trim();
-    const trimmedSite = homeSite.trim();
     const trimmedNotes = notes.trim();
-
-    const createPayload: CreateDriverRequest = {
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      licenseNumber: licenseNumber.trim(),
-      licenseClass,
-      licenseExpiry,
-      hireDate,
-      phoneNumber: phoneNumber.trim(),
-      email: trimmedEmail || undefined,
-      homeSite: trimmedSite || undefined,
-      notes: trimmedNotes || undefined,
-    };
-
-    const updatePayload: UpdateDriverRequest = {
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      licenseNumber: licenseNumber.trim(),
-      licenseClass,
-      licenseExpiry,
-      phoneNumber: phoneNumber.trim(),
-      email: trimmedEmail || null,
-      status,
-      homeSite: trimmedSite || null,
-      notes: trimmedNotes || null,
-    };
 
     // Resolve the vehicle selection now so the caller never has to inspect
     // form state. When creating a new vehicle inline we synthesize the
@@ -316,6 +287,38 @@ export function DriverForm({
         },
       };
     }
+
+    const derivedHomeSite = resolveHomeSiteFromVehicle(
+      resolvedVehicleSelection,
+      vehicles,
+      sortedSites,
+    );
+
+    const createPayload: CreateDriverRequest = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      licenseNumber: licenseNumber.trim(),
+      licenseClass,
+      licenseExpiry,
+      hireDate,
+      phoneNumber: phoneNumber.trim(),
+      email: trimmedEmail || undefined,
+      homeSite: derivedHomeSite,
+      notes: trimmedNotes || undefined,
+    };
+
+    const updatePayload: UpdateDriverRequest = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      licenseNumber: licenseNumber.trim(),
+      licenseClass,
+      licenseExpiry,
+      phoneNumber: phoneNumber.trim(),
+      email: trimmedEmail || null,
+      status,
+      homeSite: derivedHomeSite ?? null,
+      notes: trimmedNotes || null,
+    };
 
     setIsSubmitting(true);
     try {
@@ -484,22 +487,6 @@ export function DriverForm({
           />
         </SettingsField>
       </FieldGrid>
-
-      <SettingsField
-        label="Assigned site"
-        hint={
-          sortedSites.length === 0
-            ? "No sites available yet - create one from Settings first."
-            : "Select the construction site this driver is assigned to."
-        }
-      >
-        <SiteSelect
-          value={homeSite}
-          onChange={setHomeSite}
-          sites={sortedSites}
-          disabled={isSubmitting}
-        />
-      </SettingsField>
 
       <VehicleAssignmentSection
         vehicles={vehicles}
@@ -922,7 +909,7 @@ function NewVehicleSubForm({
             disabled={disabled}
           />
         </SettingsField>
-        <SettingsField label="Mileage (km/L)" hint="Optional">
+        <SettingsField label="Fuel consumption (km/L)" hint="Optional">
           <IconInput
             icon={Gauge}
             type="number"
@@ -999,34 +986,20 @@ function IconInput({
   );
 }
 
-function SiteSelect({
-  value,
-  onChange,
-  sites,
-  disabled,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-  sites: ApiSite[];
-  disabled?: boolean;
-}) {
-  return (
-    <div className="relative">
-      <Building2 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        className={`${fieldClass} pl-9`}
-        aria-label="Assigned site"
-      >
-        <option value="">No site (unassigned)</option>
-        {sites.map((site) => (
-          <option key={site.id} value={site.name}>
-            {site.name}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
+function resolveHomeSiteFromVehicle(
+  selection: VehicleSelection,
+  vehicles: ApiVehicle[],
+  sites: ApiSite[],
+): string | undefined {
+  if (selection.kind === "existing") {
+    const vehicle = vehicles.find((v) => v.id === selection.vehicleId);
+    return vehicleSiteName(vehicle, sites) ?? undefined;
+  }
+  if (selection.kind === "new") {
+    return vehicleSiteName(
+      { assignedSite: selection.payload.assignedSite ?? null } as ApiVehicle,
+      sites,
+    ) ?? undefined;
+  }
+  return undefined;
 }

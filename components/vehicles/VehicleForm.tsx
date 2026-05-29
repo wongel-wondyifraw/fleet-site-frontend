@@ -244,7 +244,7 @@ export function VehicleForm({
     }
     const mileage = parseNumericField(form.mileage);
     if (!Number.isFinite(mileage) || mileage < 0) {
-      setFormError("Mileage must be a number 0 or greater.");
+      setFormError("Fuel consumption must be a number 0 or greater.");
       return;
     }
 
@@ -387,8 +387,8 @@ export function VehicleForm({
       </FormCard>
 
       <FormCard
-        title="Fuel & Mileage"
-        description="Fuel type, tank size, and current fuel economy."
+        title="Fuel"
+        description="Fuel type, tank size, and fuel consumption."
         icon={Fuel}
       >
         <FieldGrid>
@@ -420,8 +420,8 @@ export function VehicleForm({
             />
           </SettingsField>
           <SettingsField
-            label="Mileage (KM/L)"
-            hint="Fuel economy. Leave blank if unknown."
+            label="Fuel consumption (KM/L)"
+            hint="Kilometres per litre. Leave blank if unknown."
           >
             <div className="relative">
               <Gauge className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />

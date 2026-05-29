@@ -2807,11 +2807,12 @@ function TripForm({
           via `handleDriverSelect`. */}
       <FormCard
         title="Driver"
-        description="Search drivers — loads their assigned truck and home site as the start."
+        description="Search drivers — loads their assigned truck and its site as the start."
         icon={UserRound}
       >
         <TripDriverPicker
           drivers={drivers}
+          vehicles={vehicles}
           sites={sites}
           selectedId={form.driverId}
           onSelect={handleDriverSelect}

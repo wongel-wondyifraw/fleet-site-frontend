@@ -49,6 +49,7 @@ import {
   type ApiVehicle,
   type DriverStatus,
 } from "@/lib/api/types";
+import { driverSiteName } from "@/lib/drivers/resolveDriverSite";
 import { cn } from "@/lib/utils";
 
 // Tailwind classes for the driver status pill, kept in one place so colors
@@ -80,7 +81,7 @@ export function DriversPanel({
   const [statusFilter, setStatusFilter] = useState<DriverStatus | "ALL">(
     "ALL",
   );
-  // "ALL" means no filter; otherwise narrow the list by assigned site name.
+  // "ALL" means no filter; otherwise narrow by the assigned vehicle's site.
   const [siteFilter, setSiteFilter] = useState<string>("ALL");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -137,25 +138,24 @@ export function DriversPanel({
     return map;
   }, [drivers]);
 
-  // Distinct list of site names used by the filter dropdown. Combines the
-  // names of existing sites with any home-site values already saved on
-  // drivers (so the filter still works for legacy free-text values).
+  // Site names for the filter — derived from each driver's assigned vehicle.
   const siteOptions = useMemo(() => {
     const names = new Set<string>();
     for (const s of sites) names.add(s.name);
     for (const d of drivers) {
-      if (d.homeSite) names.add(d.homeSite);
+      const name = driverSiteName(d, vehicleById, sites);
+      if (name) names.add(name);
     }
     return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [sites, drivers]);
+  }, [sites, drivers, vehicleById]);
 
   // Filter cascade: status -> site -> free-text search.
   const filteredDrivers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return drivers.filter((d) => {
       if (statusFilter !== "ALL" && d.status !== statusFilter) return false;
-      if (siteFilter !== "ALL" && (d.homeSite ?? "") !== siteFilter)
-        return false;
+      const siteName = driverSiteName(d, vehicleById, sites);
+      if (siteFilter !== "ALL" && (siteName ?? "") !== siteFilter) return false;
       if (!q) return true;
       const vehicle = d.assignedVehicleId
         ? vehicleById.get(d.assignedVehicleId)
@@ -167,7 +167,7 @@ export function DriversPanel({
         d.licenseNumber,
         d.email ?? "",
         d.phoneNumber,
-        d.homeSite ?? "",
+        siteName ?? "",
         vehicle?.assetNumber ?? "",
         vehicle?.plateNumber ?? "",
       ]
@@ -175,7 +175,7 @@ export function DriversPanel({
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [drivers, vehicleById, searchQuery, statusFilter, siteFilter]);
+  }, [drivers, vehicleById, sites, searchQuery, statusFilter, siteFilter]);
 
   // Resolve a VehicleSelection into the assignedVehicleId that should land
   // on the driver record. For "new" we create the vehicle first and return
@@ -372,6 +372,7 @@ export function DriversPanel({
                   ? (vehicleById.get(driver.assignedVehicleId) ?? null)
                   : null
               }
+              siteName={driverSiteName(driver, vehicleById, sites)}
               density={density}
               onEdit={() => setMode({ kind: "edit", driver })}
               onDelete={() => setPendingDelete(driver)}
@@ -412,12 +413,14 @@ export function DriversPanel({
 function DriverRow({
   driver,
   vehicle,
+  siteName,
   density,
   onEdit,
   onDelete,
 }: {
   driver: ApiDriver;
   vehicle: ApiVehicle | null;
+  siteName: string | null;
   density: "comfortable" | "compact";
   onEdit: () => void;
   onDelete: () => void;
@@ -451,9 +454,9 @@ function DriverRow({
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <Building2 className="size-3" />
-            {driver.homeSite ? (
+            {siteName ? (
               <span className="truncate font-semibold text-primary">
-                {driver.homeSite}
+                {siteName}
               </span>
             ) : (
               <span className="italic">No site</span>
@@ -538,8 +541,8 @@ function EmptyState() {
       <div>
         <p className="text-sm font-semibold text-primary">No drivers yet</p>
         <p className="text-xs text-muted-foreground">
-          Register your first driver to start assigning them to sites and
-          vehicles.
+          Register your first driver and assign a vehicle — the site follows the
+          truck.
         </p>
       </div>
     </div>

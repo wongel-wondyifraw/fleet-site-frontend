@@ -22,20 +22,20 @@ export function findDriverForVehicle(
 }
 
 /**
- * Primary departure site: driver's assigned site first, then the vehicle's
- * assigned site when the driver has none.
+ * Primary departure site: taken from the assigned vehicle's site. Falls back
+ * to the stored driver home site for legacy records without a vehicle link.
  */
 export function resolvePrimarySite(
   driver: ApiDriver | null | undefined,
   vehicle: ApiVehicle | null | undefined,
   sites: ApiSite[],
 ): ApiSite | undefined {
-  if (driver?.homeSite) {
-    const fromDriver = findSite(sites, driver.homeSite);
-    if (fromDriver) return fromDriver;
-  }
   if (vehicle?.assignedSite) {
-    return findSite(sites, vehicle.assignedSite);
+    const fromVehicle = findSite(sites, vehicle.assignedSite);
+    if (fromVehicle) return fromVehicle;
+  }
+  if (driver?.homeSite) {
+    return findSite(sites, driver.homeSite);
   }
   return undefined;
 }

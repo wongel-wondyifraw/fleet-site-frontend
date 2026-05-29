@@ -271,8 +271,8 @@ export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
         </FormCard>
 
         <FormCard
-          title="Fuel & Mileage"
-          description="Tank size and recorded fuel economy."
+          title="Fuel"
+          description="Tank size and recorded fuel consumption."
           icon={Fuel}
         >
           <dl className="grid gap-3 sm:grid-cols-2">
@@ -284,13 +284,8 @@ export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
                 ? `${vehicle.fuelCapacity} L`
                 : "Not set"}
             </DetailField>
-            <DetailField icon={Gauge} label="Mileage">
+            <DetailField icon={Gauge} label="Fuel consumption">
               {vehicle.mileage > 0 ? `${vehicle.mileage} km/L` : "Not set"}
-            </DetailField>
-            <DetailField label="Odometer">
-              {vehicle.currentOdometer > 0
-                ? `${vehicle.currentOdometer} km`
-                : "0 km"}
             </DetailField>
           </dl>
         </FormCard>

@@ -18,13 +18,13 @@ export function DesktopDriversManagement() {
           Drivers
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Add, edit, and manage drivers and assign them to construction sites.
+          Add, edit, and manage drivers and their assigned vehicles.
         </p>
       </header>
 
       <SettingsSection
         title="Drivers"
-        description="Register new drivers, update licensing details, and link them to a site."
+        description="Register new drivers, update licensing details, and assign a vehicle (site follows the truck)."
         icon={Users}
       >
         <DriversPanel />

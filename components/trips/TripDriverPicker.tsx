@@ -6,7 +6,13 @@ import { useMemo, useState } from "react";
 import { fieldClass } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
 import { formatLicenseClass, prettyEnum } from "@/lib/api/types";
-import type { ApiDriver, ApiSite, DriverStatus } from "@/lib/api/types";
+import type {
+  ApiDriver,
+  ApiSite,
+  ApiVehicle,
+  DriverStatus,
+} from "@/lib/api/types";
+import { driverSiteName } from "@/lib/drivers/resolveDriverSite";
 import { cn } from "@/lib/utils";
 
 const DRIVER_STATUSES: DriverStatus[] = [
@@ -18,6 +24,7 @@ const DRIVER_STATUSES: DriverStatus[] = [
 
 export function TripDriverPicker({
   drivers,
+  vehicles,
   sites,
   selectedId,
   onSelect,
@@ -25,6 +32,7 @@ export function TripDriverPicker({
   disabled,
 }: {
   drivers: ApiDriver[];
+  vehicles: ApiVehicle[];
   sites: ApiSite[];
   selectedId: string;
   onSelect: (driver: ApiDriver) => void;
@@ -37,26 +45,42 @@ export function TripDriverPicker({
     "ACTIVE",
   );
 
+  const vehicleById = useMemo(() => {
+    const map = new Map<string, ApiVehicle>();
+    for (const v of vehicles) map.set(v.id, v);
+    return map;
+  }, [vehicles]);
+
   const selected = useMemo(
     () => drivers.find((d) => d.id === selectedId) ?? null,
     [drivers, selectedId],
+  );
+
+  const selectedSiteName = useMemo(
+    () =>
+      selected
+        ? driverSiteName(selected, vehicleById, sites)
+        : null,
+    [selected, vehicleById, sites],
   );
 
   const siteOptions = useMemo(() => {
     const names = new Set<string>();
     for (const s of sites) names.add(s.name);
     for (const d of drivers) {
-      if (d.homeSite) names.add(d.homeSite);
+      const name = driverSiteName(d, vehicleById, sites);
+      if (name) names.add(name);
     }
     return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [sites, drivers]);
+  }, [sites, drivers, vehicleById]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return drivers
       .filter((d) => {
         if (statusFilter !== "ALL" && d.status !== statusFilter) return false;
-        if (siteFilter !== "ALL" && (d.homeSite ?? "") !== siteFilter)
+        const siteName = driverSiteName(d, vehicleById, sites);
+        if (siteFilter !== "ALL" && (siteName ?? "") !== siteFilter)
           return false;
         if (!q) return true;
         const hay = [
@@ -65,7 +89,7 @@ export function TripDriverPicker({
           d.employeeId,
           d.licenseNumber,
           d.phoneNumber,
-          d.homeSite ?? "",
+          siteName ?? "",
         ]
           .join(" ")
           .toLowerCase();
@@ -76,7 +100,7 @@ export function TripDriverPicker({
           `${b.firstName} ${b.lastName}`,
         ),
       );
-  }, [drivers, search, siteFilter, statusFilter]);
+  }, [drivers, vehicleById, sites, search, siteFilter, statusFilter]);
 
   return (
     <div className="space-y-3">
@@ -94,10 +118,10 @@ export function TripDriverPicker({
               {selected.employeeId}
               <span className="mx-1.5 text-slate-300">·</span>
               {formatLicenseClass(selected.licenseClass, "short")}
-              {selected.homeSite && (
+              {selectedSiteName && (
                 <>
                   <span className="mx-1.5 text-slate-300">·</span>
-                  {selected.homeSite}
+                  {selectedSiteName}
                 </>
               )}
             </p>
@@ -208,12 +232,15 @@ export function TripDriverPicker({
                     </p>
                     <p className="truncate text-[11px] text-muted-foreground">
                       {prettyEnum(d.status)}
-                      {d.homeSite && (
-                        <>
-                          <span className="mx-1.5 text-slate-300">·</span>
-                          {d.homeSite}
-                        </>
-                      )}
+                      {(() => {
+                        const siteName = driverSiteName(d, vehicleById, sites);
+                        return siteName ? (
+                          <>
+                            <span className="mx-1.5 text-slate-300">·</span>
+                            {siteName}
+                          </>
+                        ) : null;
+                      })()}
                     </p>
                   </div>
                 </button>
