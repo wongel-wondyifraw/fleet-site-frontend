@@ -1,13 +1,16 @@
 "use client";
 
-// Watches `navigator.onLine` + the browser's online/offline events. When the
-// PWA loses connection we swap children for the matching skeleton so the
-// user sees a familiar "loading..." shape instead of broken / empty data
-// from failed API calls. Reconnecting drops back to the real UI.
+// Watches `navigator.onLine` + the browser's online/offline events. In
+// production, when the PWA loses connection we swap children for the matching
+// skeleton so the user sees a familiar "loading..." shape instead of broken /
+// empty data from failed API calls. Reconnecting drops back to the real UI.
+// In development we always render children so offline / API issues are visible.
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { PageSkeletonForPath } from "@/components/dashboard/PageSkeleton";
+
+const isProduction = process.env.NODE_ENV === "production";
 
 export function OfflineSkeletonGate({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "";
@@ -16,6 +19,10 @@ export function OfflineSkeletonGate({ children }: { children: ReactNode }) {
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
+    // Offline skeleton swapping is a production PWA feature only. In dev we
+    // always render children so API failures and offline blips stay visible.
+    if (!isProduction) return;
+
     // Sync once on mount so SSR's optimistic `true` is corrected if needed.
     setIsOnline(typeof navigator === "undefined" ? true : navigator.onLine);
 
@@ -33,7 +40,7 @@ export function OfflineSkeletonGate({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  if (!isOnline) {
+  if (isProduction && !isOnline) {
     return <PageSkeletonForPath pathname={pathname} />;
   }
   return <>{children}</>;
