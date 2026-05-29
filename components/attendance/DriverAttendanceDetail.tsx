@@ -14,13 +14,14 @@
 //   4. Performance line chart (days × worked hours)
 //   5. Day-by-day breakdown list
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   AlertTriangle,
   ArrowLeft,
   Calendar,
   CheckCircle,
+  ChevronDown,
   Clock,
   Coffee,
   LogIn,
@@ -40,7 +41,6 @@ import type {
   AttendancePunchType,
 } from "@/lib/api/types";
 import {
-  DEFAULT_TARGET_HOURS,
   readStoredTargets,
   targetHoursForDate,
   type TargetHoursMap,
@@ -138,6 +138,50 @@ function formatPunchTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (diffMs < 60_000) return "Just now";
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return shortDateLabel(toDateKey(new Date(iso)));
+}
+
+interface AttendanceActivity {
+  id: string;
+  punchType: AttendancePunchType;
+  at: string;
+  dateKey: string;
+  siteName?: string | null;
+  note?: string | null;
+}
+
+function collectRecentActivities(
+  days: ApiAttendanceDay[],
+  limit = 8,
+): AttendanceActivity[] {
+  const activities: AttendanceActivity[] = [];
+  for (const day of days) {
+    for (const punch of day.punches ?? []) {
+      if (punch.isVoided) continue;
+      activities.push({
+        id: punch.id,
+        punchType: punch.type,
+        at: punch.at,
+        dateKey: day.date,
+        siteName: day.site?.name,
+        note: punch.note,
+      });
+    }
+  }
+  return activities
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+    .slice(0, limit);
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +287,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
     toDateKey(addDays(new Date(), -29)),
   );
   const [customTo, setCustomTo] = useState<string>(() => toDateKey(new Date()));
-  const [lateAfter, setLateAfter] = useState<string>(DEFAULT_LATE_AFTER);
+  const lateAfter = DEFAULT_LATE_AFTER;
   // Per-day target hours are sourced from the same localStorage map the
   // attendance management page writes to, so a "6h" override applied
   // there flows through to this page's stats and chart automatically.
@@ -255,6 +299,10 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
   const [days, setDays] = useState<ApiAttendanceDay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const rightColumnRef = useRef<HTMLDivElement>(null);
+  const [syncedColumnHeight, setSyncedColumnHeight] = useState<number | null>(
+    null,
+  );
 
   // Keep the target-hours map fresh: re-read it whenever the tab regains
   // focus (the management page might've edited it in another tab) and
@@ -431,24 +479,64 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
     [allDates, dayByDate, targetHoursMap],
   );
 
-  // Most-common target across the range, used to label the "Target" pill
-  // in the toolbar so a single overridden day doesn't make the headline
-  // value flicker around.
-  const dominantTarget = useMemo(() => {
-    const counts = new Map<number, number>();
-    for (const p of chartData) {
-      counts.set(p.target, (counts.get(p.target) ?? 0) + 1);
-    }
-    let best = DEFAULT_TARGET_HOURS;
-    let max = 0;
-    for (const [t, c] of counts) {
-      if (c > max) {
-        max = c;
-        best = t;
+  // Compact 7-day window centred on today (3 days before, today, 3 days
+  // after) so the in-card chart fits without horizontal scroll while
+  // still giving context around the current day. Falls back to the
+  // closest 7 datapoints when today is at the edge / outside the range.
+  const compactChartData = useMemo(() => {
+    if (chartData.length <= 7) return chartData;
+    let centreIdx = chartData.findIndex((p) => p.dateKey === todayKey);
+    if (centreIdx === -1) {
+      const todayMs = new Date(`${todayKey}T00:00:00`).getTime();
+      let bestIdx = 0;
+      let bestDelta = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < chartData.length; i += 1) {
+        const delta = Math.abs(
+          new Date(`${chartData[i].dateKey}T00:00:00`).getTime() - todayMs,
+        );
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          bestIdx = i;
+        }
       }
+      centreIdx = bestIdx;
     }
-    return best;
-  }, [chartData]);
+    let start = centreIdx - 3;
+    let end = centreIdx + 4;
+    if (start < 0) {
+      end += -start;
+      start = 0;
+    }
+    if (end > chartData.length) {
+      start = Math.max(0, start - (end - chartData.length));
+      end = chartData.length;
+    }
+    return chartData.slice(start, end);
+  }, [chartData, todayKey]);
+
+  // On desktop, pin the driver header card height to the filters + chart
+  // column so both sides align; overflow scrolls inside the activity list
+  // with a hidden scrollbar.
+  useEffect(() => {
+    const el = rightColumnRef.current;
+    if (!el) return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const syncHeight = () => {
+      if (!mq.matches) {
+        setSyncedColumnHeight(null);
+        return;
+      }
+      setSyncedColumnHeight(el.offsetHeight);
+    };
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(el);
+    mq.addEventListener("change", syncHeight);
+    syncHeight();
+    return () => {
+      observer.disconnect();
+      mq.removeEventListener("change", syncHeight);
+    };
+  }, [isLoading, rangePreset]);
 
   return (
     <div className="space-y-5">
@@ -460,43 +548,56 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
         Back to attendance
       </Link>
 
-      <DriverHeaderCard driver={driver} isLoading={isLoading && !driver} />
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch">
+        <DriverHeaderCard
+          driver={driver}
+          days={days}
+          isLoading={isLoading && !driver}
+          activitiesLoading={isLoading}
+          syncedHeight={syncedColumnHeight}
+        />
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            {RANGE_PRESETS.map((preset) => (
+        <div
+          ref={rightColumnRef}
+          className="flex min-w-0 flex-1 flex-col gap-5"
+        >
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5">
+          <div className="flex flex-col gap-3">
+            <p className="font-label-caps text-[10px] tracking-wide text-muted-foreground uppercase">
+              Date range &amp; filters
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {RANGE_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => setRangePreset(preset.id)}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                    rangePreset === preset.id
+                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                      : "bg-primary/5 text-primary/80 hover:bg-primary/10 hover:text-primary",
+                  )}
+                >
+                  {preset.label}
+                </button>
+              ))}
               <button
-                key={preset.id}
                 type="button"
-                onClick={() => setRangePreset(preset.id)}
+                onClick={() => setRangePreset("CUSTOM")}
                 className={cn(
                   "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
-                  rangePreset === preset.id
+                  rangePreset === "CUSTOM"
                     ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
                     : "bg-primary/5 text-primary/80 hover:bg-primary/10 hover:text-primary",
                 )}
               >
-                {preset.label}
+                Custom
               </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setRangePreset("CUSTOM")}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
-                rangePreset === "CUSTOM"
-                  ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
-                  : "bg-primary/5 text-primary/80 hover:bg-primary/10 hover:text-primary",
-              )}
-            >
-              Custom
-            </button>
-          </div>
+            </div>
 
-          <div className="flex flex-wrap items-center gap-3 text-xs">
             {rangePreset === "CUSTOM" && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
                 <Calendar className="size-4 text-muted-foreground" />
                 <input
                   type="date"
@@ -515,25 +616,99 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
                 />
               </div>
             )}
-            <label className="flex items-center gap-2 font-semibold text-muted-foreground">
-              <Clock className="size-3.5" />
-              Late after
-              <input
-                type="time"
-                value={lateAfter}
-                onChange={(e) =>
-                  setLateAfter(e.target.value || DEFAULT_LATE_AFTER)
-                }
-                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-primary focus:border-primary/40 focus:outline-none"
-              />
-            </label>
-            <span
-              title="Target hours are managed from the Attendance roster. Edit a day's target there and it will be reflected here."
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary/5 px-2 py-1 text-[11px] font-semibold text-primary/80"
-            >
-              Target <span className="tabular-nums">{dominantTarget}h</span>
-            </span>
+
+            <div className="mt-1 border-t border-slate-100 pt-3">
+              <p className="font-label-caps text-[10px] tracking-wide text-muted-foreground uppercase">
+                Summary stats
+              </p>
+              <div className="mt-2 grid grid-cols-2 gap-2 xl:grid-cols-4">
+                <StatCard
+                  embedded
+                  icon={X}
+                  label="Absent days"
+                  value={stats.absentDays}
+                  tone="rose"
+                  help="Past days with no day-in punch and not on leave."
+                />
+                <StatCard
+                  embedded
+                  icon={Clock}
+                  label="Late days"
+                  value={stats.lateDays}
+                  tone="primary"
+                  help={`First punch later than ${lateAfter}.`}
+                />
+                <StatCard
+                  embedded
+                  icon={LogIn}
+                  label="Missed check-ins"
+                  value={stats.missedCheckInDays}
+                  tone="rose"
+                  help="Past days with no DAY_IN recorded."
+                />
+                <StatCard
+                  embedded
+                  icon={LogOut}
+                  label="Missed check-outs"
+                  value={stats.missedCheckOutDays}
+                  tone="rose"
+                  help="Past days with DAY_IN but no DAY_OUT (auto-closed by the system)."
+                />
+                <StatCard
+                  embedded
+                  icon={CheckCircle}
+                  label="Worked days"
+                  value={stats.workedDays}
+                  tone="emerald"
+                  help="Days with at least one DAY_IN punch."
+                />
+                <StatCard
+                  embedded
+                  icon={Coffee}
+                  label="On leave"
+                  value={stats.onLeaveDays}
+                  tone="primary"
+                  help="Manually flagged ON_LEAVE."
+                />
+                <StatCard
+                  embedded
+                  icon={Clock}
+                  label="Total hours"
+                  value={stats.totalWorkedHours.toFixed(1)}
+                  suffix="h"
+                  tone="primary"
+                  help="Sum of (DAY_OUT − DAY_IN − breaks) across the range."
+                />
+                <StatCard
+                  embedded
+                  icon={Clock}
+                  label="Average hours"
+                  value={stats.averageWorkedHours.toFixed(1)}
+                  suffix="h / day"
+                  tone="primary"
+                  help="Total hours divided by worked days."
+                />
+              </div>
+            </div>
           </div>
+        </div>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+              <h3 className="text-sm font-semibold text-primary">
+                Performance
+              </h3>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+              <ChartLegendDot className="bg-primary" label="Worked hours" />
+              <ChartLegendDot className="bg-emerald-500" label="Met target" />
+              <ChartLegendDot className="bg-rose-500" label="Absent" />
+              <ChartLegendDash label="Target" />
+            </div>
+          </div>
+          <PerformanceChart data={compactChartData} isLoading={isLoading} />
+        </section>
         </div>
       </div>
 
@@ -544,89 +719,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          icon={X}
-          label="Absent days"
-          value={stats.absentDays}
-          tone="rose"
-          help="Past days with no day-in punch and not on leave."
-        />
-        <StatCard
-          icon={Clock}
-          label="Late days"
-          value={stats.lateDays}
-          tone="primary"
-          help={`First punch later than ${lateAfter}.`}
-        />
-        <StatCard
-          icon={LogIn}
-          label="Missed check-ins"
-          value={stats.missedCheckInDays}
-          tone="rose"
-          help="Past days with no DAY_IN recorded."
-        />
-        <StatCard
-          icon={LogOut}
-          label="Missed check-outs"
-          value={stats.missedCheckOutDays}
-          tone="rose"
-          help="Past days with DAY_IN but no DAY_OUT (auto-closed by the system)."
-        />
-        <StatCard
-          icon={CheckCircle}
-          label="Worked days"
-          value={stats.workedDays}
-          tone="emerald"
-          help="Days with at least one DAY_IN punch."
-        />
-        <StatCard
-          icon={Coffee}
-          label="On leave"
-          value={stats.onLeaveDays}
-          tone="primary"
-          help="Manually flagged ON_LEAVE."
-        />
-        <StatCard
-          icon={Clock}
-          label="Total hours"
-          value={stats.totalWorkedHours.toFixed(1)}
-          suffix="h"
-          tone="primary"
-          help="Sum of (DAY_OUT − DAY_IN − breaks) across the range."
-        />
-        <StatCard
-          icon={Clock}
-          label="Average hours"
-          value={stats.averageWorkedHours.toFixed(1)}
-          suffix="h / day"
-          tone="primary"
-          help="Total hours divided by worked days."
-        />
-      </div>
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
-        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-primary">
-              Performance — daily working hours
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Hours per day, with each day&apos;s target shown as a dashed
-              reference line. Hover a point for the exact value.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-            <ChartLegendDot className="bg-primary" label="Worked hours" />
-            <ChartLegendDot className="bg-emerald-500" label="Met target" />
-            <ChartLegendDot className="bg-rose-500" label="Absent" />
-            <ChartLegendDash label="Target" />
-          </div>
-        </div>
-        <PerformanceChart data={chartData} isLoading={isLoading} />
-      </section>
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5">
         <h3 className="mb-3 text-sm font-semibold text-primary">
           Day-by-day breakdown
         </h3>
@@ -664,76 +757,215 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
 // Header card
 // ---------------------------------------------------------------------------
 
+const PUNCH_ACTIVITY_ICONS: Record<
+  AttendancePunchType,
+  { icon: React.ComponentType<{ className?: string }>; wrap: string }
+> = {
+  DAY_IN: { icon: LogIn, wrap: "bg-emerald-50 text-emerald-700" },
+  DAY_OUT: { icon: LogOut, wrap: "bg-rose-50 text-rose-700" },
+  LUNCH_OUT: { icon: Coffee, wrap: "bg-primary/10 text-primary" },
+  LUNCH_IN: { icon: Coffee, wrap: "bg-primary/10 text-primary" },
+  MAINT_OUT: { icon: Wrench, wrap: "bg-primary/10 text-primary" },
+  MAINT_IN: { icon: Wrench, wrap: "bg-primary/10 text-primary" },
+};
+
 function DriverHeaderCard({
   driver,
+  days,
   isLoading,
+  activitiesLoading,
+  syncedHeight,
 }: {
   driver: ApiDriver | null;
+  days: ApiAttendanceDay[];
   isLoading: boolean;
+  activitiesLoading: boolean;
+  syncedHeight: number | null;
 }) {
+  const heightStyle =
+    syncedHeight != null ? { height: syncedHeight } : undefined;
+  const cardClassName = cn(
+    "flex w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white lg:w-[37.5%]",
+    // Only enforce a minimum height on desktop when not syncing to the
+    // right column. Mobile sizes naturally to its content.
+    syncedHeight == null && "lg:min-h-[320px]",
+  );
+  const recentActivities = useMemo(
+    () => collectRecentActivities(days),
+    [days],
+  );
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div
+        className={cn(cardClassName, "items-center justify-center p-6")}
+        style={heightStyle}
+      >
         <Loader2 className="size-5 animate-spin text-primary" />
       </div>
     );
   }
   if (!driver) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-muted-foreground shadow-sm">
+      <div
+        className={cn(cardClassName, "p-5 text-sm text-muted-foreground")}
+        style={heightStyle}
+      >
         Driver not found.
       </div>
     );
   }
   const fullName = `${driver.firstName ?? ""} ${driver.lastName ?? ""}`.trim();
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-base font-bold text-primary">
-            {driver.firstName?.[0] ?? "?"}
-            {driver.lastName?.[0] ?? ""}
-          </span>
-          <div className="min-w-0">
-            <p className="font-label-caps text-[10px] tracking-wide text-muted-foreground uppercase">
-              Driver
-            </p>
-            <h2 className="truncate text-xl font-semibold text-primary">
-              {fullName || "Unnamed driver"}
-            </h2>
-            <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <span className="font-mono">{driver.employeeId}</span>
-              {driver.homeSite && (
+    <div className={cardClassName} style={heightStyle}>
+        <div className="shrink-0 border-b border-slate-100 p-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-lg font-bold text-primary">
+              {driver.firstName?.[0] ?? "?"}
+              {driver.lastName?.[0] ?? ""}
+            </span>
+            <div className="min-w-0">
+              <p className="font-label-caps text-[10px] tracking-wide text-muted-foreground uppercase">
+                Driver
+              </p>
+              <h2 className="truncate text-xl font-semibold text-primary">
+                {fullName || "Unnamed driver"}
+              </h2>
+              <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                <span className="font-mono">{driver.employeeId}</span>
+                {driver.homeSite && (
+                  <span>
+                    <span className="text-slate-300">·</span> Home site{" "}
+                    <span className="font-semibold text-primary">
+                      {driver.homeSite}
+                    </span>
+                  </span>
+                )}
+                {driver.phoneNumber && (
+                  <span>
+                    <span className="text-slate-300">·</span>{" "}
+                    {driver.phoneNumber}
+                  </span>
+                )}
                 <span>
-                  <span className="text-slate-300">·</span> Home site{" "}
-                  <span className="font-semibold text-primary">
-                    {driver.homeSite}
+                  <span className="text-slate-300">·</span>{" "}
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase",
+                      driver.status === "ACTIVE"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-slate-100 text-slate-700",
+                    )}
+                  >
+                    {driver.status.replace("_", " ")}
                   </span>
                 </span>
-              )}
-              {driver.phoneNumber && (
-                <span>
-                  <span className="text-slate-300">·</span> {driver.phoneNumber}
-                </span>
-              )}
-              <span>
-                <span className="text-slate-300">·</span>{" "}
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase",
-                    driver.status === "ACTIVE"
-                      ? "bg-emerald-50 text-emerald-700"
-                      : "bg-slate-100 text-slate-700",
-                  )}
-                >
-                  {driver.status.replace("_", " ")}
-                </span>
-              </span>
-            </p>
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+
+        <div className="flex min-h-0 flex-1 flex-col p-5">
+          <div className="mb-3 flex shrink-0 items-center justify-between">
+            <h3 className="text-xs font-semibold text-primary">
+              Recent attendance activity
+            </h3>
+            {recentActivities.length > 0 && (
+              <span className="text-[10px] font-semibold text-muted-foreground">
+                {recentActivities.length} events
+              </span>
+            )}
+          </div>
+
+          {activitiesLoading ? (
+            <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-100 bg-slate-50/50 py-8">
+              <Loader2 className="size-4 animate-spin text-primary" />
+            </div>
+          ) : recentActivities.length === 0 ? (
+            <p className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-3 py-8 text-center text-xs italic text-muted-foreground">
+              No punch activity in the selected date range.
+            </p>
+          ) : (
+            <>
+              {/* Mobile: compact badges; flex-wrap fills two rows
+                  naturally and overflow scrolls horizontally without a
+                  visible scrollbar. */}
+              <div className="scrollbar-hide -mx-1 flex max-h-[68px] flex-wrap content-start items-start gap-1.5 overflow-x-auto px-1 pb-0.5 lg:hidden">
+                {recentActivities.map((activity) => (
+                  <ActivityBadge key={activity.id} activity={activity} />
+                ))}
+              </div>
+
+              {/* Desktop: full activity rows */}
+              <ul className="scrollbar-hide hidden min-h-0 flex-1 space-y-2 overflow-y-auto pr-0.5 lg:block">
+                {recentActivities.map((activity) => (
+                  <ActivityRow key={activity.id} activity={activity} />
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
     </div>
+  );
+}
+
+function ActivityBadge({ activity }: { activity: AttendanceActivity }) {
+  const { icon: Icon, wrap } = PUNCH_ACTIVITY_ICONS[activity.punchType];
+  return (
+    <span
+      title={`${PUNCH_LABELS[activity.punchType]} · ${formatPunchTime(activity.at)}${activity.siteName ? ` · ${activity.siteName}` : ""}`}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold tracking-wide uppercase",
+        wrap,
+      )}
+    >
+      <Icon className="size-3" />
+      {PUNCH_LABELS[activity.punchType]}
+      <span className="font-mono opacity-70">
+        {formatRelativeTime(activity.at)}
+      </span>
+    </span>
+  );
+}
+
+function ActivityRow({ activity }: { activity: AttendanceActivity }) {
+  const { icon: Icon, wrap } = PUNCH_ACTIVITY_ICONS[activity.punchType];
+  const detailParts = [
+    formatPunchTime(activity.at),
+    activity.siteName ?? null,
+    activity.note ?? null,
+  ].filter(Boolean);
+
+  return (
+    <li className="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-slate-50/60 p-2.5">
+      <span
+        className={cn(
+          "flex size-8 shrink-0 items-center justify-center rounded-lg",
+          wrap,
+        )}
+      >
+        <Icon className="size-3.5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="truncate text-xs font-semibold text-primary">
+            {PUNCH_LABELS[activity.punchType]}
+          </p>
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {formatRelativeTime(activity.at)}
+          </span>
+        </div>
+        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+          {shortDateLabel(activity.dateKey)}
+          {detailParts.length > 0 && (
+            <>
+              <span className="text-slate-300"> · </span>
+              {detailParts.join(" · ")}
+            </>
+          )}
+        </p>
+      </div>
+    </li>
   );
 }
 
@@ -770,6 +1002,7 @@ function StatCard({
   suffix,
   tone,
   help,
+  embedded = false,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -777,11 +1010,48 @@ function StatCard({
   suffix?: string;
   tone: keyof typeof STAT_TONES;
   help?: string;
+  embedded?: boolean;
 }) {
   const palette = STAT_TONES[tone];
+  if (embedded) {
+    return (
+      <div
+        className="flex items-center gap-2.5 rounded-xl border border-slate-100 bg-slate-50/60 px-2.5 py-2"
+        title={help}
+      >
+        <span
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-lg",
+            palette.bg,
+            palette.icon,
+          )}
+        >
+          <Icon className="size-3.5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[9px] font-bold leading-tight tracking-wide text-muted-foreground uppercase">
+            {label}
+          </p>
+          <p
+            className={cn(
+              "mt-0.5 text-base font-bold leading-none tabular-nums",
+              palette.value,
+            )}
+          >
+            {value}
+            {suffix && (
+              <span className="ml-1 text-[10px] font-semibold text-muted-foreground">
+                {suffix}
+              </span>
+            )}
+          </p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div
-      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+      className="rounded-2xl border border-slate-200 bg-white p-4"
       title={help}
     >
       <div className="flex items-center justify-between">
@@ -889,9 +1159,9 @@ function PerformanceChart({
     );
   }
 
-  // Layout constants (in SVG user units). The viewBox preserves aspect
-  // ratio but we expand the host width below when the day count gets
-  // large so each datapoint keeps a comfortable minimum spacing.
+  // Layout constants (in SVG user units). The viewBox scales to 100%
+  // of the parent width via preserveAspectRatio so the chart always
+  // fills its container.
   const CHART_HEIGHT = 220;
   const PADDING_TOP = 16;
   const PADDING_BOTTOM = 40;
@@ -903,11 +1173,22 @@ function PerformanceChart({
   const maxObserved = Math.max(...data.map((d) => d.hours), 0);
   const maxHours = Math.max(maxTarget, Math.ceil(maxObserved + 1));
 
-  // Min spacing between datapoints. For short ranges we expand so the
-  // chart breathes; for long ranges we keep ~10px so 90 days still fit
-  // (with horizontal scroll if the container is narrower).
+  // Step between datapoints is sized so the natural plot width tracks a
+  // reference of ~540 user units. The SVG then renders at width="100%"
+  // and scales fluidly with its container while keeping a sensible
+  // aspect ratio. We clamp to MIN_STEP so 90-day ranges still readable
+  // (the SVG just scales them more compactly), and to MAX_STEP so a
+  // single datapoint doesn't blow the chart out horizontally.
+  const REFERENCE_PLOT_WIDTH = 540;
   const MIN_STEP = 10;
-  const STEP = Math.max(MIN_STEP, 24 - data.length * 0.1);
+  const MAX_STEP = 120;
+  const STEP =
+    data.length > 1
+      ? Math.min(
+          MAX_STEP,
+          Math.max(MIN_STEP, REFERENCE_PLOT_WIDTH / (data.length - 1)),
+        )
+      : REFERENCE_PLOT_WIDTH;
   const PLOT_WIDTH = Math.max(STEP, (data.length - 1) * STEP);
   const CHART_WIDTH = PADDING_LEFT + PLOT_WIDTH + PADDING_RIGHT;
 
@@ -961,15 +1242,29 @@ function PerformanceChart({
   const xLabelStride = Math.max(1, Math.ceil(data.length / 10));
 
   return (
-    <div className="overflow-x-auto">
+    <div className="w-full">
       <svg
         viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-        width={Math.max(CHART_WIDTH, 600)}
-        height={CHART_HEIGHT}
+        preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label="Daily working hours line chart"
-        className="block"
+        className="block h-auto w-full"
       >
+        {/* Vertical day gridlines (dashed) — one per datapoint so each
+            day is visually anchored on the x-axis. */}
+        {data.map((point, idx) => (
+          <line
+            key={`vgrid-${point.dateKey}`}
+            x1={xFor(idx)}
+            x2={xFor(idx)}
+            y1={PADDING_TOP}
+            y2={CHART_HEIGHT - PADDING_BOTTOM}
+            stroke="#e2e8f0"
+            strokeWidth={1}
+            strokeDasharray="3 3"
+          />
+        ))}
+
         {/* Y axis gridlines + labels */}
         {yTicks.map((tick) => {
           const y = yFor(tick);
@@ -1092,6 +1387,7 @@ function DayRow({
   targetHours: number;
   lateAfterMinutes: number | null;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const punches = liveSortedPunches(day);
   const dayIn = firstPunchOfType(punches, "DAY_IN");
   const dayOut = lastPunchOfType(punches, "DAY_OUT");
@@ -1099,17 +1395,35 @@ function DayRow({
     lateAfterMinutes !== null &&
     dayIn !== null &&
     punchMinutesOfDay(dayIn.at) > lateAfterMinutes;
+  const todayKey = toDateKey(new Date());
+  const isPast = day.date < todayKey;
+  const missedCheckIn = !dayIn && isPast && day.status !== "ON_LEAVE";
+  const missedCheckOut = !!dayIn && !dayOut && isPast;
   const distanceKm =
     day.workDistanceKm !== null && day.workDistanceKm !== undefined
       ? Number.parseFloat(String(day.workDistanceKm))
       : NaN;
   const hasDistance = Number.isFinite(distanceKm) && distanceKm > 0;
   const metTarget = hours >= targetHours;
+  const panelId = `day-detail-${day.id}`;
 
   return (
-    <li className="rounded-xl border border-slate-100 bg-slate-50/50 p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
+    <li
+      className={cn(
+        "overflow-hidden rounded-xl border bg-slate-50/50 transition-colors",
+        expanded
+          ? "border-primary/20 ring-1 ring-primary/10"
+          : "border-slate-100",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((open) => !open)}
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        className="flex w-full flex-col gap-3 p-3 text-left transition-colors hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="flex size-10 shrink-0 flex-col items-center justify-center rounded-lg bg-white text-primary ring-1 ring-slate-100">
             <span className="text-[9px] font-bold tracking-wide text-muted-foreground uppercase">
               {new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, {
@@ -1120,7 +1434,7 @@ function DayRow({
               {new Date(`${day.date}T00:00:00`).getDate()}
             </span>
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate text-sm font-semibold text-primary">
                 {fullDateLabel(day.date)}
@@ -1139,15 +1453,18 @@ function DayRow({
                   Late
                 </span>
               )}
-              {day.autoClosedAt &&
+              {missedCheckIn && <MissedTag label="Missed check-in" />}
+              {missedCheckOut && <MissedTag label="Missed check-out" />}
+              {!expanded &&
+                day.autoClosedAt &&
                 (day.autoCloseReason ?? "")
                   .split(",")
                   .map((c) => c.trim())
                   .filter(Boolean)
+                  .slice(0, 1)
                   .map((code) => (
                     <span
                       key={code}
-                      title={`Auto-closed at ${new Date(day.autoClosedAt as string).toLocaleString()}`}
                       className="inline-flex w-fit items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold tracking-wide text-blue-700 uppercase"
                     >
                       <AlertTriangle className="size-2.5" />
@@ -1157,51 +1474,114 @@ function DayRow({
             </div>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {day.site?.name ?? "—"}
+              {punches.length > 0 && !expanded && (
+                <span className="text-slate-300"> · </span>
+              )}
+              {punches.length > 0 && !expanded && (
+                <span className="font-semibold text-primary/70">
+                  {punches.length} punch{punches.length === 1 ? "" : "es"}
+                </span>
+              )}
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold",
-              metTarget
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-primary/5 text-primary",
-            )}
-          >
-            <Clock className="size-3" />
-            {hours.toFixed(2)} h
-            <span className="text-muted-foreground"> / {targetHours}h</span>
-          </span>
-          {hasDistance && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary/5 px-2.5 py-1 text-[11px] font-bold text-primary">
-              {distanceKm.toFixed(1)} km
+        <div className="flex shrink-0 items-center gap-2 sm:pl-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold",
+                metTarget
+                  ? "bg-emerald-50 text-emerald-700"
+                  : "bg-primary/5 text-primary",
+              )}
+            >
+              <Clock className="size-3" />
+              {hours.toFixed(2)} h
+              <span className="text-muted-foreground"> / {targetHours}h</span>
             </span>
+            {hasDistance && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/5 px-2.5 py-1 text-[11px] font-bold text-primary">
+                {distanceKm.toFixed(1)} km
+              </span>
+            )}
+          </div>
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
+              expanded && "rotate-180",
+            )}
+            aria-hidden
+          />
+        </div>
+      </button>
+
+      {expanded && (
+        <div
+          id={panelId}
+          className="border-t border-slate-100 bg-white/60 px-3 pb-3 pt-3"
+        >
+          {day.autoClosedAt &&
+            (day.autoCloseReason ?? "")
+              .split(",")
+              .map((c) => c.trim())
+              .filter(Boolean)
+              .map((code) => (
+                <p
+                  key={code}
+                  className="mb-3 flex items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700"
+                >
+                  <AlertTriangle className="size-3 shrink-0" />
+                  {AUTO_CLOSE_REASON_LABELS[code] ?? "Auto-closed"} —{" "}
+                  {new Date(day.autoClosedAt as string).toLocaleString()}
+                </p>
+              ))}
+
+          {day.notes && (
+            <p className="mb-3 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-[11px] text-muted-foreground">
+              <span className="font-semibold text-primary">Notes:</span>{" "}
+              {day.notes}
+            </p>
           )}
+
+          {punches.length > 0 ? (
+            <div>
+              <p className="mb-2 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">
+                Punch timeline
+              </p>
+              <div className="flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto scrollbar-hide pb-0.5">
+                {punches.map((p) => (
+                  <PunchChip key={p.id} punch={p} variant="blue" />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-[11px] italic text-muted-foreground">
+              No punches recorded for this day.
+            </p>
+          )}
+
         </div>
-      </div>
-      {punches.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {punches.map((p) => (
-            <PunchChip key={p.id} punch={p} />
-          ))}
-        </div>
-      )}
-      {!dayIn && day.status === "ABSENT" && (
-        <p className="mt-2 text-[11px] italic text-rose-600">
-          No DAY_IN punch recorded for this date.
-        </p>
-      )}
-      {dayIn && !dayOut && (
-        <p className="mt-2 text-[11px] italic text-primary/80">
-          DAY_IN at {formatPunchTime(dayIn.at)} but no DAY_OUT recorded.
-        </p>
       )}
     </li>
   );
 }
 
-function PunchChip({ punch }: { punch: ApiAttendancePunch }) {
+function MissedTag({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-bold tracking-wide text-orange-700 uppercase">
+      <AlertTriangle className="size-2.5" />
+      {label}
+    </span>
+  );
+}
+
+function PunchChip({
+  punch,
+  variant = "directional",
+}: {
+  punch: ApiAttendancePunch;
+  variant?: "directional" | "blue";
+}) {
   const isIn =
     punch.type === "DAY_IN" ||
     punch.type === "LUNCH_IN" ||
@@ -1217,16 +1597,23 @@ function PunchChip({ punch }: { punch: ApiAttendancePunch }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold tracking-wide uppercase",
-        // Colour communicates direction (in vs out) using the page's
-        // green/red accents; everything else stays neutral.
-        isIn ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700",
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[10px] font-bold tracking-wide uppercase",
+        variant === "blue"
+          ? "bg-blue-50 text-blue-700"
+          : isIn
+            ? "bg-emerald-50 text-emerald-700"
+            : "bg-rose-50 text-rose-700",
       )}
       title={punch.note ?? undefined}
     >
       <Icon className="size-3" />
       {PUNCH_LABELS[punch.type]}
-      <span className="font-mono text-muted-foreground">
+      <span
+        className={cn(
+          "font-mono",
+          variant === "blue" ? "text-blue-600/80" : "text-muted-foreground",
+        )}
+      >
         {formatPunchTime(punch.at)}
       </span>
     </span>

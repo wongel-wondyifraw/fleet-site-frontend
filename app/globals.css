@@ -191,6 +191,20 @@
     transform: translateY(-2px);
     box-shadow: 0 10px 25px -5px rgb(0 0 0 / 8%);
   }
+
+  /* Hide the scrollbar while keeping vertical/horizontal scroll behaviour.
+     Used in panels whose height is constrained by a sibling so overflowing
+     content can scroll without a visible scrollbar adding visual noise. */
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+    background: transparent;
+  }
 }
 
 .industrial-overlay {
