@@ -5,6 +5,7 @@
 import { apiRequest } from "@/lib/api/client";
 import type {
   ApiAttendanceDay,
+  ApiDriver,
   AttendanceDayStatus,
   AttendancePunchType,
 } from "@/lib/api/types";
@@ -36,12 +37,15 @@ export async function listAttendanceRoster(
 
 // Body for POST /attendance/days/:dayId/punches. `at` is optional — when
 // omitted the backend stamps `new Date()` so the typical "punch now" flow
-// doesn't need to send a timestamp.
+// doesn't need to send a timestamp. `odometer` (in kilometres) is captured
+// alongside the punch on DAY_IN / DAY_OUT / LUNCH_OUT / LUNCH_IN so the
+// backend can build the OdometerReading row and recompute work distance.
 export interface CreateAttendancePunchRequest {
   type: AttendancePunchType;
   at?: string;
   note?: string;
   actorUserId?: string;
+  odometer?: number;
 }
 
 export async function createAttendancePunch(
@@ -97,4 +101,26 @@ export async function deleteAttendancePunch(
   return apiRequest<ApiAttendanceDay>(`/attendance/punches/${punchId}`, {
     method: "DELETE",
   });
+}
+
+// Response from GET /attendance/drivers/:driverId/history. `days` is the
+// chronologically ordered list of AttendanceDay rows the driver has in the
+// requested range (no lazy materialisation, so dates without a roster
+// entry simply don't appear). The detail page derives all aggregate stats
+// — absent days, late days, missed check-ins/outs, hours-per-day — from
+// this array on the client so the "late after" threshold can stay
+// configurable without another round-trip.
+export interface DriverAttendanceHistory {
+  driver: ApiDriver | null;
+  days: ApiAttendanceDay[];
+}
+
+export async function getDriverAttendanceHistory(
+  driverId: string,
+  range: { from: string; to: string },
+): Promise<DriverAttendanceHistory> {
+  const params = new URLSearchParams({ from: range.from, to: range.to });
+  return apiRequest<DriverAttendanceHistory>(
+    `/attendance/drivers/${driverId}/history?${params.toString()}`,
+  );
 }

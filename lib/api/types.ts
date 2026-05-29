@@ -375,6 +375,11 @@ export interface ApiAttendancePunch {
   note?: string | null;
   correctedFromPunchId?: string | null;
   isVoided: boolean;
+  // Optional odometer value (in kilometres) captured at this punch. Lives
+  // in the OdometerReading table on the backend but the roster response
+  // joins it onto the punch for the UI's convenience. Sent as a numeric
+  // string from Postgres; parse before display.
+  odometer?: string | null;
   createdAt?: string;
 }
 
@@ -391,6 +396,21 @@ export interface ApiAttendanceDay {
   expected: boolean;
   status: AttendanceDayStatus;
   notes?: string | null;
+  // Cached work distance for the shift, in kilometres, computed by the
+  // backend as (LUNCH_OUT - DAY_IN) + (DAY_OUT - LUNCH_IN). When the
+  // driver skipped lunch the backend falls back to DAY_OUT - DAY_IN.
+  // Sent as a numeric string by Postgres (`numeric(12,2)`) so the UI
+  // parses it before display. Null until enough odometer readings are
+  // recorded to compute it.
+  workDistanceKm?: string | null;
+  // ISO timestamp set when the backend auto-closed a stale day on the
+  // next read after midnight (because the driver forgot to punch out or
+  // forgot to return from a break). Null on normally-closed days.
+  autoClosedAt?: string | null;
+  // Comma-separated list of auto-close reason codes from a fixed
+  // vocabulary: MISSING_DAY_OUT, MISSING_LUNCH_RETURN, MISSING_MAINT_RETURN.
+  // The UI splits on "," to render one badge per reason.
+  autoCloseReason?: string | null;
   driver?: ApiDriver | null;
   site?: ApiSite | null;
   punches?: ApiAttendancePunch[];

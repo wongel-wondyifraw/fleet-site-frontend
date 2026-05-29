@@ -32,6 +32,7 @@ export {
   Clipboard as ClipboardCheck,
   Clock,
   Clock as Timer,
+  Coffee,
   CreditCard as IdCard,
   Download,
   Droplet as Fuel,

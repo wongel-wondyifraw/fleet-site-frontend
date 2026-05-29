@@ -1,18 +1,26 @@
 "use client";
 
 import {
+  AlertTriangle,
   Calendar,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Clock,
+  Coffee,
   Filter,
   Loader2,
+  LogIn,
+  LogOut,
   Pencil,
   Search,
   Trash2,
   Users,
+  Wrench,
   X,
 } from "@/lib/icons";
+import Link from "next/link";
+import type { ComponentType, SVGProps } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { SettingsSection, fieldClass } from "@/components/settings/SettingsShared";
@@ -35,6 +43,12 @@ import {
 import { ApiError } from "@/lib/api/client";
 import { listDrivers } from "@/lib/api/drivers";
 import { listSites } from "@/lib/api/sites";
+import { listTrips } from "@/lib/api/trips";
+import {
+  DEFAULT_TARGET_HOURS,
+  readStoredTargets,
+  writeStoredTargets,
+} from "@/lib/attendance-targets";
 import type {
   ApiAttendanceDay,
   ApiAttendancePunch,
@@ -50,8 +64,6 @@ type StatusFilter = AttendanceDayStatus | "ALL";
 
 const ALL_SITES_TAB = "__ALL__";
 const UNASSIGNED_TAB = "__UNASSIGNED__";
-const DEFAULT_TARGET_HOURS = 8;
-const HOURS_TARGET_STORAGE_KEY = "fleetsite.attendance.targetHours.v1";
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "ALL", label: "All statuses" },
@@ -72,16 +84,43 @@ const STATUS_STYLES: Record<AttendanceDayStatus, string> = {
   ON_LEAVE: "bg-orange-50 text-orange-700",
 };
 
+// Human label per autoCloseReason code the backend emits. Keep the keys in
+// sync with the constants in AttendanceService (AUTO_CLOSE_*). Unknown
+// codes fall back to a generic "Auto-closed" badge so a future backend
+// addition doesn't render as a blank chip.
+const AUTO_CLOSE_REASON_LABELS: Record<string, string> = {
+  MISSING_DAY_OUT: "No day out",
+  MISSING_LUNCH_RETURN: "Afternoon absent",
+  MISSING_MAINT_RETURN: "Maint not closed",
+};
+
+type FeatherIcon = ComponentType<SVGProps<SVGSVGElement>>;
+
 const PUNCH_PAIRS: {
   key: "day" | "lunch" | "maint";
   label: string;
   outType: AttendancePunchType;
   inType: AttendancePunchType;
+  Icon: FeatherIcon;
 }[] = [
-  { key: "day", label: "Day", outType: "DAY_IN", inType: "DAY_OUT" },
-  { key: "lunch", label: "Lunch", outType: "LUNCH_OUT", inType: "LUNCH_IN" },
-  { key: "maint", label: "Maintenance", outType: "MAINT_OUT", inType: "MAINT_IN" },
+  { key: "day", label: "Day", outType: "DAY_IN", inType: "DAY_OUT", Icon: Clock },
+  { key: "lunch", label: "Lunch", outType: "LUNCH_OUT", inType: "LUNCH_IN", Icon: Coffee },
+  { key: "maint", label: "Maintenance", outType: "MAINT_OUT", inType: "MAINT_IN", Icon: Wrench },
 ];
+
+// Punch types that require an odometer reading from the timekeeper. These
+// are the four events that bracket the morning + afternoon "work legs"
+// the fuel module uses to compute per-shift distance:
+//   morning  = LUNCH_OUT.odometer − DAY_IN.odometer
+//   afternoon = DAY_OUT.odometer − LUNCH_IN.odometer
+// Maintenance punches deliberately stay odometer-free — they happen mid-
+// leg and would double-count if folded into the calculation.
+const ODOMETER_REQUIRED_PUNCH_TYPES: ReadonlySet<AttendancePunchType> = new Set([
+  "DAY_IN",
+  "DAY_OUT",
+  "LUNCH_OUT",
+  "LUNCH_IN",
+]);
 
 function toLocalDateKey(d: Date): string {
   const year = d.getFullYear();
@@ -191,30 +230,6 @@ function fromLocalDateTimeInput(local: string): string {
   return new Date(local).toISOString();
 }
 
-function readStoredTargets(): Record<string, number> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(HOURS_TARGET_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const out: Record<string, number> = {};
-    for (const [k, v] of Object.entries(parsed)) {
-      const n = typeof v === "number" ? v : Number(v);
-      if (Number.isFinite(n) && n >= 0) out[k] = n;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function writeStoredTargets(map: Record<string, number>): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(HOURS_TARGET_STORAGE_KEY, JSON.stringify(map));
-  } catch {}
-}
-
 function AttendancePanel({
   density = "comfortable",
 }: {
@@ -223,6 +238,13 @@ function AttendancePanel({
   const [sites, setSites] = useState<ApiSite[]>([]);
   const [drivers, setDrivers] = useState<ApiDriver[]>([]);
   const [rosterDays, setRosterDays] = useState<ApiAttendanceDay[]>([]);
+  // Driver IDs currently on an IN_PROGRESS trip. Used to gate break punches
+  // (lunch / maintenance) — a driver can't be on a break while actively
+  // driving a trip, so the corresponding buttons are disabled when their ID
+  // appears here. Refreshed alongside the roster.
+  const [activeTripDriverIds, setActiveTripDriverIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isRosterLoading, setIsRosterLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -246,6 +268,45 @@ function AttendancePanel({
     at: string;
     note: string;
   } | null>(null);
+  // Odometer input that lives inside the currently-open punch dropdown.
+  // `value` is the in-flight string the user is typing — kept as a string
+  // so partial / decimal-in-progress inputs survive without being coerced
+  // to NaN. Reset whenever the open dropdown changes so values don't bleed
+  // from one driver's row into another.
+  const [pendingOdometer, setPendingOdometer] = useState<{
+    value: string;
+    error: string | null;
+  }>({ value: "", error: null });
+
+  // Centralised closer that also clears the in-dropdown odometer input so
+  // a half-typed value doesn't survive when the menu reopens later.
+  const closeActionMenu = useCallback(() => {
+    setActionMenu(null);
+    setPendingOdometer({ value: "", error: null });
+  }, []);
+
+  // Close any open punch dropdown when the user clicks outside of it or
+  // presses Escape. Each toggle wrapper is tagged with
+  // `data-action-menu="true"` so a single document-level listener can
+  // dismiss the menu cleanly without every row needing its own ref.
+  useEffect(() => {
+    if (!actionMenu) return;
+    function handlePointerDown(e: MouseEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('[data-action-menu="true"]')) {
+        closeActionMenu();
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closeActionMenu();
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [actionMenu, closeActionMenu]);
 
   const targetDateKey = useMemo(() => {
     if (dateFilter === "TODAY") return toLocalDateKey(new Date());
@@ -270,23 +331,33 @@ function AttendancePanel({
     [drivers, knownSiteNames],
   );
 
+  // Only ACTIVE drivers ever appear in a roster (the backend filters by
+  // DriverStatus.ACTIVE). Counting all drivers would inflate the tab badges
+  // relative to the rows the user actually sees, so we mirror that filter
+  // here. The All-sites count is the sum of every concrete site's roster
+  // (unassigned drivers never appear in a site roster) which is exactly
+  // what the merged "All sites" view shows.
   const tabCounts = useMemo(() => {
     const map = new Map<string, number>();
-    map.set(ALL_SITES_TAB, drivers.length);
+    const activeDrivers = drivers.filter((d) => d.status === "ACTIVE");
     let unassigned = 0;
-    for (const d of drivers) {
+    let knownSiteTotal = 0;
+    for (const s of sortedSites) {
+      const count = activeDrivers.filter((d) => d.homeSite === s.name).length;
+      map.set(s.id, count);
+      knownSiteTotal += count;
+    }
+    for (const d of activeDrivers) {
       const site = d.homeSite ?? "";
       if (!site || !knownSiteNames.has(site)) unassigned += 1;
     }
-    for (const s of sortedSites) {
-      map.set(s.id, drivers.filter((d) => d.homeSite === s.name).length);
-    }
+    map.set(ALL_SITES_TAB, knownSiteTotal);
     map.set(UNASSIGNED_TAB, unassigned);
     return map;
   }, [drivers, sortedSites, knownSiteNames]);
 
   const resolvedSiteId = useMemo(() => {
-    if (activeTab === ALL_SITES_TAB) return sortedSites[0]?.id ?? null;
+    if (activeTab === ALL_SITES_TAB) return null;
     if (activeTab === UNASSIGNED_TAB) return null;
     return sortedSites.some((s) => s.id === activeTab) ? activeTab : null;
   }, [activeTab, sortedSites]);
@@ -297,6 +368,24 @@ function AttendancePanel({
       : activeTab === UNASSIGNED_TAB
         ? "Unassigned"
         : (sortedSites.find((s) => s.id === activeTab)?.name ?? "Site");
+
+  // Refresh the set of drivers currently on an IN_PROGRESS trip. Soft-fails
+  // on auth/network errors — the roster is still useful without this, the
+  // worst case is the break-punch buttons stay enabled when they should be
+  // disabled. We never surface the trip fetch error to the user because it
+  // would obscure roster-load errors that matter more.
+  const refreshActiveTrips = useCallback(async () => {
+    try {
+      const trips = await listTrips({ status: "IN_PROGRESS" });
+      const ids = new Set<string>();
+      for (const trip of trips) {
+        if (trip.driverId) ids.add(trip.driverId);
+      }
+      setActiveTripDriverIds(ids);
+    } catch {
+      // Soft-fail: leave the previous snapshot in place.
+    }
+  }, []);
 
   const refreshBase = useCallback(async () => {
     setIsLoading(true);
@@ -311,6 +400,7 @@ function AttendancePanel({
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),
+        refreshActiveTrips(),
       ]);
       setSites(s);
       setDrivers(d);
@@ -321,7 +411,7 @@ function AttendancePanel({
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [refreshActiveTrips]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -331,6 +421,51 @@ function AttendancePanel({
   }, [refreshBase]);
 
   const refreshRoster = useCallback(async () => {
+    // Re-snapshot the active-trip set on every roster refresh. We don't
+    // await it before kicking off the roster call (the roster is the
+    // important payload) — running in parallel keeps the UI snappy.
+    void refreshActiveTrips();
+
+    // "All sites" doesn't map to a single backend siteId, so we fan out and
+    // merge the per-site rosters. Without this fan-out the All-sites tab
+    // only showed the first site's roster while the tab badge advertised the
+    // grand total - confusing and the source of the "numbers don't match"
+    // bug.
+    if (activeTab === ALL_SITES_TAB) {
+      if (sortedSites.length === 0) {
+        setRosterDays([]);
+        setSiteMessage("No sites configured yet. Create a site to load roster.");
+        return;
+      }
+      setIsRosterLoading(true);
+      setLoadError(null);
+      setSiteMessage(null);
+      try {
+        const results = await Promise.all(
+          sortedSites.map((site) =>
+            listAttendanceRoster({
+              date: targetDateKey,
+              siteId: site.id,
+              status: statusFilter === "ALL" ? undefined : statusFilter,
+              search: searchQuery.trim() || undefined,
+            }).catch((err) => {
+              if (err instanceof ApiError && err.isAuth) return [] as ApiAttendanceDay[];
+              throw err;
+            }),
+          ),
+        );
+        setRosterDays(results.flat());
+      } catch (err) {
+        setLoadError(
+          err instanceof ApiError ? err.message : "Unable to load attendance roster.",
+        );
+        setRosterDays([]);
+      } finally {
+        setIsRosterLoading(false);
+      }
+      return;
+    }
+
     if (!resolvedSiteId) {
       setRosterDays([]);
       if (activeTab === UNASSIGNED_TAB) {
@@ -361,7 +496,15 @@ function AttendancePanel({
     } finally {
       setIsRosterLoading(false);
     }
-  }, [resolvedSiteId, activeTab, sortedSites.length, targetDateKey, statusFilter, searchQuery]);
+  }, [
+    refreshActiveTrips,
+    resolvedSiteId,
+    activeTab,
+    sortedSites,
+    targetDateKey,
+    statusFilter,
+    searchQuery,
+  ]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -401,14 +544,67 @@ function AttendancePanel({
   }
 
   async function handlePunch(day: ApiAttendanceDay, type: AttendancePunchType) {
+    // For the four odometer-required punch types the in-dropdown form
+    // collects the reading first and re-enters this handler with a
+    // validated value (see handleSubmitPunch below). Calling this path
+    // without an odometer for those types is a programming error — we
+    // surface it as an inline error rather than silently dropping the
+    // request.
+    if (ODOMETER_REQUIRED_PUNCH_TYPES.has(type)) {
+      setPendingOdometer({
+        value: pendingOdometer.value,
+        error: "Enter an odometer reading before submitting this punch.",
+      });
+      return;
+    }
     setIsMutating(true);
     setLoadError(null);
     try {
       const updated = await createAttendancePunch(day.id, { type });
       upsertDay(updated);
-      setActionMenu(null);
+      closeActionMenu();
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : "Unable to create punch.");
+    } finally {
+      setIsMutating(false);
+    }
+  }
+
+  // Submits a punch that requires an odometer reading. Called by the
+  // in-dropdown "Submit" button. Validates and rounds the reading the
+  // same way the previous modal flow did before sending it to the API.
+  async function handleSubmitPunchWithOdometer(
+    day: ApiAttendanceDay,
+    type: AttendancePunchType,
+  ) {
+    // Allow comma decimal separators ("123,45") for locales that use them.
+    const normalised = pendingOdometer.value.trim().replace(",", ".");
+    const parsed = Number.parseFloat(normalised);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setPendingOdometer({
+        value: pendingOdometer.value,
+        error: "Enter a non-negative odometer reading in kilometres.",
+      });
+      return;
+    }
+    // Two decimals max — matches the backend column precision so we can't
+    // round-trip a value the API would reject.
+    const rounded = Math.round(parsed * 100) / 100;
+    setIsMutating(true);
+    setLoadError(null);
+    try {
+      const updated = await createAttendancePunch(day.id, {
+        type,
+        odometer: rounded,
+      });
+      upsertDay(updated);
+      closeActionMenu();
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : "Unable to create punch.";
+      // Keep the dropdown open and surface the error inline so the user
+      // can fix the value without losing what they typed.
+      setPendingOdometer({ value: pendingOdometer.value, error: message });
     } finally {
       setIsMutating(false);
     }
@@ -638,14 +834,25 @@ function AttendancePanel({
               targetHours={targetHours}
               density={density}
               actionMenu={actionMenu}
-              onToggleMenu={(pair) =>
-                setActionMenu((prev) =>
-                  prev?.dayId === day.id && prev.pair === pair
-                    ? null
-                    : { dayId: day.id, pair },
-                )
+              isOnActiveTrip={
+                day.driverId ? activeTripDriverIds.has(day.driverId) : false
               }
+              pendingOdometer={pendingOdometer}
+              onChangeOdometer={(value) =>
+                setPendingOdometer({ value, error: null })
+              }
+              onToggleMenu={(pair) => {
+                const isSame =
+                  actionMenu?.dayId === day.id && actionMenu.pair === pair;
+                if (isSame) {
+                  closeActionMenu();
+                  return;
+                }
+                setActionMenu({ dayId: day.id, pair });
+                setPendingOdometer({ value: "", error: null });
+              }}
               onPunch={handlePunch}
+              onPunchWithOdometer={handleSubmitPunchWithOdometer}
               onEditPunch={(punch) =>
                 setCorrectionTarget({
                   punch,
@@ -735,6 +942,7 @@ function AttendancePanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
     </div>
   );
 }
@@ -880,8 +1088,12 @@ function DriverAttendanceRow({
   targetHours,
   density,
   actionMenu,
+  isOnActiveTrip,
+  pendingOdometer,
+  onChangeOdometer,
   onToggleMenu,
   onPunch,
+  onPunchWithOdometer,
   onEditPunch,
   onDeletePunch,
   isMutating,
@@ -891,8 +1103,15 @@ function DriverAttendanceRow({
   targetHours: number;
   density: "comfortable" | "compact";
   actionMenu: { dayId: string; pair: "day" | "lunch" | "maint" } | null;
+  isOnActiveTrip: boolean;
+  pendingOdometer: { value: string; error: string | null };
+  onChangeOdometer: (value: string) => void;
   onToggleMenu: (pair: "day" | "lunch" | "maint") => void;
   onPunch: (day: ApiAttendanceDay, type: AttendancePunchType) => Promise<void>;
+  onPunchWithOdometer: (
+    day: ApiAttendanceDay,
+    type: AttendancePunchType,
+  ) => Promise<void>;
   onEditPunch: (punch: ApiAttendancePunch) => void;
   onDeletePunch: (punch: ApiAttendancePunch) => void;
   isMutating: boolean;
@@ -903,6 +1122,15 @@ function DriverAttendanceRow({
   const dayOpen = isPairOpen(punches, "DAY_IN", "DAY_OUT");
   const lunchOpen = isPairOpen(punches, "LUNCH_OUT", "LUNCH_IN");
   const maintOpen = isPairOpen(punches, "MAINT_OUT", "MAINT_IN");
+  // workDistanceKm is sent as a numeric string by Postgres; parse it
+  // defensively so a stray null / undefined / non-numeric doesn't blow up
+  // the row. We treat it as "not yet computed" when no readings have been
+  // captured.
+  const distanceKmRaw =
+    day.workDistanceKm !== null && day.workDistanceKm !== undefined
+      ? Number.parseFloat(String(day.workDistanceKm))
+      : NaN;
+  const hasDistance = Number.isFinite(distanceKmRaw) && distanceKmRaw > 0;
   const anyBreakOpen = lunchOpen || maintOpen;
   const hasDayIn = punches.some((p) => p.type === "DAY_IN");
   const hasDayOut = punches.some((p) => p.type === "DAY_OUT");
@@ -937,19 +1165,32 @@ function DriverAttendanceRow({
   return (
     <article
       className={cn(
-        "rounded-xl border border-slate-200/80 bg-white shadow-sm",
+        "rounded-xl border border-slate-100 bg-slate-50/50 transition-colors",
         density === "compact" ? "p-3" : "p-4",
       )}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
+        {/* Left half: the driver identity + status badges. Wrapped in a
+            Link so the timekeeper can click through to the per-driver
+            history page. We deliberately *don't* wrap the whole article
+            in a Link — the right half holds interactive punch buttons
+            and a Link ancestor would swallow their clicks. The hover
+            background gives a subtle "this is clickable" cue. */}
+        <Link
+          href={`/dashboard/attendance/drivers/${day.driverId}`}
+          className="group flex min-w-0 items-center gap-3 rounded-lg -mx-1 px-1 py-1 transition-colors hover:bg-primary/5"
+          aria-label={`Open attendance detail for ${driverName(day)}`}
+        >
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
             {day.driver?.firstName?.[0] ?? "?"}
             {day.driver?.lastName?.[0] ?? ""}
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate text-sm font-semibold text-primary">{driverName(day)}</p>
+              <p className="truncate text-sm font-semibold text-primary group-hover:underline">
+                {driverName(day)}
+              </p>
+              <ChevronRight className="size-3 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
               <span
                 className={cn(
                   "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase",
@@ -958,98 +1199,256 @@ function DriverAttendanceRow({
               >
                 {prettyStatus(day.status)}
               </span>
+              {day.autoClosedAt &&
+                (day.autoCloseReason ?? "")
+                  .split(",")
+                  .map((code) => code.trim())
+                  .filter(Boolean)
+                  .map((code) => (
+                    <span
+                      key={code}
+                      title={`System auto-closed this day at ${new Date(day.autoClosedAt as string).toLocaleString()}`}
+                      className="inline-flex w-fit items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold tracking-wide text-amber-800 uppercase ring-1 ring-amber-300/60"
+                    >
+                      <AlertTriangle className="size-2.5" />
+                      {AUTO_CLOSE_REASON_LABELS[code] ?? "Auto-closed"}
+                    </span>
+                  ))}
             </div>
             <p className="truncate text-xs text-muted-foreground">
               {day.driver?.employeeId ?? "No employee ID"}
             </p>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end lg:shrink-0">
+        </Link>
+        <div className="flex flex-wrap items-end justify-start gap-2 lg:justify-end lg:shrink-0">
           {PUNCH_PAIRS.map((pair) => {
+            // Break pairs (Lunch / Maintenance) only make sense once the
+            // driver is on the clock — the backend rejects LUNCH_OUT and
+            // MAINT_OUT without a prior DAY_IN, so we hide them entirely
+            // instead of showing a button that can never be used.
+            const isBreakPair = pair.key === "lunch" || pair.key === "maint";
+            if (isBreakPair && !hasDayIn) return null;
+
             const open = actionMenu?.dayId === day.id && actionMenu.pair === pair.key;
             const state = pairState(pair.key);
             const next = nextAction(pair.key);
             const pairPunches = punches.filter(
               (p) => p.type === pair.outType || p.type === pair.inType,
             );
+            const PairIcon = pair.Icon;
+            // Break punches conflict with an in-progress trip — you can't
+            // start/end a lunch while you're physically driving — so we
+            // disable the action button when the driver has an active trip.
+            // The pill stays clickable so the user can still inspect past
+            // punches; only the next-punch action is blocked.
+            const blockedByTrip = isBreakPair && isOnActiveTrip;
+            // State is communicated by the colour of the icon + label only:
+            // IN uses a deep emerald so it reads as "active/clocked in", OUT
+            // uses a softer rose so a finished/ended state doesn't shout, and
+            // IDLE inherits the muted primary so it stays neutral until the
+            // first punch lands.
+            const stateClass =
+              state === "IN"
+                ? "text-emerald-700"
+                : state === "OUT"
+                  ? "text-rose-400"
+                  : "text-primary/70";
+            // Action icon for the dropdown next-punch button. The verbs map
+            // cleanly to LogIn / LogOut so the icon reinforces what tapping
+            // will actually do (LUNCH_OUT and MAINT_OUT are "leaving work" so
+            // they get LogOut; LUNCH_IN / MAINT_IN come back to work so
+            // they get LogIn).
+            const NextIcon: FeatherIcon | null = next
+              ? next.type === "DAY_IN" ||
+                next.type === "LUNCH_IN" ||
+                next.type === "MAINT_IN"
+                ? LogIn
+                : LogOut
+              : null;
             return (
-              <div key={pair.key} className="relative">
-                  <button
-                    type="button"
-                    onClick={() => onToggleMenu(pair.key)}
+              <div
+                key={pair.key}
+                data-action-menu="true"
+                className="relative flex flex-col items-center gap-1"
+              >
+                <span className="text-[10px] font-black tracking-wide text-primary/70 uppercase">
+                  {pair.label}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onToggleMenu(pair.key)}
+                  aria-label={
+                    blockedByTrip
+                      ? `${pair.label} (${state}) - driver is on an active trip`
+                      : `${pair.label} (${state}) - tap to manage punches`
+                  }
+                  title={
+                    blockedByTrip
+                      ? "Driver is on an active trip"
+                      : undefined
+                  }
+                  className={cn(
+                    "group inline-flex w-24 items-center justify-between gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[11px] font-black shadow-sm shadow-primary/10 transition-colors hover:bg-primary/10 hover:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/40",
+                    blockedByTrip && "opacity-70",
+                  )}
+                >
+                  <span className={cn("inline-flex items-center gap-1.5", stateClass)}>
+                    <PairIcon className="size-4" />
+                    <span className="tracking-wide">{state}</span>
+                  </span>
+                  <ChevronDown
                     className={cn(
-                      "inline-flex w-32 items-center justify-between gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold",
-                      state === "OUT"
-                        ? "border-amber-200 bg-amber-50 text-amber-700"
-                        : state === "IN"
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border-slate-200 bg-slate-50 text-slate-700",
+                      "size-3 text-primary/60 transition-transform",
+                      open && "rotate-180",
                     )}
-                  >
-                    <span className="truncate">{pair.label}</span>
-                    <span className="flex shrink-0 items-center gap-1">
-                      <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] font-bold">
-                        {state}
-                      </span>
-                      <ChevronDown className={cn("size-3", open && "rotate-180")} />
-                    </span>
-                  </button>
-                  {open && (
-                    <div className="absolute top-full left-0 z-30 mt-1 w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-                      {next ? (
-                        <Button
-                          type="button"
-                          disabled={isMutating}
-                          onClick={() => onPunch(day, next.type)}
-                          className="h-8 w-full justify-start rounded-lg px-2 text-xs"
-                        >
-                          {next.label}
-                        </Button>
-                      ) : (
-                        <p className="px-2 py-1 text-[11px] text-muted-foreground">
-                          No action available
-                        </p>
-                      )}
-                      <div className="mt-1 space-y-1 border-t border-slate-100 pt-1">
-                        {pairPunches.length === 0 ? (
-                          <p className="px-2 py-1 text-[11px] text-muted-foreground">No punches yet</p>
-                        ) : (
-                          pairPunches.map((p) => (
-                            <div
-                              key={p.id}
-                              className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-[11px] text-slate-700"
+                  />
+                </button>
+                {open && (
+                  <div className="absolute top-full left-0 z-30 mt-1 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                    {blockedByTrip ? (
+                      <p className="px-2 py-1 text-[11px] font-medium text-rose-600">
+                        Driver is on an active trip. Complete the trip before
+                        recording a {pair.label.toLowerCase()} punch.
+                      </p>
+                    ) : next ? (
+                      (() => {
+                        const needsOdometer = ODOMETER_REQUIRED_PUNCH_TYPES.has(
+                          next.type,
+                        );
+                        const trimmed = pendingOdometer.value.trim();
+                        const submitDisabled =
+                          isMutating || (needsOdometer && trimmed.length === 0);
+                        return (
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              if (needsOdometer) {
+                                void onPunchWithOdometer(day, next.type);
+                              } else {
+                                void onPunch(day, next.type);
+                              }
+                            }}
+                            className="space-y-2"
+                          >
+                            {needsOdometer && (
+                              <label className="block">
+                                <span className="mb-1 block text-[9px] font-bold tracking-wide text-muted-foreground uppercase">
+                                  Odometer (km)
+                                </span>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  step="0.01"
+                                  min={0}
+                                  autoFocus
+                                  value={pendingOdometer.value}
+                                  onChange={(e) => onChangeOdometer(e.target.value)}
+                                  placeholder="e.g. 152340.50"
+                                  aria-invalid={
+                                    pendingOdometer.error ? true : undefined
+                                  }
+                                  className="block h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs tabular-nums focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                />
+                                {pendingOdometer.error && (
+                                  <span className="mt-1 block text-[10px] font-medium text-rose-600">
+                                    {pendingOdometer.error}
+                                  </span>
+                                )}
+                              </label>
+                            )}
+                            <Button
+                              type="submit"
+                              disabled={submitDisabled}
+                              className="h-8 w-full justify-start gap-2 rounded-lg px-2 text-xs"
                             >
+                              {isMutating ? (
+                                <Loader2 className="size-3.5 animate-spin" />
+                              ) : NextIcon ? (
+                                <NextIcon className="size-3.5" />
+                              ) : null}
+                              {next.label}
+                            </Button>
+                          </form>
+                        );
+                      })()
+                    ) : (
+                      <p className="px-2 py-1 text-[11px] text-muted-foreground">
+                        No action available
+                      </p>
+                    )}
+                    <div className="mt-1 space-y-1 border-t border-slate-100 pt-1">
+                      {pairPunches.length === 0 ? (
+                        <p className="px-2 py-1 text-[11px] text-muted-foreground">No punches yet</p>
+                      ) : (
+                        pairPunches.map((p) => {
+                          const isInPunch =
+                            p.type === "DAY_IN" ||
+                            p.type === "LUNCH_IN" ||
+                            p.type === "MAINT_IN";
+                          const HistoryIcon = isInPunch ? LogIn : LogOut;
+                          return (
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-[11px] text-slate-700"
+                          >
+                            <span className="inline-flex items-center gap-1.5 truncate">
+                              <HistoryIcon
+                                className={cn(
+                                  "size-3 shrink-0",
+                                  isInPunch ? "text-emerald-600" : "text-rose-500",
+                                )}
+                              />
                               <span className="truncate">
                                 {p.type.replace("_", " ")} · {formatPunchTime(p.at)}
                               </span>
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  className="rounded p-1 text-muted-foreground hover:bg-slate-100 hover:text-primary"
-                                  onClick={() => onEditPunch(p)}
-                                  aria-label="Edit punch"
-                                >
-                                  <Pencil className="size-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="rounded p-1 text-muted-foreground hover:bg-slate-100 hover:text-rose-600"
-                                  onClick={() => onDeletePunch(p)}
-                                  aria-label="Void punch"
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </button>
-                              </div>
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                className="rounded p-1 text-muted-foreground hover:bg-slate-100 hover:text-primary"
+                                onClick={() => onEditPunch(p)}
+                                aria-label="Edit punch"
+                              >
+                                <Pencil className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded p-1 text-muted-foreground hover:bg-slate-100 hover:text-rose-600"
+                                onClick={() => onDeletePunch(p)}
+                                aria-label="Void punch"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
                             </div>
-                          ))
-                        )}
-                      </div>
+                          </div>
+                          );
+                        })
+                      )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
           <WorkedHoursDonut worked={worked} target={targetHours} />
+          <span
+            className={cn(
+              "inline-flex flex-col items-center rounded-md border px-2 py-1 text-[10px] font-black tracking-wide uppercase",
+              hasDistance
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-slate-200 bg-slate-50 text-slate-500",
+            )}
+            title={
+              hasDistance
+                ? `Work distance: (LUNCH_OUT − DAY_IN) + (DAY_OUT − LUNCH_IN) = ${distanceKmRaw.toFixed(2)} km`
+                : "Capture odometer at DAY_IN / LUNCH_OUT / LUNCH_IN / DAY_OUT to compute distance"
+            }
+          >
+            <span className="text-[9px] text-slate-500">Distance</span>
+            <span className="text-xs tabular-nums">
+              {hasDistance ? `${distanceKmRaw.toFixed(1)} km` : "—"}
+            </span>
+          </span>
         </div>
       </div>
     </article>
