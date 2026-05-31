@@ -5,7 +5,6 @@ import {
   Calendar,
   ChevronDown,
   ChevronRight,
-  ChevronUp,
   Clock,
   Coffee,
   Filter,
@@ -40,23 +39,28 @@ import {
   listAttendanceRoster,
   updateAttendancePunch,
 } from "@/lib/api/attendance";
+import { getAttendanceRules } from "@/lib/api/attendanceRules";
 import { ApiError } from "@/lib/api/client";
 import { listDrivers } from "@/lib/api/drivers";
 import { listSites } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
-import {
-  DEFAULT_TARGET_HOURS,
-  readStoredTargets,
-  writeStoredTargets,
-} from "@/lib/attendance-targets";
+import { DEFAULT_TARGET_HOURS } from "@/lib/attendance-targets";
 import type {
   ApiAttendanceDay,
   ApiAttendancePunch,
+  ApiAttendanceRules,
   ApiDriver,
   ApiSite,
+  ApiTimeSettings,
   AttendanceDayStatus,
   AttendancePunchType,
 } from "@/lib/api/types";
+import {
+  formatDateTime,
+  formatScheduleTime,
+  formatTimeOfDay,
+} from "@/lib/time/format";
+import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { cn } from "@/lib/utils";
 
 type DateFilter = "TODAY" | "YESTERDAY" | "CUSTOM";
@@ -209,11 +213,8 @@ function computeWorkedHours(day: ApiAttendanceDay, targetDateKey: string): numbe
   return Math.max(0, (end - start - breakMs) / (1000 * 60 * 60));
 }
 
-function formatPunchTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatPunchTime(iso: string, settings: ApiTimeSettings): string {
+  return formatTimeOfDay(iso, settings);
 }
 
 function toLocalDateTimeInput(iso: string): string {
@@ -248,14 +249,12 @@ function AttendancePanel({
   const [isLoading, setIsLoading] = useState(true);
   const [isRosterLoading, setIsRosterLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [rules, setRules] = useState<ApiAttendanceRules | null>(null);
   const [activeTab, setActiveTab] = useState<string>(ALL_SITES_TAB);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFilter, setDateFilter] = useState<DateFilter>("TODAY");
   const [customDate, setCustomDate] = useState(() => toLocalDateKey(new Date()));
-  const [targetHoursMap, setTargetHoursMap] = useState<Record<string, number>>(
-    () => readStoredTargets(),
-  );
   const [siteMessage, setSiteMessage] = useState<string | null>(null);
   const [actionMenu, setActionMenu] = useState<{
     dayId: string;
@@ -318,8 +317,11 @@ function AttendancePanel({
     return customDate;
   }, [dateFilter, customDate]);
 
-  const targetHours = targetHoursMap[targetDateKey] ?? DEFAULT_TARGET_HOURS;
-  const isTargetOverride = targetHoursMap[targetDateKey] !== undefined;
+  const { settings: timeSettings } = useTimeSettings();
+  const targetHours = rules?.targetHours ?? DEFAULT_TARGET_HOURS;
+  const scheduleLabel = rules
+    ? `Day ${formatScheduleTime(rules.dayInTime, timeSettings)}–${formatScheduleTime(rules.dayOutTime, timeSettings)} · Lunch ${formatScheduleTime(rules.lunchOutTime, timeSettings)}–${formatScheduleTime(rules.lunchInTime, timeSettings)} · Target ${rules.targetHours}h`
+    : null;
 
   const sortedSites = useMemo(
     () => [...sites].sort((a, b) => a.name.localeCompare(b.name)),
@@ -391,7 +393,7 @@ function AttendancePanel({
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [s, d] = await Promise.all([
+      const [s, d, loadedRules] = await Promise.all([
         listSites().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
@@ -400,10 +402,15 @@ function AttendancePanel({
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),
+        getAttendanceRules().catch((err) => {
+          if (err instanceof ApiError && err.isAuth) return null;
+          throw err;
+        }),
         refreshActiveTrips(),
       ]);
       setSites(s);
       setDrivers(d);
+      if (loadedRules) setRules(loadedRules);
     } catch (err) {
       setLoadError(
         err instanceof ApiError ? err.message : "Unable to load attendance data.",
@@ -421,6 +428,11 @@ function AttendancePanel({
   }, [refreshBase]);
 
   const refreshRoster = useCallback(async () => {
+    // Wait until sites/drivers have loaded before evaluating empty-site
+    // conditions — otherwise sortedSites is still [] and we flash a false
+    // "No sites configured yet" banner above the spinner.
+    if (isLoading) return;
+
     // Re-snapshot the active-trip set on every roster refresh. We don't
     // await it before kicking off the roster call (the roster is the
     // important payload) — running in parallel keeps the UI snappy.
@@ -497,6 +509,7 @@ function AttendancePanel({
       setIsRosterLoading(false);
     }
   }, [
+    isLoading,
     refreshActiveTrips,
     resolvedSiteId,
     activeTab,
@@ -512,26 +525,6 @@ function AttendancePanel({
     }, 0);
     return () => window.clearTimeout(t);
   }, [refreshRoster]);
-
-  function handleSaveTargetHours(next: number) {
-    if (!Number.isFinite(next) || next < 0) return;
-    const clamped = Math.min(24, next);
-    setTargetHoursMap((prev) => {
-      const updated = { ...prev, [targetDateKey]: clamped };
-      writeStoredTargets(updated);
-      return updated;
-    });
-  }
-
-  function handleResetTargetHours() {
-    setTargetHoursMap((prev) => {
-      if (prev[targetDateKey] === undefined) return prev;
-      const updated = { ...prev };
-      delete updated[targetDateKey];
-      writeStoredTargets(updated);
-      return updated;
-    });
-  }
 
   function upsertDay(nextDay: ApiAttendanceDay) {
     setRosterDays((prev) => {
@@ -713,14 +706,6 @@ function AttendancePanel({
           </div>
         </div>
         <div className="flex items-center justify-between gap-2 sm:contents">
-          <div className="min-w-0 flex-1 sm:hidden">
-            <TargetHoursEditor
-              value={targetHours}
-              isOverride={isTargetOverride}
-              onSave={handleSaveTargetHours}
-              onReset={handleResetTargetHours}
-            />
-          </div>
           <Button
             onClick={refreshRoster}
             disabled={isRosterLoading || isMutating}
@@ -732,7 +717,7 @@ function AttendancePanel({
         </div>
       </div>
 
-      {(loadError || siteMessage) && (
+      {!isLoading && (loadError || siteMessage) && (
         <div
           className={cn(
             "rounded-xl px-3 py-2.5 text-sm",
@@ -782,6 +767,12 @@ function AttendancePanel({
         </div>
       </div>
 
+      {scheduleLabel ? (
+        <p className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-xs font-medium text-primary/80">
+          Schedule: {scheduleLabel}
+        </p>
+      ) : null}
+
       <div className="hidden flex-col gap-2 sm:flex sm:flex-row sm:items-center sm:gap-3">
         <AttendanceDateTabs
           value={dateFilter}
@@ -804,12 +795,6 @@ function AttendancePanel({
             ))}
           </select>
         </div>
-        <TargetHoursEditor
-          value={targetHours}
-          isOverride={isTargetOverride}
-          onSave={handleSaveTargetHours}
-          onReset={handleResetTargetHours}
-        />
       </div>
 
       {isLoading ? (
@@ -862,6 +847,7 @@ function AttendancePanel({
               }
               onDeletePunch={(punch) => setDeleteTarget(punch)}
               isMutating={isMutating}
+              timeSettings={timeSettings}
             />
           ))}
         </div>
@@ -947,78 +933,6 @@ function AttendancePanel({
   );
 }
 
-function TargetHoursEditor({
-  value,
-  isOverride,
-  onSave,
-  onReset,
-}: {
-  value: number;
-  isOverride: boolean;
-  onSave: (next: number) => void;
-  onReset: () => void;
-}) {
-  function step(delta: number) {
-    const next = Math.max(0, Math.min(24, value + delta));
-    if (next === value) return;
-    onSave(next);
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-1.5 text-sm">
-      <span className="text-[10px] font-semibold tracking-wide text-primary/70 uppercase">
-        Target hours
-      </span>
-      <div className="flex items-stretch overflow-hidden rounded-md border border-primary/30 bg-white">
-        <input
-          type="number"
-          min={0}
-          max={24}
-          step={0.5}
-          inputMode="decimal"
-          value={value}
-          onChange={(e) => {
-            const parsed = Number.parseFloat(e.target.value);
-            if (!Number.isFinite(parsed)) return;
-            const next = Math.max(0, Math.min(24, parsed));
-            onSave(next);
-          }}
-          aria-label="Target working hours for the selected day"
-          className="w-14 border-0 bg-transparent px-2 py-0.5 text-center text-sm font-bold text-primary tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/30 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:m-0"
-        />
-        <div className="flex flex-col border-l border-primary/30">
-          <button
-            type="button"
-            onClick={() => step(0.5)}
-            aria-label="Increase target hours"
-            className="flex h-1/2 w-6 items-center justify-center bg-primary text-white transition-colors hover:bg-primary/90 active:bg-primary/80"
-          >
-            <ChevronUp className="size-3.5" strokeWidth={3} />
-          </button>
-          <button
-            type="button"
-            onClick={() => step(-0.5)}
-            aria-label="Decrease target hours"
-            className="flex h-1/2 w-6 items-center justify-center border-t border-white/30 bg-primary text-white transition-colors hover:bg-primary/90 active:bg-primary/80"
-          >
-            <ChevronDown className="size-3.5" strokeWidth={3} />
-          </button>
-        </div>
-      </div>
-      <span className="text-[11px] text-primary/70">hours / driver</span>
-      {isOverride && (
-        <button
-          type="button"
-          onClick={onReset}
-          className="text-[11px] font-semibold text-primary/70 underline-offset-2 hover:text-primary hover:underline"
-        >
-          Reset to default ({DEFAULT_TARGET_HOURS}h)
-        </button>
-      )}
-    </div>
-  );
-}
-
 function RosterSummaryPill({
   summary,
 }: {
@@ -1097,6 +1011,7 @@ function DriverAttendanceRow({
   onEditPunch,
   onDeletePunch,
   isMutating,
+  timeSettings,
 }: {
   day: ApiAttendanceDay;
   dateKey: string;
@@ -1115,6 +1030,7 @@ function DriverAttendanceRow({
   onEditPunch: (punch: ApiAttendancePunch) => void;
   onDeletePunch: (punch: ApiAttendancePunch) => void;
   isMutating: boolean;
+  timeSettings: ApiTimeSettings;
 }) {
   const punches = toLivePunches(day);
   const worked = computeWorkedHours(day, dateKey);
@@ -1207,7 +1123,7 @@ function DriverAttendanceRow({
                   .map((code) => (
                     <span
                       key={code}
-                      title={`System auto-closed this day at ${new Date(day.autoClosedAt as string).toLocaleString()}`}
+                      title={`System auto-closed this day at ${formatDateTime(day.autoClosedAt as string, timeSettings)}`}
                       className="inline-flex w-fit items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold tracking-wide text-amber-800 uppercase ring-1 ring-amber-300/60"
                     >
                       <AlertTriangle className="size-2.5" />
@@ -1399,7 +1315,7 @@ function DriverAttendanceRow({
                                 )}
                               />
                               <span className="truncate">
-                                {p.type.replace("_", " ")} · {formatPunchTime(p.at)}
+                                {p.type.replace("_", " ")} · {formatPunchTime(p.at, timeSettings)}
                               </span>
                             </span>
                             <div className="flex items-center gap-1">

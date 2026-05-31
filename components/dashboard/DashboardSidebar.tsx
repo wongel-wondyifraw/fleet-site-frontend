@@ -17,6 +17,9 @@ import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
+import { formatDate, formatTimeOfDay } from "@/lib/time/format";
+import type { ApiTimeSettings } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 // Primary nav items for the desktop sidebar.
@@ -46,30 +49,38 @@ function formatRole(role: string): string {
     .join(" ");
 }
 
-// Formats a Date as e.g. "Oct 24, 2023 · 08:42 AM".
-function formatNow(date: Date): string {
-  const datePart = date.toLocaleDateString("en-US", {
+// Formats a Date as e.g. "Oct 24, 2023 · 08:42 AM" using the global
+// time settings (timezone + 12 vs 24-hour format).
+function formatNow(date: Date, settings: ApiTimeSettings): string {
+  const datePart = formatDate(date, settings, {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
-  const timePart = date.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const timePart = formatTimeOfDay(date, settings);
   return `${datePart} · ${timePart}`;
 }
 
 // Live wall-clock string. Empty on first render to avoid SSR/CSR hydration
 // drift; populates after mount and ticks every 30s (resolution is minutes).
-function useLiveNow(): string {
+function useLiveNow(settings: ApiTimeSettings): string {
   const [now, setNow] = useState<string>("");
 
   useEffect(() => {
-    setNow(formatNow(new Date()));
-    const id = setInterval(() => setNow(formatNow(new Date())), 30_000);
-    return () => clearInterval(id);
-  }, []);
+    // Defer the initial setState to the next tick so React's strict
+    // effect lint stays happy (no cascading render in the effect body).
+    const initial = window.setTimeout(() => {
+      setNow(formatNow(new Date(), settings));
+    }, 0);
+    const id = window.setInterval(
+      () => setNow(formatNow(new Date(), settings)),
+      30_000,
+    );
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(id);
+    };
+  }, [settings]);
 
   return now;
 }
@@ -81,8 +92,11 @@ export function DashboardSidebar() {
   const router = useRouter();
   // Drives the sign-out confirmation dialog so a misclick can't end the session.
   const [confirmSignOutOpen, setConfirmSignOutOpen] = useState(false);
+  // Pull global time settings so the sidebar clock honours the chosen
+  // timezone + 12 / 24-hour format.
+  const { settings: timeSettings } = useTimeSettings();
   // Live date + time string for the sidebar header.
-  const nowLabel = useLiveNow();
+  const nowLabel = useLiveNow(timeSettings);
 
   // Logout: clear auth state then send the user back to the login page.
   function handleLogout() {

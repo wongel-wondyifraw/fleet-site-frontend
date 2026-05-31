@@ -72,6 +72,8 @@ import {
   fetchDrivingDistance,
   geocodeAddress,
 } from "@/lib/locationiq/directions";
+import { formatDateTime } from "@/lib/time/format";
+import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { useToast } from "@/lib/toast/ToastContext";
 import {
   TRIP_STATUSES,
@@ -1640,6 +1642,7 @@ function TripRow({
   // while a request is in progress and surface a spinner on the clicked one.
   const [pendingAction, setPendingAction] = useState<TripStatus | null>(null);
   const isBusy = pendingAction !== null;
+  const { settings: timeSettings } = useTimeSettings();
 
   // Local "checked out at" timestamp captured the moment the user taps the
   // button. We use this for the live elapsed counter instead of the server's
@@ -1938,7 +1941,7 @@ function TripRow({
             <span>
               Checked out{" "}
               <span className="font-semibold text-primary">
-                {new Date(trip.startedAt).toLocaleString()}
+                {formatDateTime(trip.startedAt, timeSettings)}
               </span>
             </span>
           )}
@@ -2179,6 +2182,7 @@ function TripTimesInfo({
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const { settings: timeSettings } = useTimeSettings();
 
   useEffect(() => {
     if (!open) return;
@@ -2196,8 +2200,8 @@ function TripTimesInfo({
     };
   }, [open]);
 
-  const checkedOut = startedAt ? new Date(startedAt).toLocaleString() : "—";
-  const checkedIn = completedAt ? new Date(completedAt).toLocaleString() : "—";
+  const checkedOut = startedAt ? formatDateTime(startedAt, timeSettings) : "—";
+  const checkedIn = completedAt ? formatDateTime(completedAt, timeSettings) : "—";
 
   return (
     <span ref={wrapRef} className="group/info relative inline-flex">

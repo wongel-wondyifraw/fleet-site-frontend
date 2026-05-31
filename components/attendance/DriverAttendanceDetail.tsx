@@ -33,18 +33,23 @@ import {
 
 import { ApiError } from "@/lib/api/client";
 import { getDriverAttendanceHistory } from "@/lib/api/attendance";
+import { getAttendanceRules } from "@/lib/api/attendanceRules";
+import {
+  formatDate,
+  formatDateTime,
+  formatTimeOfDay,
+} from "@/lib/time/format";
+import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import type {
   ApiAttendanceDay,
   ApiAttendancePunch,
+  ApiAttendanceRules,
   ApiDriver,
+  ApiTimeSettings,
   AttendanceDayStatus,
   AttendancePunchType,
 } from "@/lib/api/types";
-import {
-  readStoredTargets,
-  targetHoursForDate,
-  type TargetHoursMap,
-} from "@/lib/attendance-targets";
+import { DEFAULT_TARGET_HOURS } from "@/lib/attendance-targets";
 import { cn } from "@/lib/utils";
 
 // Status pill palette. Restricted to the blue / green / red family the
@@ -118,14 +123,21 @@ function enumerateDates(from: string, to: string): string[] {
   return out;
 }
 
-function shortDateLabel(dateKey: string): string {
-  const d = new Date(`${dateKey}T00:00:00`);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+function shortDateLabel(
+  dateKey: string,
+  settings: ApiTimeSettings,
+): string {
+  return formatDate(`${dateKey}T00:00:00`, settings, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
-function fullDateLabel(dateKey: string): string {
-  const d = new Date(`${dateKey}T00:00:00`);
-  return d.toLocaleDateString(undefined, {
+function fullDateLabel(
+  dateKey: string,
+  settings: ApiTimeSettings,
+): string {
+  return formatDate(`${dateKey}T00:00:00`, settings, {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -133,14 +145,11 @@ function fullDateLabel(dateKey: string): string {
   });
 }
 
-function formatPunchTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatPunchTime(iso: string, settings: ApiTimeSettings): string {
+  return formatTimeOfDay(iso, settings);
 }
 
-function formatRelativeTime(iso: string): string {
+function formatRelativeTime(iso: string, settings: ApiTimeSettings): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   if (diffMs < 60_000) return "Just now";
   const mins = Math.floor(diffMs / 60_000);
@@ -149,7 +158,7 @@ function formatRelativeTime(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return shortDateLabel(toDateKey(new Date(iso)));
+  return shortDateLabel(toDateKey(new Date(iso)), settings);
 }
 
 interface AttendanceActivity {
@@ -288,12 +297,8 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
   );
   const [customTo, setCustomTo] = useState<string>(() => toDateKey(new Date()));
   const lateAfter = DEFAULT_LATE_AFTER;
-  // Per-day target hours are sourced from the same localStorage map the
-  // attendance management page writes to, so a "6h" override applied
-  // there flows through to this page's stats and chart automatically.
-  const [targetHoursMap, setTargetHoursMap] = useState<TargetHoursMap>(
-    () => readStoredTargets(),
-  );
+  const [rules, setRules] = useState<ApiAttendanceRules | null>(null);
+  const targetHours = rules?.targetHours ?? DEFAULT_TARGET_HOURS;
 
   const [driver, setDriver] = useState<ApiDriver | null>(null);
   const [days, setDays] = useState<ApiAttendanceDay[]>([]);
@@ -304,19 +309,17 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
     null,
   );
 
-  // Keep the target-hours map fresh: re-read it whenever the tab regains
-  // focus (the management page might've edited it in another tab) and
-  // also listen for storage events from other tabs. Cheap and avoids a
-  // stale chart line after the user tweaks a day's target elsewhere.
   useEffect(() => {
-    function reload() {
-      setTargetHoursMap(readStoredTargets());
-    }
-    window.addEventListener("focus", reload);
-    window.addEventListener("storage", reload);
+    let cancelled = false;
+    void getAttendanceRules()
+      .then((loaded) => {
+        if (!cancelled) setRules(loaded);
+      })
+      .catch(() => {
+        // Soft-fail: fall back to DEFAULT_TARGET_HOURS.
+      });
     return () => {
-      window.removeEventListener("focus", reload);
-      window.removeEventListener("storage", reload);
+      cancelled = true;
     };
   }, []);
 
@@ -454,7 +457,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
     () =>
       allDates.map((dateKey) => {
         const day = dayByDate.get(dateKey);
-        const target = targetHoursForDate(targetHoursMap, dateKey);
+        const target = targetHours;
         if (!day) {
           return {
             dateKey,
@@ -476,7 +479,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
           isAbsent,
         };
       }),
-    [allDates, dayByDate, targetHoursMap],
+    [allDates, dayByDate, targetHours],
   );
 
   // Compact 7-day window centred on today (3 days before, today, 3 days
@@ -742,7 +745,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
                   key={day.id}
                   day={day}
                   hours={computeWorkedHours(day)}
-                  targetHours={targetHoursForDate(targetHoursMap, day.date)}
+                  targetHours={targetHours}
                   lateAfterMinutes={timeStringToMinutes(lateAfter)}
                 />
               ))}
@@ -911,9 +914,10 @@ function DriverHeaderCard({
 
 function ActivityBadge({ activity }: { activity: AttendanceActivity }) {
   const { icon: Icon, wrap } = PUNCH_ACTIVITY_ICONS[activity.punchType];
+  const { settings } = useTimeSettings();
   return (
     <span
-      title={`${PUNCH_LABELS[activity.punchType]} · ${formatPunchTime(activity.at)}${activity.siteName ? ` · ${activity.siteName}` : ""}`}
+      title={`${PUNCH_LABELS[activity.punchType]} · ${formatPunchTime(activity.at, settings)}${activity.siteName ? ` · ${activity.siteName}` : ""}`}
       className={cn(
         "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold tracking-wide uppercase",
         wrap,
@@ -922,7 +926,7 @@ function ActivityBadge({ activity }: { activity: AttendanceActivity }) {
       <Icon className="size-3" />
       {PUNCH_LABELS[activity.punchType]}
       <span className="font-mono opacity-70">
-        {formatRelativeTime(activity.at)}
+        {formatRelativeTime(activity.at, settings)}
       </span>
     </span>
   );
@@ -930,8 +934,9 @@ function ActivityBadge({ activity }: { activity: AttendanceActivity }) {
 
 function ActivityRow({ activity }: { activity: AttendanceActivity }) {
   const { icon: Icon, wrap } = PUNCH_ACTIVITY_ICONS[activity.punchType];
+  const { settings } = useTimeSettings();
   const detailParts = [
-    formatPunchTime(activity.at),
+    formatPunchTime(activity.at, settings),
     activity.siteName ?? null,
     activity.note ?? null,
   ].filter(Boolean);
@@ -952,11 +957,11 @@ function ActivityRow({ activity }: { activity: AttendanceActivity }) {
             {PUNCH_LABELS[activity.punchType]}
           </p>
           <span className="shrink-0 text-[10px] text-muted-foreground">
-            {formatRelativeTime(activity.at)}
+            {formatRelativeTime(activity.at, settings)}
           </span>
         </div>
         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-          {shortDateLabel(activity.dateKey)}
+          {shortDateLabel(activity.dateKey, settings)}
           {detailParts.length > 0 && (
             <>
               <span className="text-slate-300"> · </span>
@@ -1144,6 +1149,7 @@ function PerformanceChart({
   data: ChartPoint[];
   isLoading: boolean;
 }) {
+  const { settings } = useTimeSettings();
   if (isLoading && data.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center rounded-xl border border-slate-100 bg-slate-50/50">
@@ -1324,7 +1330,7 @@ function PerformanceChart({
               strokeWidth={1.25}
             >
               <title>
-                {fullDateLabel(point.dateKey)} —{" "}
+                {fullDateLabel(point.dateKey, settings)} —{" "}
                 {!point.hasRecord
                   ? "no record"
                   : point.isAbsent
@@ -1347,7 +1353,7 @@ function PerformanceChart({
               fontSize={10}
               fill="#64748b"
             >
-              {shortDateLabel(point.dateKey)}
+              {shortDateLabel(point.dateKey, settings)}
             </text>
           );
         })}
@@ -1387,6 +1393,7 @@ function DayRow({
   targetHours: number;
   lateAfterMinutes: number | null;
 }) {
+  const { settings } = useTimeSettings();
   const [expanded, setExpanded] = useState(false);
   const punches = liveSortedPunches(day);
   const dayIn = firstPunchOfType(punches, "DAY_IN");
@@ -1426,18 +1433,16 @@ function DayRow({
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="flex size-10 shrink-0 flex-col items-center justify-center rounded-lg bg-white text-primary ring-1 ring-slate-100">
             <span className="text-[9px] font-bold tracking-wide text-muted-foreground uppercase">
-              {new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, {
-                month: "short",
-              })}
+              {formatDate(`${day.date}T00:00:00`, settings, { month: "short" })}
             </span>
             <span className="-mt-0.5 text-sm font-bold leading-none tabular-nums">
-              {new Date(`${day.date}T00:00:00`).getDate()}
+              {formatDate(`${day.date}T00:00:00`, settings, { day: "numeric" })}
             </span>
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate text-sm font-semibold text-primary">
-                {fullDateLabel(day.date)}
+                {fullDateLabel(day.date, settings)}
               </p>
               <span
                 className={cn(
@@ -1532,7 +1537,7 @@ function DayRow({
                 >
                   <AlertTriangle className="size-3 shrink-0" />
                   {AUTO_CLOSE_REASON_LABELS[code] ?? "Auto-closed"} —{" "}
-                  {new Date(day.autoClosedAt as string).toLocaleString()}
+                  {formatDateTime(day.autoClosedAt as string, settings)}
                 </p>
               ))}
 
@@ -1582,6 +1587,7 @@ function PunchChip({
   punch: ApiAttendancePunch;
   variant?: "directional" | "blue";
 }) {
+  const { settings } = useTimeSettings();
   const isIn =
     punch.type === "DAY_IN" ||
     punch.type === "LUNCH_IN" ||
@@ -1614,7 +1620,7 @@ function PunchChip({
           variant === "blue" ? "text-blue-600/80" : "text-muted-foreground",
         )}
       >
-        {formatPunchTime(punch.at)}
+        {formatPunchTime(punch.at, settings)}
       </span>
     </span>
   );

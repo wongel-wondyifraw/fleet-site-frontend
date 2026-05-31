@@ -60,6 +60,8 @@ import {
   updateUser,
 } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { formatDate, formatDateTime } from "@/lib/time/format";
+import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { cn } from "@/lib/utils";
 
 // Role pill palette - duplicated from UserManagementPanel to keep this page
@@ -74,6 +76,7 @@ export function UserDetail({ userId }: { userId: string }) {
   // The currently signed-in user; used to gate destructive actions against
   // self (admins can't deactivate their own account from this UI).
   const { user: currentUser } = useAuth();
+  const { settings: timeSettings } = useTimeSettings();
 
   const [user, setUser] = useState<ApiUser | null>(null);
   const [sites, setSites] = useState<ListedSite[]>([]);
@@ -345,14 +348,14 @@ export function UserDetail({ userId }: { userId: string }) {
             </DetailField>
             <DetailField label="Last login">
               {user.lastLoginAt
-                ? new Date(user.lastLoginAt).toLocaleString()
+                ? formatDateTime(user.lastLoginAt, timeSettings)
                 : "Never signed in"}
             </DetailField>
             <DetailField label="Member since">
-              {new Date(user.createdAt).toLocaleDateString()}
+              {formatDate(user.createdAt, timeSettings)}
             </DetailField>
             <DetailField label="Updated">
-              {new Date(user.updatedAt).toLocaleDateString()}
+              {formatDate(user.updatedAt, timeSettings)}
             </DetailField>
           </dl>
         </FormCard>

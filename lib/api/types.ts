@@ -417,3 +417,20 @@ export interface ApiAttendanceDay {
   createdAt?: string;
   updatedAt?: string;
 }
+
+// Global attendance schedule and working-hours target configured in Settings.
+export interface ApiAttendanceRules {
+  dayInTime: string;
+  lunchOutTime: string;
+  lunchInTime: string;
+  dayOutTime: string;
+  targetHours: number;
+}
+
+// Global time / locale settings — IANA timezone + 12h vs 24h format
+// preference. Configured in Settings → Time and used app-wide for any
+// surface that renders timestamps.
+export interface ApiTimeSettings {
+  timezone: string;
+  timeFormat: "12" | "24";
+}

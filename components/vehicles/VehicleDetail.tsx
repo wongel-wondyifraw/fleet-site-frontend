@@ -41,6 +41,8 @@ import { saveVehicleWithDriver } from "@/components/vehicles/saveVehicle";
 import { ApiError } from "@/lib/api/client";
 import { listDrivers } from "@/lib/api/drivers";
 import { listSites } from "@/lib/api/sites";
+import { formatDate } from "@/lib/time/format";
+import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import {
   formatLicenseClass,
   prettyEnum,
@@ -68,6 +70,7 @@ const VEHICLE_STATUS_PILL: Record<VehicleStatus, string> = {
 
 export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
   const router = useRouter();
+  const { settings: timeSettings } = useTimeSettings();
 
   const [vehicle, setVehicle] = useState<ApiVehicle | null>(null);
   const [drivers, setDrivers] = useState<ApiDriver[]>([]);
@@ -353,9 +356,7 @@ export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
                     <span className="inline-flex items-center gap-1">
                       <Calendar className="size-3" />
                       License expires{" "}
-                      {new Date(
-                        assignedDriver.licenseExpiry,
-                      ).toLocaleDateString()}
+                      {formatDate(assignedDriver.licenseExpiry, timeSettings)}
                     </span>
                   )}
                 </p>

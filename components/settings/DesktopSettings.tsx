@@ -2,6 +2,7 @@
 
 import {
   Building2,
+  ClipboardCheck,
   Clock,
   Mail,
   Route,
@@ -19,14 +20,24 @@ import {
   fieldClass,
 } from "@/components/settings/SettingsShared";
 import { CustomTripRoutesPanel } from "@/components/settings/CustomTripRoutesPanel";
+import { AttendanceRulesPanel } from "@/components/settings/AttendanceRulesPanel";
+import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
 import { formatRole } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { formatDateTime } from "@/lib/time/format";
+import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { cn } from "@/lib/utils";
 
 // Each settings section is identified by a stable string id.
-type SectionId = "profile" | "sites" | "trips" | "users";
+type SectionId =
+  | "profile"
+  | "sites"
+  | "trips"
+  | "time"
+  | "attendance"
+  | "users";
 
 // Narrowing helper for the `?section=` query param. Keeping this here (next to
 // the SectionId definition) means the union and the runtime guard can't drift.
@@ -35,6 +46,8 @@ function isValidSection(value: string | null): value is SectionId {
     value === "profile" ||
     value === "sites" ||
     value === "trips" ||
+    value === "time" ||
+    value === "attendance" ||
     value === "users"
   );
 }
@@ -68,6 +81,18 @@ const SECTIONS: SectionMeta[] = [
     label: "Trip Settings",
     description: "Custom start & end points",
     icon: Route,
+  },
+  {
+    id: "time",
+    label: "Time",
+    description: "Timezone & format",
+    icon: Clock,
+  },
+  {
+    id: "attendance",
+    label: "Attendance Rules",
+    description: "Schedule & target hours",
+    icon: ClipboardCheck,
   },
   {
     id: "users",
@@ -224,6 +249,8 @@ function ActivePanel({
       {section === "profile" ? <ProfilePanel /> : null}
       {section === "sites" ? <SitesPanel /> : null}
       {section === "trips" ? <CustomTripRoutesPanel /> : null}
+      {section === "time" ? <TimeSettingsPanel /> : null}
+      {section === "attendance" ? <AttendanceRulesPanel /> : null}
       {section === "users" ? <UserManagementPanel /> : null}
     </SettingsSection>
   );
@@ -238,6 +265,10 @@ function panelDescription(section: SectionId): string {
       return "Add new construction sites and edit existing ones.";
     case "trips":
       return "Save reusable start and end points to surface as Custom presets on the trip form.";
+    case "time":
+      return "Set the application timezone and 12 / 24-hour display format.";
+    case "attendance":
+      return "Set expected punch times and the daily working-hours target for attendance.";
     case "users":
       return "Invite teammates and assign their roles and sites.";
   }
@@ -246,6 +277,7 @@ function panelDescription(section: SectionId): string {
 // Profile panel - now driven entirely by the authenticated user from context.
 function ProfilePanel() {
   const { user } = useAuth();
+  const { settings: timeSettings } = useTimeSettings();
 
   // If for some reason we render without a user (shouldn't happen behind the
   // dashboard gate), bail out gracefully.
@@ -337,7 +369,7 @@ function ProfilePanel() {
               type="text"
               value={
                 user.lastLoginAt
-                  ? new Date(user.lastLoginAt).toLocaleString()
+                  ? formatDateTime(user.lastLoginAt, timeSettings)
                   : "First sign-in"
               }
               readOnly

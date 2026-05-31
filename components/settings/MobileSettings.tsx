@@ -2,6 +2,7 @@
 
 import {
   Building2,
+  ClipboardCheck,
   Clock,
   LogOut,
   Mail,
@@ -18,17 +19,23 @@ import {
   fieldClass,
 } from "@/components/settings/SettingsShared";
 import { CustomTripRoutesPanel } from "@/components/settings/CustomTripRoutesPanel";
+import { AttendanceRulesPanel } from "@/components/settings/AttendanceRulesPanel";
+import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatRole } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { formatDateTime } from "@/lib/time/format";
+import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 
 export function MobileSettings() {
   const router = useRouter();
   // Signed-in user drives the profile card and gates the Users section.
   const { user, logout } = useAuth();
+  // Time settings drive last-signed-in formatting + the Time panel preview.
+  const { settings: timeSettings } = useTimeSettings();
   // Drives the sign-out confirmation dialog so a stray tap can't end the session.
   const [confirmSignOutOpen, setConfirmSignOutOpen] = useState(false);
 
@@ -101,7 +108,7 @@ export function MobileSettings() {
               type="text"
               value={
                 user?.lastLoginAt
-                  ? new Date(user.lastLoginAt).toLocaleString()
+                  ? formatDateTime(user.lastLoginAt, timeSettings)
                   : "First sign-in"
               }
               readOnly
@@ -125,6 +132,22 @@ export function MobileSettings() {
         icon={Route}
       >
         <CustomTripRoutesPanel density="compact" />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Time"
+        description="Application timezone and 12 / 24-hour format."
+        icon={Clock}
+      >
+        <TimeSettingsPanel density="compact" />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Attendance Rules"
+        description="Set expected punch times and daily target hours."
+        icon={ClipboardCheck}
+      >
+        <AttendanceRulesPanel density="compact" />
       </SettingsSection>
 
       {/* User management - only rendered for ADMIN accounts. */}
