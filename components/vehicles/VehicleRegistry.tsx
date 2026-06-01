@@ -1,13 +1,28 @@
-import { DesktopVehicleRegistry } from "@/components/vehicles/DesktopVehicleRegistry";
-import { MobileVehicleRegistry } from "@/components/vehicles/MobileVehicleRegistry";
+"use client";
 
-// Renders both views; CSS hides one based on the lg breakpoint so the
-// component tree is shared between desktop and mobile and stays consistent.
+import dynamic from "next/dynamic";
+
+import { DESKTOP_MEDIA_QUERY, useMediaQuery } from "@/lib/hooks/useMediaQuery";
+
+const MobileVehicleRegistry = dynamic(
+  () =>
+    import("@/components/vehicles/MobileVehicleRegistry").then(
+      (m) => m.MobileVehicleRegistry,
+    ),
+  { ssr: false, loading: () => null },
+);
+
+const DesktopVehicleRegistry = dynamic(
+  () =>
+    import("@/components/vehicles/DesktopVehicleRegistry").then(
+      (m) => m.DesktopVehicleRegistry,
+    ),
+  { ssr: false, loading: () => null },
+);
+
 export function VehicleRegistry() {
-  return (
-    <>
-      <MobileVehicleRegistry />
-      <DesktopVehicleRegistry />
-    </>
-  );
+  const isDesktop = useMediaQuery(DESKTOP_MEDIA_QUERY);
+
+  if (isDesktop === null) return null;
+  return isDesktop ? <DesktopVehicleRegistry /> : <MobileVehicleRegistry />;
 }

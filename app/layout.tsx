@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+import { jetbrainsMono, workSans } from "@/lib/fonts";
 // AuthProvider owns the authenticated user state for the whole app.
 import { AuthProvider } from "@/lib/auth/AuthContext";
 // ToastProvider exposes a global useToast() that renders banner-style
@@ -61,7 +62,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning className="light">
       <body
         suppressHydrationWarning
-        className="m-0 min-h-dvh overflow-x-hidden bg-background p-0 antialiased"
+        className={`${workSans.variable} ${jetbrainsMono.variable} m-0 min-h-dvh overflow-x-hidden bg-background p-0 antialiased`}
       >
         {/* AuthProvider hydrates the user from localStorage and exposes useAuth() to the tree. */}
         <AuthProvider>

@@ -1,7 +1,6 @@
-"use client";
+﻿"use client";
 
 import {
-  ArrowLeft,
   ArrowRight,
   Ban,
   Calendar,
@@ -17,7 +16,6 @@ import {
   Play,
   Plus,
   Route,
-  Save,
   Search,
   Timer,
   Trash2,
@@ -25,6 +23,11 @@ import {
   UserRound,
   X,
 } from "@/lib/icons";
+import dynamic from "next/dynamic";
+import { DailyTargetEditor } from "@/components/trips/DailyTargetEditor";
+import { TripDateFilterMenu } from "@/components/trips/TripDateFilterMenu";
+import { TripDateTabs } from "@/components/trips/TripDateTabs";
+import { TripStatusFilterMenu } from "@/components/trips/TripStatusFilterMenu";
 import {
   useCallback,
   useEffect,
@@ -32,25 +35,13 @@ import {
   useRef,
   useState,
   type ComponentType,
-  type FormEvent,
   type ReactNode,
 } from "react";
 
-import { CustomTag } from "@/components/settings/CustomTripRoutesPanel";
-import {
-  FieldGrid,
-  SettingsField,
-  fieldClass,
-} from "@/components/settings/SettingsShared";
-import {
-  LocationAutocomplete,
-  type CustomLocationOption,
-  type PickedLocation,
-} from "@/components/shared/LocationAutocomplete";
-import { TripDriverPicker } from "@/components/trips/TripDriverPicker";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PanelError } from "@/components/vehicles/VehicleForm";
+import { fieldClass } from "@/components/settings/SettingsShared";
 import { ApiError } from "@/lib/api/client";
 import { listDrivers } from "@/lib/api/drivers";
 import {
@@ -90,119 +81,29 @@ import {
 } from "@/lib/api/types";
 import { listVehicles } from "@/lib/api/vehicles";
 import {
-  formatSiteLocation,
-  resolvePrimarySite,
-  siteToStartFields,
-} from "@/lib/trips/resolveTripStart";
+  customRouteDistanceKm,
+  findMatchingCustomRoute,
+  formatDistance,
+  formatDuration,
+  formatLocationLine,
+  getTripDistanceKm,
+  getTripEffectiveDate,
+  haversineKm,
+  resolveCheckinDistanceKm,
+  toLocalDateKey,
+} from "@/lib/trips/tripFormatters";
+import {
+  TRIP_STATUS_PILL,
+  type DateFilter,
+  type TripGroup,
+  type TripsPanelMode as Mode,
+} from "@/lib/trips/tripFormState";
 import { cn } from "@/lib/utils";
 
-const TRIP_STATUS_PILL: Record<TripStatus, string> = {
-  PLANNED: "bg-blue-50 text-blue-700",
-  IN_PROGRESS: "bg-amber-50 text-amber-700",
-  COMPLETED: "bg-success/15 text-success",
-  CANCELLED: "bg-slate-200 text-slate-700",
-};
-
-type TripFormState = {
-  vehicleId: string;
-  driverId: string;
-  status: TripStatus;
-  startAddress: string;
-  startCity: string;
-  startState: string;
-  startLat: number | null;
-  startLon: number | null;
-  endAddress: string;
-  endCity: string;
-  endState: string;
-  endLat: number | null;
-  endLon: number | null;
-  isRoundTrip: boolean;
-};
-
-function emptyForm(): TripFormState {
-  return {
-    vehicleId: "",
-    driverId: "",
-    status: "PLANNED",
-    startAddress: "",
-    startCity: "",
-    startState: "",
-    startLat: null,
-    startLon: null,
-    endAddress: "",
-    endCity: "",
-    endState: "",
-    endLat: null,
-    endLon: null,
-    isRoundTrip: false,
-  };
-}
-
-function tripToForm(trip: ApiTrip): TripFormState {
-  return {
-    vehicleId: trip.vehicleId,
-    driverId: trip.driverId ?? "",
-    status: trip.status,
-    startAddress: trip.startAddress,
-    startCity: trip.startCity ?? "",
-    startState: trip.startState ?? "",
-    startLat: trip.startLat ?? null,
-    startLon: trip.startLon ?? null,
-    endAddress: trip.endAddress,
-    endCity: trip.endCity ?? "",
-    endState: trip.endState ?? "",
-    endLat: trip.endLat ?? null,
-    endLon: trip.endLon ?? null,
-    isRoundTrip: trip.isRoundTrip ?? false,
-  };
-}
-
-function formatLocationLine(
-  address: string,
-  city?: string | null,
-  state?: string | null,
-): string {
-  const parts = [address, city, state].filter(Boolean);
-  return parts.join(", ");
-}
-
-// Picks the timestamp that best represents "when this trip happened" so
-// the date tabs can group rows naturally. Completed trips fall on their
-// check-in date, in-progress on their checkout, planned on their
-// scheduled (or fallback created) date.
-function getTripEffectiveDate(trip: ApiTrip): Date | null {
-  const iso =
-    trip.completedAt ?? trip.startedAt ?? trip.scheduledAt ?? trip.createdAt;
-  if (!iso) return null;
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-// Formats a Date as YYYY-MM-DD in the user's local timezone — matches
-// the `<input type="date">` value format so the custom-date filter
-// compares cleanly via string equality.
-function toLocalDateKey(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-// "Today" / "Yesterday" / "Choose Date" date filter for the trips list.
-// Choose Date pairs with a single YYYY-MM-DD value the user picks below.
-type DateFilter = "TODAY" | "YESTERDAY" | "CUSTOM";
-
-type TripGroup = {
-  key: string;
-  driverId: string | null;
-  trips: ApiTrip[];
-};
-
-type Mode =
-  | { kind: "list" }
-  | { kind: "create" }
-  | { kind: "edit"; trip: ApiTrip };
+const TripForm = dynamic(
+  () => import("@/components/trips/TripForm").then((m) => m.TripForm),
+  { ssr: false, loading: () => null },
+);
 
 export function TripsPanel({
   density = "comfortable",
@@ -635,7 +536,7 @@ export function TripsPanel({
                   </button>
                 )}
               </div>
-              {/* Mobile status filter — a compact 40x40 icon button that
+              {/* Mobile status filter â€” a compact 40x40 icon button that
                   opens a dropdown with the status options. Replaces
                   the half-width native select so the search input can
                   reclaim the bulk of the row. Desktop equivalent lives
@@ -707,9 +608,9 @@ export function TripsPanel({
 
       {/* Date tabs + status / vehicle / daily-target controls (desktop).
           The first row up top now owns the search input full-width and
-          all the small controls live here together — date tabs lead,
+          all the small controls live here together â€” date tabs lead,
           then the dropdowns, then the target editor on the right.
-          Hidden below `sm` — mobile keeps the dropdowns and the
+          Hidden below `sm` â€” mobile keeps the dropdowns and the
           collapsed date button up in the filter row above. */}
       <div className="hidden flex-wrap items-center gap-3 sm:flex">
         <TripDateTabs
@@ -954,452 +855,6 @@ export function TripsPanel({
   );
 }
 
-// Inline editor for the "expected trips per day" target. Reads the
-// effective target for the active date from the parent and writes back
-// via the /trip-targets API on commit. Renders a tiny number input
-// inside a primary-blue chip so it sits flush next to the date tabs
-// without crowding them. Shows a "Reset" affordance only when the
-// active date has an override (so users can revert to the default).
-function DailyTargetEditor({
-  target,
-  isSaving,
-  onSave,
-  onReset,
-}: {
-  target: ApiTripTargetEffective | null;
-  isSaving: boolean;
-  onSave: (count: number) => Promise<void> | void;
-  onReset: () => Promise<void> | void;
-}) {
-  // Local string state lets the user type freely (incl. transient empty)
-  // without fighting React's controlled-input invariants. We commit on
-  // blur or Enter, so quickly tweaking the value during typing doesn't
-  // hammer the API.
-  const [draft, setDraft] = useState<string>(
-    target ? String(target.count) : "",
-  );
-
-  useEffect(() => {
-    if (target) setDraft(String(target.count));
-  }, [target]);
-
-  async function commit() {
-    if (!target) return;
-    const parsed = Number.parseInt(draft, 10);
-    if (Number.isNaN(parsed) || parsed < 0) {
-      // Revert the field to the last known good value so the row never
-      // shows a garbage entry once focus leaves.
-      setDraft(String(target.count));
-      return;
-    }
-    if (parsed === target.count) return;
-    await onSave(parsed);
-  }
-
-  // Used by the custom blue stepper buttons. Clamps to [0, 1000] and
-  // commits immediately so the donut updates without waiting for blur.
-  async function step(delta: number) {
-    if (!target) return;
-    const base = Number.parseInt(draft, 10);
-    const current = Number.isFinite(base) ? base : target.count;
-    const next = Math.max(0, Math.min(1000, current + delta));
-    setDraft(String(next));
-    if (next === target.count) return;
-    await onSave(next);
-  }
-
-  const disabled = !target || isSaving;
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-1.5 text-sm">
-      <span className="text-[10px] font-semibold tracking-wide text-primary/70 uppercase">
-        Daily target
-      </span>
-      <div className="flex items-stretch overflow-hidden rounded-md border border-primary/30 bg-white">
-        <input
-          type="number"
-          min={0}
-          max={1000}
-          inputMode="numeric"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => void commit()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              (e.currentTarget as HTMLInputElement).blur();
-            }
-          }}
-          disabled={disabled}
-          aria-label="Expected trips for the selected day"
-          // Hide the native browser spin buttons — we replace them with
-          // the always-visible solid-blue stack on the right.
-          className="w-12 border-0 bg-transparent px-2 py-0.5 text-center text-sm font-bold text-primary tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:m-0"
-        />
-        <div className="flex flex-col border-l border-primary/30">
-          <button
-            type="button"
-            onClick={() => void step(1)}
-            disabled={disabled}
-            aria-label="Increase daily target"
-            className="flex h-1/2 w-6 items-center justify-center bg-primary text-white transition-colors hover:bg-primary/90 active:bg-primary/80 disabled:opacity-50"
-          >
-            <ChevronUp className="size-3.5" strokeWidth={3} />
-          </button>
-          <button
-            type="button"
-            onClick={() => void step(-1)}
-            disabled={disabled}
-            aria-label="Decrease daily target"
-            className="flex h-1/2 w-6 items-center justify-center border-t border-white/30 bg-primary text-white transition-colors hover:bg-primary/90 active:bg-primary/80 disabled:opacity-50"
-          >
-            <ChevronDown className="size-3.5" strokeWidth={3} />
-          </button>
-        </div>
-      </div>
-      <span className="text-[11px] text-primary/70">trips</span>
-      {target?.isOverride && (
-        <button
-          type="button"
-          onClick={() => void onReset()}
-          disabled={isSaving}
-          className="text-[11px] font-semibold text-primary/70 underline-offset-2 hover:text-primary hover:underline disabled:opacity-50"
-        >
-          Reset to default ({target.defaultCount})
-        </button>
-      )}
-      {isSaving && <Loader2 className="size-3.5 animate-spin text-primary" />}
-    </div>
-  );
-}
-
-function TripStatusFilterMenu({
-  value,
-  onChange,
-}: {
-  value: TripStatus | "ALL";
-  onChange: (next: TripStatus | "ALL") => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const options: { id: TripStatus | "ALL"; label: string }[] = [
-    { id: "ALL", label: "All statuses" },
-    ...TRIP_STATUSES.map((status) => ({
-      id: status,
-      label: prettyEnum(status),
-    })),
-  ];
-
-  useEffect(() => {
-    if (!open) return;
-    function onClick(e: MouseEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <div ref={wrapRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label="Filter by status"
-        className={cn(
-          "inline-flex size-10 items-center justify-center rounded-xl border transition-colors",
-          value === "ALL"
-            ? "border-slate-200 bg-white text-muted-foreground hover:bg-slate-50 hover:text-primary"
-            : "border-primary/30 bg-primary/5 text-primary hover:bg-primary/10",
-          "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25",
-        )}
-      >
-        <Filter className="size-4" />
-      </button>
-
-      {open && (
-        <div
-          role="listbox"
-          aria-label="Status filter options"
-          className="absolute top-full right-0 z-30 mt-1.5 min-w-48 rounded-xl border border-primary/20 bg-white p-1.5 shadow-lg shadow-primary/10"
-        >
-          {options.map((opt) => {
-            const isActive = value === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                role="option"
-                aria-selected={isActive}
-                onClick={() => {
-                  onChange(opt.id);
-                  setOpen(false);
-                }}
-                className={cn(
-                  "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
-                    : "text-primary/80 hover:bg-primary/10 hover:text-primary",
-                )}
-              >
-                <span>{opt.label}</span>
-                <CircleCheck
-                  className={cn(
-                    "size-4 shrink-0 transition-opacity",
-                    isActive ? "opacity-100" : "opacity-0",
-                  )}
-                />
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Compact mobile-only variant of the date filter. Renders as a single
-// button that shows the currently selected day (Today / Yesterday /
-// the picked date). Tapping it opens a dropdown panel beneath the
-// button with all three options, plus the date input when the user
-// picks "Choose Date". Used in the filter row alongside the vehicle
-// select so the two split the row 50/50 on small screens.
-function TripDateFilterMenu({
-  value,
-  onChange,
-  customDate,
-  onCustomDateChange,
-}: {
-  value: DateFilter;
-  onChange: (next: DateFilter) => void;
-  customDate: string;
-  onCustomDateChange: (next: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const dateInputRef = useRef<HTMLInputElement>(null);
-
-  // Close the dropdown on outside click / Escape. Mirrors the pattern
-  // already used by `TripTimesInfo` further down the file.
-  useEffect(() => {
-    if (!open) return;
-    function onClick(e: MouseEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const activeLabel =
-    value === "TODAY"
-      ? "Today"
-      : value === "YESTERDAY"
-        ? "Yesterday"
-        : customDate || "Choose date";
-
-  const options: { id: DateFilter; label: string }[] = [
-    { id: "TODAY", label: "Today" },
-    { id: "YESTERDAY", label: "Yesterday" },
-    { id: "CUSTOM", label: "Choose Date" },
-  ];
-
-  function handleSelect(next: DateFilter) {
-    onChange(next);
-    if (next === "CUSTOM") {
-      // Keep the panel open so the date input is reachable, and try to
-      // pop the native picker straight away on browsers that support it.
-      window.setTimeout(() => {
-        dateInputRef.current?.focus();
-        const el = dateInputRef.current as
-          | (HTMLInputElement & { showPicker?: () => void })
-          | null;
-        el?.showPicker?.();
-      }, 0);
-    } else {
-      setOpen(false);
-    }
-  }
-
-  return (
-    <div ref={wrapRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label="Filter by date"
-        className={cn(
-          "flex h-10 w-full items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 text-sm font-semibold text-primary transition-colors",
-          "hover:bg-primary/10 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25",
-        )}
-      >
-        <Calendar className="size-4 shrink-0 text-primary" />
-        <span className="min-w-0 flex-1 truncate text-left">{activeLabel}</span>
-        <ChevronDown
-          className={cn(
-            "size-4 shrink-0 text-primary transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </button>
-
-      {open && (
-        <div
-          role="listbox"
-          aria-label="Date filter options"
-          className="absolute top-full right-0 left-0 z-30 mt-1.5 rounded-xl border border-primary/20 bg-white p-1.5 shadow-lg shadow-primary/10"
-        >
-          {options.map((opt) => {
-            const isActive = value === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                role="option"
-                aria-selected={isActive}
-                onClick={() => handleSelect(opt.id)}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
-                    : "text-primary/80 hover:bg-primary/10 hover:text-primary",
-                )}
-              >
-                {opt.id === "CUSTOM" && <Calendar className="size-4" />}
-                {opt.label}
-              </button>
-            );
-          })}
-          {value === "CUSTOM" && (
-            <div className="relative mt-1.5">
-              <Calendar className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-primary" />
-              <input
-                ref={dateInputRef}
-                type="date"
-                value={customDate}
-                onChange={(e) => onCustomDateChange(e.target.value)}
-                max={toLocalDateKey(new Date())}
-                aria-label="Pick a date"
-                className={cn(
-                  fieldClass,
-                  "border-primary/30 bg-primary/5 pl-9 text-primary focus:border-primary focus:ring-primary/40",
-                )}
-              />
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Date filter tabs that sit above the trips list. Today / Yesterday
-// behave like normal segmented controls. "Choose Date" reveals a native
-// date input the user can type into or open the picker on; clicking the
-// tab while it's already active also re-focuses the input so they can
-// quickly change the day. The custom date stays even when the user
-// switches tabs, so flipping back doesn't lose their selection.
-function TripDateTabs({
-  value,
-  onChange,
-  customDate,
-  onCustomDateChange,
-}: {
-  value: DateFilter;
-  onChange: (next: DateFilter) => void;
-  customDate: string;
-  onCustomDateChange: (next: string) => void;
-}) {
-  const dateInputRef = useRef<HTMLInputElement>(null);
-  const tabs: { id: DateFilter; label: string }[] = [
-    { id: "TODAY", label: "Today" },
-    { id: "YESTERDAY", label: "Yesterday" },
-    { id: "CUSTOM", label: "Choose Date" },
-  ];
-
-  function handleTabClick(next: DateFilter) {
-    onChange(next);
-    if (next === "CUSTOM") {
-      // Defer so the input is in the DOM before we try to focus it.
-      window.setTimeout(() => {
-        dateInputRef.current?.focus();
-        // showPicker isn't on every browser yet (Safari < 16), so the
-        // focus above is the dependable part; this just upgrades the
-        // experience on Chromium / Firefox.
-        const el = dateInputRef.current as
-          | (HTMLInputElement & { showPicker?: () => void })
-          | null;
-        el?.showPicker?.();
-      }, 0);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-      <div
-        role="tablist"
-        aria-label="Filter trips by date"
-        className="inline-flex w-full items-center rounded-xl border border-primary/20 bg-primary/5 p-1 shadow-sm shadow-primary/10 sm:w-auto"
-      >
-        {tabs.map((tab) => {
-          const isActive = value === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => handleTabClick(tab.id)}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors sm:flex-initial",
-                isActive
-                  ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
-                  : "text-primary/80 hover:bg-primary/10 hover:text-primary",
-              )}
-            >
-              {tab.id === "CUSTOM" && <Calendar className="size-3.5" />}
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {value === "CUSTOM" && (
-        <div className="relative w-full sm:w-48">
-          <Calendar className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-primary" />
-          <input
-            ref={dateInputRef}
-            type="date"
-            value={customDate}
-            onChange={(e) => onCustomDateChange(e.target.value)}
-            max={toLocalDateKey(new Date())}
-            aria-label="Pick a date"
-            className={cn(
-              fieldClass,
-              "border-primary/30 bg-primary/5 pl-9 text-primary focus:border-primary focus:ring-primary/40",
-            )}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
 function TripGroupCard({
   groupKey,
   trips,
@@ -1607,7 +1062,7 @@ function TripRow({
   trip: ApiTrip;
   // Accept the slim summary so we can render whichever shape the trip
   // payload provides (nested on list responses) or the full ApiVehicle we
-  // looked up locally — TripRow only needs the asset / plate fields.
+  // looked up locally â€” TripRow only needs the asset / plate fields.
   vehicle: TripVehicleSummary | ApiVehicle | null;
   driver: TripDriverSummary | ApiDriver | null;
   density: "comfortable" | "compact";
@@ -1655,15 +1110,15 @@ function TripRow({
   async function runAction(next: TripStatus) {
     // Capture the click instant before awaiting so the local timer starts
     // from when the user actually tapped, not when the server response
-    // comes back (which could add another 100–500ms of perceived delay).
+    // comes back (which could add another 100â€“500ms of perceived delay).
     const clickedAt = Date.now();
     setPendingAction(next);
     try {
       // For check-in (COMPLETED) we compute the route distance now and
       // attach it to the status request so the backend can persist it
       // alongside the completedAt timestamp. We don't block the UI on
-      // this if it takes too long — the API key may be missing or the
-      // network slow — so we cap the lookup with a short timeout and
+      // this if it takes too long â€” the API key may be missing or the
+      // network slow â€” so we cap the lookup with a short timeout and
       // fall through with no distance if it doesn't resolve in time.
       let distanceKm: number | null = null;
       if (next === "COMPLETED") {
@@ -1713,7 +1168,7 @@ function TripRow({
   //   3. Straight-line distance from saved start/end coords (instant
   //      fallback for older trips without the persisted figure).
   //   4. Driving distance from LocationIQ Directions after geocoding the
-  //      saved addresses — last-resort upgrade for legacy trips.
+  //      saved addresses â€” last-resort upgrade for legacy trips.
   const [distanceKm, setDistanceKm] = useState<number | null>(() => {
     if (matchedCustomRoute) return customRouteDistanceKm(trip, matchedCustomRoute);
     if (typeof trip.distanceKm === "number") return trip.distanceKm;
@@ -1731,7 +1186,7 @@ function TripRow({
         return;
       }
 
-      // A matching Custom Trip Route always wins — its distance is
+      // A matching Custom Trip Route always wins â€” its distance is
       // authoritative and we don't want a stale persisted value
       // displayed when we have a known-good admin-entered figure.
       if (matchedCustomRoute) {
@@ -1862,7 +1317,7 @@ function TripRow({
   const canCancel =
     (trip.status === "PLANNED" || trip.status === "IN_PROGRESS") &&
     !isPlannedFromPast;
-  // Editing is restricted to PLANNED trips — once a trip has moved on
+  // Editing is restricted to PLANNED trips â€” once a trip has moved on
   // it becomes historical and can only change via the dedicated status
   // transition. Delete is hidden while IN_PROGRESS so a mid-flight trip
   // can't be wiped out without going through Check-in or Cancel first.
@@ -1885,7 +1340,7 @@ function TripRow({
         <Route className="size-5" />
       </span>
       <div className="min-w-0 flex-1">
-        {/* Primary line: trip route. This is the row's headline now —
+        {/* Primary line: trip route. This is the row's headline now â€”
             the asset / plate string used to live here but it was
             visually outweighing the route. */}
         <p className="flex flex-wrap items-center gap-1.5 text-base font-bold text-primary">
@@ -1905,7 +1360,7 @@ function TripRow({
             )}
           </span>
         </p>
-        {/* Secondary: driver name — the next thing the eye should grab. */}
+        {/* Secondary: driver name â€” the next thing the eye should grab. */}
         {driver && (
           <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-primary/85">
             <UserRound className="size-3.5 shrink-0" />
@@ -1922,7 +1377,7 @@ function TripRow({
             <Truck className="size-3 shrink-0" />
             <span className="font-medium">
               {vehicle
-                ? `${vehicle.assetNumber ?? vehicle.plateNumber} · ${vehicle.plateNumber}`
+                ? `${vehicle.assetNumber ?? vehicle.plateNumber} Â· ${vehicle.plateNumber}`
                 : "Unknown vehicle"}
             </span>
           </span>
@@ -2088,7 +1543,7 @@ function TripActionButton({
 
 // Compact vertical summary rendered in place of the action buttons for
 // COMPLETED trips. Two flat rows (time, distance) stacked on top of each
-// other and separated by a hairline rule — deliberately chrome-free so
+// other and separated by a hairline rule â€” deliberately chrome-free so
 // the panel reads as inline metadata, not a pair of buttons.
 function TripCompletedStats({
   durationMs,
@@ -2107,15 +1562,15 @@ function TripCompletedStats({
     distanceKm !== null
       ? formatDistance(distanceKm)
       : isDistanceLoading
-        ? "…"
-        : "—";
+        ? "â€¦"
+        : "â€”";
 
   return (
     <div className="mr-auto flex min-w-[170px] flex-col divide-y divide-slate-200/70 sm:mr-10">
       <CompletedStatCell
         icon={Timer}
         label="Time taken"
-        value={durationMs !== null ? formatDuration(durationMs) : "—"}
+        value={durationMs !== null ? formatDuration(durationMs) : "â€”"}
         tone="success"
         infoSlot={
           <TripTimesInfo
@@ -2200,8 +1655,8 @@ function TripTimesInfo({
     };
   }, [open]);
 
-  const checkedOut = startedAt ? formatDateTime(startedAt, timeSettings) : "—";
-  const checkedIn = completedAt ? formatDateTime(completedAt, timeSettings) : "—";
+  const checkedOut = startedAt ? formatDateTime(startedAt, timeSettings) : "â€”";
+  const checkedIn = completedAt ? formatDateTime(completedAt, timeSettings) : "â€”";
 
   return (
     <span ref={wrapRef} className="group/info relative inline-flex">
@@ -2274,478 +1729,6 @@ function TripTimesInfo({
   );
 }
 
-// Locates a saved Custom Trip Route whose endpoints match the trip's
-// addresses in either direction (forward A→B or reverse B→A). The
-// admin-recorded distance is the same either way, so reusing a saved
-// route's number for the reverse leg is correct and saves the user
-// from having to register the inverse pairing explicitly.
-//
-// Returns null when no route lines up — including the obvious case
-// where the caller hasn't loaded any custom routes yet. Matching is
-// case / whitespace-insensitive and ignores city / state (which are
-// persisted silently and may be empty on either side).
-function findMatchingCustomRoute(
-  trip: ApiTrip,
-  customRoutes: ApiCustomTripRoute[] | undefined,
-): ApiCustomTripRoute | null {
-  if (!customRoutes || customRoutes.length === 0) return null;
-  const norm = (s: string | null | undefined) =>
-    (s ?? "").trim().toLowerCase();
-  const startName = norm(trip.startAddress);
-  const endName = norm(trip.endAddress);
-  if (!startName || !endName) return null;
-  return (
-    customRoutes.find((r) => {
-      const a = norm(r.startName);
-      const b = norm(r.endName);
-      return (
-        (a === startName && b === endName) ||
-        (b === startName && a === endName)
-      );
-    }) ?? null
-  );
-}
-
-// Returns the admin-recorded distance for a custom-route trip, doubled
-// for round trips so the figure matches what the driver actually drove.
-function customRouteDistanceKm(
-  trip: ApiTrip,
-  route: ApiCustomTripRoute,
-): number {
-  return trip.isRoundTrip ? route.distanceKm * 2 : route.distanceKm;
-}
-
-// Flattens every saved route's endpoints into autocomplete options for
-// the trip form, deduped by normalized name. The same list is used on
-// both sides of the form (`side` only changes the option id prefix so
-// React keys stay unique) because a saved A→B route should be just as
-// pickable as a start for the B→A return leg.
-function buildCustomEndpointOptions(
-  customRoutes: ApiCustomTripRoute[],
-  side: "start" | "end",
-): CustomLocationOption[] {
-  const seen = new Set<string>();
-  const options: CustomLocationOption[] = [];
-  const norm = (s: string | null | undefined) =>
-    (s ?? "").trim().toLowerCase();
-  const push = (
-    routeId: string,
-    role: "start" | "end",
-    name: string,
-    city: string | null | undefined,
-    state: string | null | undefined,
-  ) => {
-    const key = norm(name);
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    options.push({
-      id: `${side}-${routeId}-${role}`,
-      name,
-      city: city ?? "",
-      state: state ?? "",
-      payload: {
-        address: name,
-        city: city ?? "",
-        state: state ?? "",
-        lat: null,
-        lon: null,
-        displayName: formatLocationLine(name, city ?? "", state ?? ""),
-        // The picker doesn't have a real LocationIQ row to attach,
-        // so we hand back a stub the consumer ignores. Cast keeps
-        // PickedLocation's `raw` typing happy without leaking the
-        // shape outward.
-        raw: { display_name: name } as unknown as PickedLocation["raw"],
-      },
-    });
-  };
-  for (const r of customRoutes) {
-    push(r.id, "start", r.startName, r.startCity, r.startState);
-    push(r.id, "end", r.endName, r.endCity, r.endState);
-  }
-  return options;
-}
-
-// Resolves a "distance" to render for a trip. Prefers, in order:
-//   1. The matching saved Custom Trip Route's distance. Custom routes
-//      carry an admin-entered distance that we always trust over any
-//      LocationIQ-derived figure, because they typically have no
-//      lat/lon and the geocoder is easily fooled by short generic
-//      names like "North Depot".
-//   2. The persisted `trip.distanceKm` (set when the user checked in).
-//   3. The haversine straight-line between saved start/end coords.
-function getTripDistanceKm(
-  trip: ApiTrip,
-  customRoutes?: ApiCustomTripRoute[],
-): number | null {
-  const matched = findMatchingCustomRoute(trip, customRoutes);
-  if (matched) return customRouteDistanceKm(trip, matched);
-  if (typeof trip.distanceKm === "number") return trip.distanceKm;
-  const { startLat, startLon, endLat, endLon } = trip;
-  if (
-    typeof startLat !== "number" ||
-    typeof startLon !== "number" ||
-    typeof endLat !== "number" ||
-    typeof endLon !== "number"
-  ) {
-    return null;
-  }
-  return haversineKm(startLat, startLon, endLat, endLon);
-}
-
-// Computes the distance to persist when the user taps Trip Check-in.
-// Tries (in order):
-//   1. The admin-recorded distance from a matching Custom Trip Route.
-//      Trusted over LocationIQ because custom routes carry no lat/lon
-//      and short generic names ("North Depot") confuse the geocoder.
-//   2. Real driving distance from LocationIQ Directions, using saved
-//      coords when available, or geocoding the addresses otherwise.
-//   3. Straight-line distance from any coords we can find (saved or
-//      geocoded).
-//   4. null — give up rather than blocking the check-in indefinitely.
-//
-// We cap the whole resolution at ~5 seconds so a slow API call can
-// never strand a driver who's trying to close out a trip in the field.
-async function resolveCheckinDistanceKm(
-  trip: ApiTrip,
-  customRoutes?: ApiCustomTripRoute[],
-): Promise<number | null> {
-  const matched = findMatchingCustomRoute(trip, customRoutes);
-  if (matched) return customRouteDistanceKm(trip, matched);
-
-  const abort = new AbortController();
-  // Safety net: bail out if LocationIQ is being slow / unreachable so
-  // the check-in still completes.
-  const timeout = window.setTimeout(() => abort.abort(), 5000);
-
-  try {
-    const hasStartCoords =
-      typeof trip.startLat === "number" && typeof trip.startLon === "number";
-    const hasEndCoords =
-      typeof trip.endLat === "number" && typeof trip.endLon === "number";
-
-    const start =
-      hasStartCoords && trip.startLat !== null && trip.startLon !== null
-        ? { lat: trip.startLat as number, lon: trip.startLon as number }
-        : await geocodeAddress(
-            [trip.startAddress, trip.startCity, trip.startState]
-              .filter(Boolean)
-              .join(", "),
-            abort.signal,
-          );
-
-    const end =
-      hasEndCoords && trip.endLat !== null && trip.endLon !== null
-        ? { lat: trip.endLat as number, lon: trip.endLon as number }
-        : await geocodeAddress(
-            [trip.endAddress, trip.endCity, trip.endState]
-              .filter(Boolean)
-              .join(", "),
-            abort.signal,
-          );
-
-    if (!start || !end) return null;
-
-    const roundTrip = trip.isRoundTrip ?? false;
-    const driving = await fetchDrivingDistance(
-      start.lat,
-      start.lon,
-      end.lat,
-      end.lon,
-      abort.signal,
-      roundTrip,
-    );
-    if (driving) return driving.distanceKm;
-
-    // Driving failed — settle for the straight-line so the record at
-    // least carries something useful. Round trips double it since the
-    // driver covers each leg once.
-    const oneWay = haversineKm(start.lat, start.lon, end.lat, end.lon);
-    return roundTrip ? oneWay * 2 : oneWay;
-  } catch {
-    return null;
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
-
-// Standard great-circle distance in kilometres. Accurate enough for the
-// rough trip overview the UI shows; not a substitute for real route data.
-function haversineKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const R = 6371; // Earth radius in km
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function formatDistance(km: number): string {
-  if (km < 1) return `${Math.round(km * 1000)} m`;
-  if (km < 10) return `${km.toFixed(1)} km`;
-  return `${Math.round(km)} km`;
-}
-
-// Formats the LocationIQ-reported route duration in seconds as a
-// human-friendly approximation. Anything under an hour collapses to
-// minutes; longer routes display as "Hh Mm". The leading "~" is added
-// at the call site so the format string stays clean.
-function formatRouteDuration(seconds: number): string {
-  const totalMinutes = Math.max(1, Math.round(seconds / 60));
-  if (totalMinutes < 60) return `${totalMinutes} min`;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-}
-
-// Renders the route preview that sits between the Starting point and
-// Ending point cards in the trip form. Shows the actual driving distance
-// returned by the LocationIQ Directions API, with a graceful fallback to
-// the haversine straight-line distance when the API call is in flight,
-// fails, or no API key is configured. Visualises completion as a
-// progress bar with start / end markers.
-//
-// Progress logic:
-//   - 0%  : neither point selected yet
-//   - 50% : only one of the two is set, so the route is half-known
-//   - 100%: both points set, the bar fills end-to-end
-//
-// Distance source (in priority order):
-//   1. Driving distance from LocationIQ /directions/driving (preferred,
-//      reflects real roads).
-//   2. Haversine straight-line distance from the same coords (instant
-//      fallback so the UI is never empty while we wait for the API).
-//   3. null — neither coord pair is set yet, render the em dash.
-function TripDistancePreview({
-  startLat,
-  startLon,
-  endLat,
-  endLon,
-  hasStart,
-  hasEnd,
-  isRoundTrip,
-}: {
-  startLat: number | null;
-  startLon: number | null;
-  endLat: number | null;
-  endLon: number | null;
-  hasStart: boolean;
-  hasEnd: boolean;
-  // When true, the preview reflects the full A → B → A route. Driving
-  // mode forwards the flag to the routing API as a third waypoint;
-  // straight-line mode doubles the haversine distance.
-  isRoundTrip: boolean;
-}) {
-  const haveBothCoords =
-    startLat !== null &&
-    startLon !== null &&
-    endLat !== null &&
-    endLon !== null;
-
-  const oneWayStraightKm = haveBothCoords
-    ? haversineKm(
-        startLat as number,
-        startLon as number,
-        endLat as number,
-        endLon as number,
-      )
-    : null;
-  // Round trips double the straight-line distance since the driver
-  // covers each leg once. Driving mode is handled below by passing the
-  // flag to the routing API, which returns the full A→B→A distance.
-  const straightLineKm =
-    oneWayStraightKm !== null
-      ? isRoundTrip
-        ? oneWayStraightKm * 2
-        : oneWayStraightKm
-      : null;
-
-  const [drivingKm, setDrivingKm] = useState<number | null>(null);
-  const [drivingDurationSec, setDrivingDurationSec] = useState<number | null>(
-    null,
-  );
-  const [isFetchingRoute, setIsFetchingRoute] = useState(false);
-
-  // Debounced driving-distance lookup. We wait ~400ms after the last
-  // coordinate change before hitting LocationIQ so rapid typing /
-  // autocomplete picks don't fire repeated requests against the free-
-  // tier rate limit. The AbortController makes sure an older request
-  // can't overwrite a newer result if the user keeps tweaking the form.
-  useEffect(() => {
-    if (!haveBothCoords) {
-      setDrivingKm(null);
-      setDrivingDurationSec(null);
-      return;
-    }
-    setIsFetchingRoute(true);
-    const controller = new AbortController();
-    const timeout = window.setTimeout(async () => {
-      const result = await fetchDrivingDistance(
-        startLat as number,
-        startLon as number,
-        endLat as number,
-        endLon as number,
-        controller.signal,
-        isRoundTrip,
-      );
-      if (controller.signal.aborted) return;
-      if (result) {
-        setDrivingKm(result.distanceKm);
-        setDrivingDurationSec(result.durationSec);
-      } else {
-        // Null = API failed / no key. Surface that by clearing the
-        // driving figure so the haversine label takes over.
-        setDrivingKm(null);
-        setDrivingDurationSec(null);
-      }
-      setIsFetchingRoute(false);
-    }, 400);
-    return () => {
-      window.clearTimeout(timeout);
-      controller.abort();
-      setIsFetchingRoute(false);
-    };
-  }, [haveBothCoords, startLat, startLon, endLat, endLon, isRoundTrip]);
-
-  const km = drivingKm ?? straightLineKm;
-  const isDriving = drivingKm !== null;
-  const progress = hasStart && hasEnd ? 100 : hasStart || hasEnd ? 50 : 0;
-  const bothLocked = hasStart && hasEnd;
-
-  return (
-    <div
-      className="flex flex-col items-center justify-center gap-3 py-2 lg:py-0"
-      aria-label="Trip distance preview"
-    >
-      <div className="flex flex-col items-center gap-0.5 leading-tight">
-        <span className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
-          {isRoundTrip ? "Round-trip distance" : "Distance"}
-        </span>
-        <span
-          className={cn(
-            "font-mono text-xl font-bold tabular-nums",
-            km !== null ? "text-primary" : "text-muted-foreground",
-          )}
-        >
-          {km !== null ? formatDistance(km) : "—"}
-        </span>
-        {km !== null && (
-          <span
-            className={cn(
-              "text-[9px] font-medium tracking-wide uppercase",
-              isDriving ? "text-success" : "text-muted-foreground",
-            )}
-            title={
-              isDriving
-                ? "Calculated by LocationIQ along the road network."
-                : "Great-circle distance between the two coordinates. Real driving distance will be longer."
-            }
-          >
-            {isFetchingRoute
-              ? "Calculating route…"
-              : isDriving
-                ? "Driving distance"
-                : "Straight-line"}
-          </span>
-        )}
-        {isDriving && drivingDurationSec !== null && drivingDurationSec > 0 && (
-          <span className="text-[10px] font-medium text-muted-foreground">
-            ~{formatRouteDuration(drivingDurationSec)} by road
-          </span>
-        )}
-      </div>
-
-      <div className="flex w-full max-w-[220px] items-center gap-2">
-        {/* Start marker — solid green once the start is locked in. */}
-        <span
-          className={cn(
-            "flex size-3 shrink-0 rounded-full ring-4 transition-colors",
-            hasStart
-              ? "bg-success ring-success/15"
-              : "bg-slate-300 ring-slate-100",
-          )}
-          aria-hidden
-        />
-
-        {/* Curvy SVG "road" that doubles as a progress indicator.
-            - Background path: the unfilled road surface.
-            - Foreground path: same shape, drawn from the start to a
-              point along the curve controlled by `progress` via
-              stroke-dashoffset (animated). Once both endpoints are
-              picked, the foreground fully covers the background.
-            - Dashed center line: subtle lane markers along the road
-              to sell the metaphor at a glance. */}
-        <svg
-          viewBox="0 0 100 24"
-          preserveAspectRatio="none"
-          className="h-6 flex-1"
-          aria-hidden
-        >
-          <path
-            d="M 2 12 Q 20 0, 40 14 T 80 10 T 98 12"
-            fill="none"
-            stroke="rgb(226 232 240)"
-            strokeWidth="6"
-            strokeLinecap="round"
-          />
-          <path
-            d="M 2 12 Q 20 0, 40 14 T 80 10 T 98 12"
-            fill="none"
-            strokeWidth="6"
-            strokeLinecap="round"
-            pathLength={100}
-            strokeDasharray={100}
-            strokeDashoffset={100 - progress}
-            className={bothLocked ? "stroke-primary" : "stroke-primary/60"}
-            style={{
-              transition: "stroke-dashoffset 500ms ease-out",
-            }}
-          />
-          {/* Dashed lane markers — only rendered when at least one
-              endpoint is set, otherwise they sit on an unrelated gray
-              track and read as noise. */}
-          {progress > 0 && (
-            <path
-              d="M 2 12 Q 20 0, 40 14 T 80 10 T 98 12"
-              fill="none"
-              stroke="rgba(255,255,255,0.75)"
-              strokeWidth="1"
-              strokeDasharray="3 4"
-              pathLength={100}
-              strokeDashoffset={100 - progress}
-              style={{
-                transition: "stroke-dashoffset 500ms ease-out",
-              }}
-            />
-          )}
-        </svg>
-
-        {/* End marker — uses the existing arrow chip so it doubles as
-            the visual link between the two cards (replacing the lone
-            arrow icon that used to live in this slot). */}
-        <span
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-full shadow-md transition-colors",
-            hasEnd
-              ? "bg-primary text-primary-foreground shadow-primary/25"
-              : "bg-slate-200 text-slate-400 shadow-slate-200/40",
-          )}
-          aria-hidden
-        >
-          <ArrowRight className="size-4" />
-        </span>
-      </div>
-    </div>
-  );
-}
-
 // React hook that re-renders once per second while a start timestamp is
 // present, so the elapsed-time badge updates live without re-fetching the
 // trip from the server. Returns null when no start time is set.
@@ -2758,18 +1741,6 @@ function useLiveElapsed(startedAtMs: number | null): number | null {
   }, [startedAtMs]);
   if (startedAtMs === null) return null;
   return Math.max(0, now - startedAtMs);
-}
-
-// Formats a millisecond delta as HH:MM:SS, dropping the hours segment when
-// the duration is under an hour so short trips read more naturally.
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  if (hours > 0) return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
-  return `${pad(minutes)}:${pad(seconds)}`;
 }
 
 function TripStatusPill({ status }: { status: TripStatus }) {
@@ -2799,548 +1770,6 @@ function EmptyState({ hasVehicles }: { hasVehicles: boolean }) {
             : "Register vehicles first, then plan trips between locations."}
         </p>
       </div>
-    </div>
-  );
-}
-
-function TripForm({
-  initial,
-  vehicles,
-  drivers,
-  sites,
-  customRoutes,
-  busyDriverIds,
-  onCancel,
-  onSubmit,
-}: {
-  initial: ApiTrip | null;
-  vehicles: ApiVehicle[];
-  drivers: ApiDriver[];
-  sites: ApiSite[];
-  // Saved admin-defined start/end presets surfaced on this form as
-  // blue "Custom" picker chips below the autocomplete inputs.
-  customRoutes: ApiCustomTripRoute[];
-  // Drivers that already have an IN_PROGRESS trip. Used to block
-  // creating a second concurrent trip for the same driver before the
-  // backend has to reject it. Editing an existing PLANNED trip is
-  // unaffected unless the user tries to switch to a busy driver.
-  busyDriverIds: Set<string>;
-  onCancel: () => void;
-  onSubmit: (payload: CreateTripRequest) => Promise<void>;
-}) {
-  const isNew = initial === null;
-  const [form, setForm] = useState<TripFormState>(() =>
-    initial ? tripToForm(initial) : emptyForm(),
-  );
-  const [startQuery, setStartQuery] = useState(() =>
-    initial
-      ? formatLocationLine(
-          initial.startAddress,
-          initial.startCity,
-          initial.startState,
-        )
-      : "",
-  );
-  const [endQuery, setEndQuery] = useState(() =>
-    initial
-      ? formatLocationLine(
-          initial.endAddress,
-          initial.endCity,
-          initial.endState,
-        )
-      : "",
-  );
-  const [suggestedStartSite, setSuggestedStartSite] = useState<string | null>(
-    null,
-  );
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const vehicleById = useMemo(() => {
-    const map = new Map<string, ApiVehicle>();
-    for (const v of vehicles) map.set(v.id, v);
-    return map;
-  }, [vehicles]);
-
-  const driverById = useMemo(() => {
-    const map = new Map<string, ApiDriver>();
-    for (const d of drivers) map.set(d.id, d);
-    return map;
-  }, [drivers]);
-
-  // Flag the picked driver if they're currently on an IN_PROGRESS trip
-  // elsewhere. We only flag on create or when the driver is actually
-  // being swapped out, mirroring the backend `assertDriverNotBusy`
-  // check that skips when the driver is unchanged.
-  const initialDriverId = initial?.driverId ?? null;
-  const selectedDriverIsBusy =
-    !!form.driverId &&
-    form.driverId !== initialDriverId &&
-    busyDriverIds.has(form.driverId);
-  const busyDriverName = selectedDriverIsBusy
-    ? (() => {
-        const d = driverById.get(form.driverId);
-        return d ? `${d.firstName} ${d.lastName}` : "This driver";
-      })()
-    : null;
-
-  function update<K extends keyof TripFormState>(
-    key: K,
-    value: TripFormState[K],
-  ) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function applyStartFromSite(site: ApiSite) {
-    setSuggestedStartSite(site.name);
-    setForm((prev) => ({ ...prev, ...siteToStartFields(site) }));
-    setStartQuery(formatSiteLocation(site));
-    // Sites are stored without lat/lon today, so the distance preview
-    // can't compute anything from the auto-fill alone. Kick off a quick
-    // LocationIQ geocode and patch the coords in once they arrive. We
-    // capture the site id so a rapid second selection can't race the
-    // first one's response and clobber the newer coords.
-    const targetSiteId = site.id;
-    void geocodeAddress(formatSiteLocation(site)).then((coords) => {
-      if (!coords) return;
-      setForm((prev) => {
-        // Bail if the user already picked a different site / location in
-        // the meantime — comparing the address line is a cheap proxy.
-        if (prev.startAddress !== site.address) return prev;
-        return { ...prev, startLat: coords.lat, startLon: coords.lon };
-      });
-      // Tag the form with the site id so the proxy comparison above is
-      // robust against two sites that happen to share an address string.
-      // We can revisit this once sites carry lat/lon natively.
-      void targetSiteId;
-    });
-  }
-
-  function handleDriverSelect(driver: ApiDriver) {
-    const vehicle = driver.assignedVehicleId
-      ? vehicleById.get(driver.assignedVehicleId)
-      : undefined;
-    setForm((prev) => ({
-      ...prev,
-      driverId: driver.id,
-      vehicleId: vehicle?.id ?? "",
-    }));
-    const site = resolvePrimarySite(driver, vehicle, sites);
-    if (site) applyStartFromSite(site);
-    else setSuggestedStartSite(null);
-  }
-
-  function handleDriverClear() {
-    // Clear the auto-linked vehicle alongside the driver so the form
-    // doesn't drift into an inconsistent state with a stranded vehicle
-    // assignment after the Vehicle FormCard was removed.
-    setForm((prev) => ({ ...prev, driverId: "", vehicleId: "" }));
-    setSuggestedStartSite(null);
-  }
-
-  function applyStart(picked: PickedLocation) {
-    setSuggestedStartSite(null);
-    setForm((prev) => ({
-      ...prev,
-      startAddress: picked.address || prev.startAddress,
-      startCity: picked.city || prev.startCity,
-      startState: picked.state || prev.startState,
-      startLat: picked.lat,
-      startLon: picked.lon,
-    }));
-  }
-
-  function applyEnd(picked: PickedLocation) {
-    setForm((prev) => ({
-      ...prev,
-      endAddress: picked.address || prev.endAddress,
-      endCity: picked.city || prev.endCity,
-      endState: picked.state || prev.endState,
-      endLat: picked.lat,
-      endLon: picked.lon,
-    }));
-  }
-
-  // Pre-shape the saved custom routes into LocationAutocomplete
-  // options so each side of the form can render them inline within
-  // its dropdown.
-  //
-  // Both endpoints of every saved route contribute to BOTH the start
-  // and end pickers: the admin only registers one direction (A → B),
-  // but the same pairing can be driven in reverse (B → A) for the
-  // same distance, so both A and B should be selectable as either
-  // start or end. Results are deduped by normalized name so two
-  // routes sharing an endpoint don't produce two identical chips.
-  //
-  // The `payload` is what `applyStart` / `applyEnd` already know how
-  // to consume, so picking a custom suggestion flows through the
-  // same code path as a LocationIQ suggestion.
-  const customStartOptions = useMemo<CustomLocationOption[]>(
-    () =>
-      buildCustomEndpointOptions(customRoutes, "start"),
-    [customRoutes],
-  );
-
-  const customEndOptions = useMemo<CustomLocationOption[]>(
-    () =>
-      buildCustomEndpointOptions(customRoutes, "end"),
-    [customRoutes],
-  );
-
-  // When both halves of the form match the same saved Custom route —
-  // in either direction — we surface the admin-recorded distance
-  // instead of trying to recompute it (Custom routes have no lat/lon).
-  // The reverse-direction match means a single saved A→B preset
-  // automatically works for the B→A return trip without the admin
-  // needing to register the inverse pairing.
-  const matchedCustomRoute = useMemo(() => {
-    const norm = (s: string | null | undefined) =>
-      (s ?? "").trim().toLowerCase();
-    const sName = norm(form.startAddress);
-    const eName = norm(form.endAddress);
-    if (!sName || !eName) return null;
-    return (
-      customRoutes.find((r) => {
-        const a = norm(r.startName);
-        const b = norm(r.endName);
-        return (
-          (a === sName && b === eName) || (b === sName && a === eName)
-        );
-      }) ?? null
-    );
-  }, [customRoutes, form.startAddress, form.endAddress]);
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setFormError(null);
-
-    const startAddress = form.startAddress.trim();
-    const endAddress = form.endAddress.trim();
-
-    if (!form.vehicleId) {
-      setFormError("Select a vehicle for this trip.");
-      return;
-    }
-    if (!startAddress || !endAddress) {
-      setFormError("Starting and ending locations are required.");
-      return;
-    }
-    if (selectedDriverIsBusy) {
-      setFormError(
-        `${busyDriverName ?? "This driver"} is currently on an in-progress trip. Check that trip in or cancel it before adding another one.`,
-      );
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const payload: CreateTripRequest = {
-        vehicleId: form.vehicleId,
-        driverId: form.driverId || undefined,
-        status: form.status,
-        startAddress,
-        startCity: form.startCity.trim() || undefined,
-        startState: form.startState.trim() || undefined,
-        startLat: form.startLat ?? undefined,
-        startLon: form.startLon ?? undefined,
-        endAddress,
-        endCity: form.endCity.trim() || undefined,
-        endState: form.endState.trim() || undefined,
-        endLat: form.endLat ?? undefined,
-        endLon: form.endLon ?? undefined,
-        isRoundTrip: form.isRoundTrip,
-      };
-      await onSubmit(payload);
-    } catch (err) {
-      setFormError(
-        err instanceof ApiError ? err.message : "Could not save trip.",
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  return (
-    <form className="space-y-5" onSubmit={handleSubmit} noValidate>
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="size-8 rounded-lg hover:bg-primary/10 hover:text-primary"
-          aria-label="Back to trips list"
-          onClick={onCancel}
-          disabled={isSubmitting}
-        >
-          <ArrowLeft className="size-4" />
-        </Button>
-        <div>
-          <p className="font-label-caps text-[10px] tracking-wide text-muted-foreground uppercase">
-            {isNew ? "New trip" : "Edit trip"}
-          </p>
-          <h3 className="text-base font-semibold text-primary">
-            {isNew ? "Plan a trip" : "Update trip"}
-          </h3>
-        </div>
-      </div>
-
-      {formError && <PanelError message={formError} />}
-
-      {/* Driver picks. The vehicle is no longer a separate card — the
-          driver's assigned truck is rendered as an inline tag right
-          next to their name once a driver is selected. Picking a
-          driver still auto-fills the vehicle id and the start site
-          via `handleDriverSelect`. */}
-      <FormCard
-        title="Driver"
-        description="Search drivers — loads their assigned truck and its site as the start."
-        icon={UserRound}
-      >
-        <TripDriverPicker
-          drivers={drivers}
-          vehicles={vehicles}
-          sites={sites}
-          selectedId={form.driverId}
-          onSelect={handleDriverSelect}
-          onClear={handleDriverClear}
-          disabled={isSubmitting}
-        />
-        {selectedDriverIsBusy && (
-          <p className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive">
-            {busyDriverName} is currently on an in-progress trip. Check that
-            trip in or cancel it before adding another one for this driver.
-          </p>
-        )}
-        {form.driverId && !form.vehicleId && (
-          <p className="mt-2 text-xs text-amber-700">
-            This driver has no vehicle assigned yet. Assign one from the
-            Drivers page before planning a trip.
-          </p>
-        )}
-        {form.vehicleId && form.driverId && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-              Driving
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
-              <Truck className="size-3.5" />
-              {vehicleById.get(form.vehicleId)?.assetNumber ?? "—"}
-              {vehicleById.get(form.vehicleId)?.plateNumber && (
-                <span className="font-mono text-[11px] font-medium text-primary/70">
-                  · {vehicleById.get(form.vehicleId)?.plateNumber}
-                </span>
-              )}
-            </span>
-          </div>
-        )}
-      </FormCard>
-
-      <div className="grid items-stretch gap-4 lg:grid-cols-[1fr_220px_1fr]">
-        <FormCard
-          title="Starting point"
-          description="Auto-filled from the driver or vehicle site."
-          icon={MapPin}
-        >
-          <div className="space-y-4">
-            {suggestedStartSite && (
-              <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
-                Suggested start from site{" "}
-                <span className="font-semibold">{suggestedStartSite}</span>.
-                Use the search below to pick a different location.
-              </div>
-            )}
-            <SettingsField label="Search start location">
-              <LocationAutocomplete
-                value={startQuery}
-                onChange={(q) => {
-                  setSuggestedStartSite(null);
-                  setStartQuery(q);
-                }}
-                onSelect={applyStart}
-                disabled={isSubmitting}
-                placeholder="Where does the trip begin?"
-                customOptions={customStartOptions}
-              />
-            </SettingsField>
-            <FieldGrid cols={1}>
-              <SettingsField label="Address">
-                <input
-                  type="text"
-                  required
-                  value={form.startAddress}
-                  onChange={(e) => {
-                    setSuggestedStartSite(null);
-                    update("startAddress", e.target.value);
-                  }}
-                  disabled={isSubmitting}
-                  className={fieldClass}
-                />
-              </SettingsField>
-            </FieldGrid>
-          </div>
-        </FormCard>
-
-        <div className="flex flex-col items-center gap-3 lg:gap-2">
-          <TripDistancePreview
-            startLat={form.startLat}
-            startLon={form.startLon}
-            endLat={form.endLat}
-            endLon={form.endLon}
-            hasStart={
-              Boolean(form.startAddress) ||
-              (form.startLat !== null && form.startLon !== null)
-            }
-            hasEnd={
-              Boolean(form.endAddress) ||
-              (form.endLat !== null && form.endLon !== null)
-            }
-            isRoundTrip={form.isRoundTrip}
-          />
-          {/* Saved-distance hint shown when both start and end correspond
-              to the same Custom Trip Route. Lets the operator confirm the
-              admin-recorded distance will be used (Custom routes have no
-              lat/lon today, so the live preview can't compute it). */}
-          {matchedCustomRoute && (
-            <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
-              <CustomTag />
-              <span>
-                Saved distance:{" "}
-                {formatDistance(
-                  form.isRoundTrip
-                    ? matchedCustomRoute.distanceKm * 2
-                    : matchedCustomRoute.distanceKm,
-                )}
-              </span>
-            </div>
-          )}
-          {/* Round-trip toggle. When checked the distance preview and
-              the persisted distance computed at check-in cover both
-              legs (A → B → A). Unchecked falls back to the one-way
-              distance the routing API returns by default. */}
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10">
-            <input
-              type="checkbox"
-              checked={form.isRoundTrip}
-              onChange={(e) => update("isRoundTrip", e.target.checked)}
-              disabled={isSubmitting}
-              className="size-3.5 rounded border-primary/40 text-primary focus:ring-primary/30"
-            />
-            Returns here
-            <span className="text-[10px] font-normal text-primary/60">
-              (round trip)
-            </span>
-          </label>
-        </div>
-
-        <FormCard
-          title="Ending point"
-          description="Where the trip wraps up."
-          icon={MapPin}
-        >
-          <div className="space-y-4">
-            <SettingsField label="Search end location">
-              <LocationAutocomplete
-                value={endQuery}
-                onChange={setEndQuery}
-                onSelect={applyEnd}
-                disabled={isSubmitting}
-                placeholder="Where does the trip end?"
-                customOptions={customEndOptions}
-              />
-            </SettingsField>
-            <FieldGrid cols={1}>
-              <SettingsField label="Address">
-                <input
-                  type="text"
-                  required
-                  value={form.endAddress}
-                  onChange={(e) => update("endAddress", e.target.value)}
-                  disabled={isSubmitting}
-                  className={fieldClass}
-                />
-              </SettingsField>
-            </FieldGrid>
-          </div>
-        </FormCard>
-      </div>
-
-      <FormCard title="Status" icon={Route}>
-        <SettingsField label="Trip status">
-          <select
-            className={fieldClass}
-            value={form.status}
-            onChange={(e) => update("status", e.target.value as TripStatus)}
-            disabled={isSubmitting}
-          >
-            {TRIP_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {prettyEnum(s)}
-              </option>
-            ))}
-          </select>
-        </SettingsField>
-      </FormCard>
-
-      <div className="sticky bottom-0 -mx-2 mt-6 flex flex-col-reverse gap-2 border-t border-slate-200 bg-white/95 px-2 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          disabled={isSubmitting}
-          className="h-10 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm"
-        >
-          <X className="size-4" />
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          disabled={isSubmitting || selectedDriverIsBusy}
-          className="h-10 gap-2 rounded-xl bg-primary px-5 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="size-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="size-4" />
-              {isNew ? "Create Trip" : "Save Changes"}
-            </>
-          )}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-function FormCard({
-  title,
-  description,
-  icon: Icon,
-  children,
-}: {
-  title: string;
-  description?: string;
-  icon?: ComponentType<{ className?: string }>;
-  children: ReactNode;
-}) {
-  return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-4">
-      <div className="mb-3 flex items-center gap-2.5">
-        {Icon ? (
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Icon className="size-4" />
-          </span>
-        ) : null}
-        <div>
-          <p className="text-sm font-semibold text-primary">{title}</p>
-          {description ? (
-            <p className="text-[11px] text-muted-foreground">{description}</p>
-          ) : null}
-        </div>
-      </div>
-      {children}
     </div>
   );
 }

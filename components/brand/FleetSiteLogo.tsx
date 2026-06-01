@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { cn } from "@/lib/utils";
 
 const sizeClasses = {
@@ -22,13 +24,14 @@ type FleetSiteLogoProps = {
 };
 
 export function FleetSiteLogo({ className, size = "sm" }: FleetSiteLogoProps) {
+  const px = sizePixels[size];
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
+    <Image
       src="/Fleetsite.svg"
       alt="FleetSite"
-      width={sizePixels[size]}
-      height={sizePixels[size]}
+      width={px}
+      height={px}
+      priority={size === "sidebar"}
       className={cn("shrink-0 object-contain", sizeClasses[size], className)}
     />
   );
