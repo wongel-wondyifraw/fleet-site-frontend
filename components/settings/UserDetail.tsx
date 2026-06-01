@@ -41,6 +41,7 @@ import {
   fieldClass,
 } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ApiError } from "@/lib/api/client";
 import { listSites, type ListedSite } from "@/lib/api/sites";
@@ -564,18 +565,16 @@ function UserEditForm({
           </div>
         </SettingsField>
         <SettingsField label="Role">
-          <select
+          <Select
             value={role}
-            onChange={(e) => setRole(e.target.value as UserRole)}
+            onValueChange={(v) => setRole(v as UserRole)}
             disabled={isSubmitting}
-            className={fieldClass}
-          >
-            {USER_ROLES.map((r) => (
-              <option key={r} value={r}>
-                {formatRole(r)}
-              </option>
-            ))}
-          </select>
+            searchable={false}
+            options={USER_ROLES.map((r) => ({
+              value: r,
+              label: formatRole(r),
+            }))}
+          />
         </SettingsField>
       </FieldGrid>
 

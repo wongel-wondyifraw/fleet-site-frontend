@@ -25,7 +25,9 @@ import { DriverAttendanceRow } from "@/components/attendance/DriverAttendanceRow
 import { RosterSummaryPill } from "@/components/attendance/RosterSummaryPill";
 import { SettingsSection, fieldClass } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Pagination } from "@/components/ui/Pagination";
 
 const AttendancePunchCorrectionDialog = dynamic(
   () =>
@@ -74,6 +76,7 @@ import {
   formatScheduleTime,
 } from "@/lib/time/format";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
+import { useClientPagedList } from "@/lib/api/useClientPagedList";
 import { cn } from "@/lib/utils";
 
 function AttendancePanel({
@@ -499,8 +502,8 @@ function AttendancePanel({
             <span className="font-semibold text-primary">{rosterDays.length}</span> roster rows
             shown for <span className="font-semibold text-primary">{activeSiteLabel}</span>
           </p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <div className="relative w-full sm:flex-1 sm:min-w-[18rem] sm:max-w-4xl">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+            <div className="relative min-w-0 w-full sm:max-w-xs sm:flex-1 lg:max-w-sm">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="search"
@@ -521,21 +524,27 @@ function AttendancePanel({
                 </button>
               )}
             </div>
+            {scheduleLabel ? (
+              <p
+                className="hidden h-10 min-w-0 items-center truncate rounded-xl border border-primary/15 bg-primary/5 px-3 text-xs font-medium text-primary/80 sm:flex sm:flex-1 lg:max-w-none"
+                title={`Schedule: ${scheduleLabel}`}
+              >
+                <span className="shrink-0 font-semibold">Schedule:</span>{" "}
+                <span className="truncate">{scheduleLabel}</span>
+              </p>
+            ) : null}
             <div className="flex gap-2 sm:hidden">
-              <div className="relative flex-1">
-                <Filter className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                <select
+              <div className="flex-1">
+                <Select
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                  className={`${fieldClass} pl-9`}
+                  onValueChange={(v) => setStatusFilter(v as StatusFilter)}
+                  leftIcon={Filter}
                   aria-label="Filter by attendance status"
-                >
-                  {STATUS_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  options={STATUS_OPTIONS.map((opt) => ({
+                    value: opt.value,
+                    label: opt.label,
+                  }))}
+                />
               </div>
               <div className="relative flex-1">
                 <AttendanceDateFilterMenu
@@ -611,8 +620,11 @@ function AttendancePanel({
       </div>
 
       {scheduleLabel ? (
-        <p className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-xs font-medium text-primary/80">
-          Schedule: {scheduleLabel}
+        <p
+          className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-xs font-medium text-primary/80 sm:hidden"
+          title={`Schedule: ${scheduleLabel}`}
+        >
+          <span className="font-semibold">Schedule:</span> {scheduleLabel}
         </p>
       ) : null}
 
@@ -623,20 +635,17 @@ function AttendancePanel({
           customDate={customDate}
           onCustomDateChange={setCustomDate}
         />
-        <div className="relative w-52 shrink-0">
-          <Filter className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <select
+        <div className="w-52 shrink-0">
+          <Select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className={`${fieldClass} pl-9`}
+            onValueChange={(v) => setStatusFilter(v as StatusFilter)}
+            leftIcon={Filter}
             aria-label="Filter by attendance status"
-          >
-            {STATUS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            options={STATUS_OPTIONS.map((opt) => ({
+              value: opt.value,
+              label: opt.label,
+            }))}
+          />
         </div>
       </div>
 
@@ -652,53 +661,87 @@ function AttendancePanel({
             Try another site, date, search term, or status filter.
           </p>
         </div>
-      ) : (
-        <div className="grid gap-2 fs-content-fade">
-          {rosterDays.map((day, index) => (
-            <div
-              key={day.id}
-              className="fs-row-in"
-              style={staggerStyle(index)}
-            >
-            <DriverAttendanceRow
-              day={day}
-              dateKey={targetDateKey}
-              targetHours={targetHours}
-              density={density}
-              actionMenu={actionMenu}
-              isOnActiveTrip={
-                day.driverId ? activeTripDriverIds.has(day.driverId) : false
-              }
-              pendingOdometer={pendingOdometer}
-              onChangeOdometer={(value) =>
-                setPendingOdometer({ value, error: null })
-              }
-              onToggleMenu={(pair) => {
-                const isSame =
-                  actionMenu?.dayId === day.id && actionMenu.pair === pair;
-                if (isSame) {
-                  closeActionMenu();
-                  return;
-                }
-                setActionMenu({ dayId: day.id, pair });
-                setPendingOdometer({ value: "", error: null });
-              }}
-              onPunch={handlePunch}
-              onPunchWithOdometer={handleSubmitPunchWithOdometer}
-              onEditPunch={(punch) =>
-                setCorrectionTarget({
-                  punch,
-                  at: toLocalDateTimeInput(punch.at),
-                  note: punch.note ?? "",
-                })
-              }
-              onDeletePunch={(punch) => setDeleteTarget(punch)}
-              isMutating={isMutating}
-              timeSettings={timeSettings}
-            />
-            </div>
-          ))}
+      ) : activeTab === ALL_SITES_TAB ? (
+        <div className="space-y-6 fs-content-fade">
+          {sortedSites.map((site) => {
+            const siteRows = rosterDays.filter((d) => d.siteId === site.id);
+            if (siteRows.length === 0) return null;
+            return (
+              <section key={site.id} className="space-y-2">
+                <h3 className="text-sm font-semibold text-primary">{site.name}</h3>
+                <PaginatedRosterRows
+                  rows={siteRows}
+                  targetDateKey={targetDateKey}
+                  targetHours={targetHours}
+                  density={density}
+                  actionMenu={actionMenu}
+                  activeTripDriverIds={activeTripDriverIds}
+                  pendingOdometer={pendingOdometer}
+                  onChangeOdometer={(value) =>
+                    setPendingOdometer({ value, error: null })
+                  }
+                  onToggleMenu={(dayId, pair) => {
+                    const isSame =
+                      actionMenu?.dayId === dayId && actionMenu.pair === pair;
+                    if (isSame) {
+                      closeActionMenu();
+                      return;
+                    }
+                    setActionMenu({ dayId, pair });
+                    setPendingOdometer({ value: "", error: null });
+                  }}
+                  onPunch={handlePunch}
+                  onPunchWithOdometer={handleSubmitPunchWithOdometer}
+                  onEditPunch={(punch) =>
+                    setCorrectionTarget({
+                      punch,
+                      at: toLocalDateTimeInput(punch.at),
+                      note: punch.note ?? "",
+                    })
+                  }
+                  onDeletePunch={(punch) => setDeleteTarget(punch)}
+                  isMutating={isMutating}
+                  timeSettings={timeSettings}
+                />
+              </section>
+            );
+          })}
         </div>
+      ) : (
+        <PaginatedRosterRows
+          rows={rosterDays}
+          targetDateKey={targetDateKey}
+          targetHours={targetHours}
+          density={density}
+          actionMenu={actionMenu}
+          activeTripDriverIds={activeTripDriverIds}
+          pendingOdometer={pendingOdometer}
+          onChangeOdometer={(value) =>
+            setPendingOdometer({ value, error: null })
+          }
+          onToggleMenu={(dayId, pair) => {
+            const isSame =
+              actionMenu?.dayId === dayId && actionMenu.pair === pair;
+            if (isSame) {
+              closeActionMenu();
+              return;
+            }
+            setActionMenu({ dayId, pair });
+            setPendingOdometer({ value: "", error: null });
+          }}
+          onPunch={handlePunch}
+          onPunchWithOdometer={handleSubmitPunchWithOdometer}
+          onEditPunch={(punch) =>
+            setCorrectionTarget({
+              punch,
+              at: toLocalDateTimeInput(punch.at),
+              note: punch.note ?? "",
+            })
+          }
+          onDeletePunch={(punch) => setDeleteTarget(punch)}
+          isMutating={isMutating}
+          timeSettings={timeSettings}
+        />
       )}
 
       <ConfirmDialog
@@ -739,6 +782,97 @@ function AttendancePanel({
         />
       )}
 
+    </div>
+  );
+}
+
+function PaginatedRosterRows({
+  rows,
+  targetDateKey,
+  targetHours,
+  density,
+  actionMenu,
+  activeTripDriverIds,
+  pendingOdometer,
+  onChangeOdometer,
+  onToggleMenu,
+  onPunch,
+  onPunchWithOdometer,
+  onEditPunch,
+  onDeletePunch,
+  isMutating,
+  timeSettings,
+}: {
+  rows: ApiAttendanceDay[];
+  targetDateKey: string;
+  targetHours: number;
+  density: "comfortable" | "compact";
+  actionMenu: {
+    dayId: string;
+    pair: (typeof PUNCH_PAIRS)[number]["key"];
+  } | null;
+  activeTripDriverIds: Set<string>;
+  pendingOdometer: { value: string; error: string | null };
+  onChangeOdometer: (value: string) => void;
+  onToggleMenu: (
+    dayId: string,
+    pair: (typeof PUNCH_PAIRS)[number]["key"],
+  ) => void;
+  onPunch: (day: ApiAttendanceDay, type: AttendancePunchType) => Promise<void>;
+  onPunchWithOdometer: (
+    day: ApiAttendanceDay,
+    type: AttendancePunchType,
+  ) => Promise<void>;
+  onEditPunch: (punch: ApiAttendancePunch) => void;
+  onDeletePunch: (punch: ApiAttendancePunch) => void;
+  isMutating: boolean;
+  timeSettings: ApiTimeSettings;
+}) {
+  const paging = useClientPagedList(rows);
+
+  return (
+    <div className="space-y-2">
+      <div className="grid gap-2">
+        {paging.items.map((day, index) => (
+          <div
+            key={day.id}
+            className="fs-row-in"
+            style={staggerStyle(index)}
+          >
+            <DriverAttendanceRow
+              day={day}
+              dateKey={targetDateKey}
+              targetHours={targetHours}
+              density={density}
+              actionMenu={actionMenu}
+              isOnActiveTrip={
+                day.driverId ? activeTripDriverIds.has(day.driverId) : false
+              }
+              pendingOdometer={pendingOdometer}
+              onChangeOdometer={onChangeOdometer}
+              onToggleMenu={(pair) => onToggleMenu(day.id, pair)}
+              onPunch={onPunch}
+              onPunchWithOdometer={onPunchWithOdometer}
+              onEditPunch={onEditPunch}
+              onDeletePunch={onDeletePunch}
+              isMutating={isMutating}
+              timeSettings={timeSettings}
+            />
+          </div>
+        ))}
+      </div>
+      {rows.length > 0 && (
+        <Pagination
+          page={paging.page}
+          pageSize={paging.pageSize}
+          highestKnownPage={paging.highestKnownPage}
+          totalPages={paging.totalPages}
+          isLastPageReached={paging.isLastPageReached}
+          isLoading={false}
+          onPageChange={paging.goToPage}
+          onPageSizeChange={paging.setPageSize}
+        />
+      )}
     </div>
   );
 }

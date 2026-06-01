@@ -122,15 +122,18 @@ export function SettingsField({
   label,
   children,
   hint,
+  icon: Icon,
 }: {
   label: string;
   children: ReactNode;
   hint?: string;
+  icon?: ComponentType<{ className?: string }>;
 }) {
   return (
     <label className="block">
-      <span className="font-label-caps mb-1.5 block text-[10px] tracking-wide text-muted-foreground uppercase">
-        {label}
+      <span className="font-label-caps mb-1.5 flex items-center gap-1.5 text-[10px] tracking-wide text-muted-foreground uppercase">
+        {Icon ? <Icon className="size-3.5" aria-hidden /> : null}
+        <span>{label}</span>
       </span>
       {children}
       {hint ? (

@@ -28,6 +28,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   FieldGrid,
@@ -553,32 +554,28 @@ function SiteForm({
             />
           </SettingsField>
           <SettingsField label="Type">
-            <select
-              className={fieldClass}
+            <Select
               value={form.type}
-              onChange={(e) => update("type", e.target.value as SiteType)}
+              onValueChange={(v) => update("type", v as SiteType)}
               disabled={isSubmitting}
-            >
-              {SITE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {prettyType(t)}
-                </option>
-              ))}
-            </select>
+              searchable={false}
+              options={SITE_TYPES.map((t) => ({
+                value: t,
+                label: prettyType(t),
+              }))}
+            />
           </SettingsField>
           <SettingsField label="Status">
-            <select
-              className={fieldClass}
+            <Select
               value={form.status}
-              onChange={(e) => update("status", e.target.value as SiteStatus)}
+              onValueChange={(v) => update("status", v as SiteStatus)}
               disabled={isSubmitting}
-            >
-              {SITE_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s.replace("_", " ")}
-                </option>
-              ))}
-            </select>
+              searchable={false}
+              options={SITE_STATUSES.map((s) => ({
+                value: s,
+                label: s.replace("_", " "),
+              }))}
+            />
           </SettingsField>
         </FieldGrid>
       </FormCard>

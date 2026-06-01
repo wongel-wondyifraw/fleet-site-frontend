@@ -39,11 +39,14 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Pagination } from "@/components/ui/Pagination";
 import { PanelError } from "@/components/vehicles/VehicleForm";
 import { fieldClass } from "@/components/settings/SettingsShared";
 import { ApiError } from "@/lib/api/client";
 import { listDrivers } from "@/lib/api/drivers";
+import { useCursorPagedList } from "@/lib/api/useCursorPagedList";
 import {
   createTrip,
   deleteTrip,
@@ -52,6 +55,7 @@ import {
   setTripStatus,
   updateTrip,
   type CreateTripRequest,
+  type TripsListMeta,
 } from "@/lib/api/trips";
 import { listCustomTripRoutes } from "@/lib/api/customTripRoutes";
 import { listSites } from "@/lib/api/sites";
@@ -107,7 +111,6 @@ export function TripsPanel({
 }: {
   density?: "comfortable" | "compact";
 }) {
-  const [trips, setTrips] = useState<ApiTrip[]>([]);
   const [vehicles, setVehicles] = useState<ApiVehicle[]>([]);
   const [drivers, setDrivers] = useState<ApiDriver[]>([]);
   const [sites, setSites] = useState<ApiSite[]>([]);
@@ -129,7 +132,7 @@ export function TripsPanel({
   const [customDate, setCustomDate] = useState<string>(() =>
     toLocalDateKey(new Date()),
   );
-  const [isLoading, setIsLoading] = useState(true);
+  const [auxLoading, setAuxLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ApiTrip | null>(null);
   // Trip queued for cancel confirmation. Kept separate from delete because
@@ -166,18 +169,6 @@ export function TripsPanel({
     return map;
   }, [drivers]);
 
-  // Drivers currently on an IN_PROGRESS trip. We block creating new
-  // trips for these drivers (and surface a warning in the trip form) so
-  // the operator can't pile on additional work while someone is still
-  // on the road. Mirrors the backend rule in TripService.create.
-  const busyDriverIds = useMemo(() => {
-    const set = new Set(inProgressDriverIds);
-    for (const t of trips) {
-      if (t.status === "IN_PROGRESS" && t.driverId) set.add(t.driverId);
-    }
-    return set;
-  }, [trips, inProgressDriverIds]);
-
   // Resolve the date the active date tab is asking us to match. Computed
   // up front so the filter loop doesn't recreate `Date` objects per row.
   const targetDateKey = useMemo(() => {
@@ -190,17 +181,43 @@ export function TripsPanel({
     return customDate;
   }, [dateFilter, customDate]);
 
-  const refresh = useCallback(async () => {
-    setIsLoading(true);
+  // Drivers currently on an IN_PROGRESS trip. We block creating new
+  // trips for these drivers (and surface a warning in the trip form) so
+  // the operator can't pile on additional work while someone is still
+  // on the road. Mirrors the backend rule in TripService.create.
+  const tripList = useCursorPagedList<ApiTrip, TripsListMeta>({
+    fetchPage: (cursor, limit) =>
+      listTripsPage({
+        date: targetDateKey,
+        timezone: timeSettings.timezone,
+        includeTarget: true,
+        status: statusFilter === "ALL" ? undefined : statusFilter,
+        vehicleId: vehicleFilter === "ALL" ? undefined : vehicleFilter,
+        cursor,
+        limit,
+      }),
+    deps: [targetDateKey, timeSettings.timezone, statusFilter, vehicleFilter],
+  });
+
+  useEffect(() => {
+    if (tripList.meta?.targetForDate) {
+      setTargetState(tripList.meta.targetForDate);
+    }
+  }, [tripList.meta]);
+
+  const busyDriverIds = useMemo(() => {
+    const set = new Set(inProgressDriverIds);
+    for (const t of tripList.items) {
+      if (t.status === "IN_PROGRESS" && t.driverId) set.add(t.driverId);
+    }
+    return set;
+  }, [tripList.items, inProgressDriverIds]);
+
+  const refreshAux = useCallback(async () => {
+    setAuxLoading(true);
     setLoadError(null);
     try {
-      const [tripsPage, v, d, s, r, inProgressTrips] = await Promise.all([
-        listTripsPage({
-          date: targetDateKey,
-          timezone: timeSettings.timezone,
-          includeTarget: true,
-          limit: 100,
-        }),
+      const [v, d, s, r, inProgressTrips] = await Promise.all([
         listVehicles(),
         listDrivers().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
@@ -217,10 +234,6 @@ export function TripsPanel({
         }),
         listTrips({ status: "IN_PROGRESS" }).catch(() => [] as ApiTrip[]),
       ]);
-      setTrips(tripsPage.data);
-      if (tripsPage.meta?.targetForDate) {
-        setTargetState(tripsPage.meta.targetForDate);
-      }
       setVehicles(v);
       setDrivers(d);
       setSites(s);
@@ -235,20 +248,29 @@ export function TripsPanel({
         err instanceof ApiError ? err.message : "Unable to load trips.",
       );
     } finally {
-      setIsLoading(false);
+      setAuxLoading(false);
     }
-  }, [targetDateKey, timeSettings.timezone]);
+  }, []);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    refreshAux();
+  }, [refreshAux]);
+
+  useEffect(() => {
+    if (tripList.error) {
+      setLoadError(tripList.error.message);
+    }
+  }, [tripList.error]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([tripList.reload(), refreshAux()]);
+  }, [tripList, refreshAux]);
+
+  const isLoading = auxLoading || tripList.isLoading;
 
   const filteredTrips = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return trips.filter((t) => {
-      if (statusFilter !== "ALL" && t.status !== statusFilter) return false;
-      if (vehicleFilter !== "ALL" && t.vehicleId !== vehicleFilter)
-        return false;
+    return tripList.items.filter((t) => {
       if (!q) return true;
       // Resolve nested summaries first, then fall back to the locally
       // looked-up records so the search works whether the API returned
@@ -273,14 +295,7 @@ export function TripsPanel({
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [
-    trips,
-    statusFilter,
-    vehicleFilter,
-    searchQuery,
-    vehicleById,
-    driverById,
-  ]);
+  }, [tripList.items, searchQuery, vehicleById, driverById]);
 
   const groupedTrips = useMemo<TripGroup[]>(() => {
     const map = new Map<string, TripGroup>();
@@ -467,7 +482,10 @@ export function TripsPanel({
             <span className="font-semibold text-primary">
               {filteredTrips.length}
             </span>{" "}
-            of {trips.length} {trips.length === 1 ? "trip" : "trips"} shown
+            on this page
+            {tripList.isLastPageReached && tripList.totalPages !== undefined
+              ? ` · ${tripList.totalPages} page${tripList.totalPages === 1 ? "" : "s"} total`
+              : null}
           </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             {/* Search + status row.
@@ -525,21 +543,21 @@ export function TripsPanel({
                 hidden on `sm+` because the desktop equivalents live
                 in the second row beside the date tabs. */}
             <div className="flex gap-2 sm:hidden">
-              <div className="relative flex-1">
-                <Truck className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                <select
+              <div className="flex-1">
+                <Select
                   value={vehicleFilter}
-                  onChange={(e) => setVehicleFilter(e.target.value)}
-                  className={`${fieldClass} pl-9`}
+                  onValueChange={setVehicleFilter}
+                  leftIcon={Truck}
                   aria-label="Filter by vehicle"
-                >
-                  <option value="ALL">All vehicles</option>
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.assetNumber ?? v.plateNumber}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: "ALL", label: "All vehicles" },
+                    ...vehicles.map((v) => ({
+                      value: v.id,
+                      label: v.assetNumber ?? v.plateNumber,
+                      searchText: `${v.assetNumber ?? ""} ${v.plateNumber}`,
+                    })),
+                  ]}
+                />
               </div>
               <div className="relative flex-1">
                 <TripDateFilterMenu
@@ -591,39 +609,38 @@ export function TripsPanel({
           customDate={customDate}
           onCustomDateChange={setCustomDate}
         />
-        <div className="relative w-44">
-          <Filter className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <select
+        <div className="w-44">
+          <Select
             value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(e.target.value as TripStatus | "ALL")
+            onValueChange={(v) =>
+              setStatusFilter(v as TripStatus | "ALL")
             }
-            className={`${fieldClass} pl-9`}
+            leftIcon={Filter}
             aria-label="Filter by status"
-          >
-            <option value="ALL">All statuses</option>
-            {TRIP_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {prettyEnum(s)}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: "ALL", label: "All statuses" },
+              ...TRIP_STATUSES.map((s) => ({
+                value: s,
+                label: prettyEnum(s),
+              })),
+            ]}
+          />
         </div>
-        <div className="relative w-56">
-          <Truck className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <select
+        <div className="w-56">
+          <Select
             value={vehicleFilter}
-            onChange={(e) => setVehicleFilter(e.target.value)}
-            className={`${fieldClass} pl-9`}
+            onValueChange={setVehicleFilter}
+            leftIcon={Truck}
             aria-label="Filter by vehicle"
-          >
-            <option value="ALL">All vehicles</option>
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.assetNumber ?? v.plateNumber}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: "ALL", label: "All vehicles" },
+              ...vehicles.map((v) => ({
+                value: v.id,
+                label: v.assetNumber ?? v.plateNumber,
+                searchText: `${v.assetNumber ?? ""} ${v.plateNumber}`,
+              })),
+            ]}
+          />
         </div>
         <DailyTargetEditor
           target={targetState}
@@ -641,12 +658,12 @@ export function TripsPanel({
 
       {loadError && <PanelError message={loadError} />}
 
-      {isLoading && trips.length === 0 ? (
+      {isLoading && tripList.items.length === 0 ? (
         <div className="flex items-center justify-center rounded-xl border border-slate-100 bg-slate-50/50 p-8">
           <Loader2 className="size-5 animate-spin text-primary" />
         </div>
       ) : filteredTrips.length === 0 ? (
-        trips.length === 0 ? (
+        tripList.items.length === 0 && !searchQuery.trim() ? (
           <EmptyState hasVehicles={vehicles.length > 0} />
         ) : (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center">
@@ -759,6 +776,16 @@ export function TripsPanel({
               </div>
             );
           })}
+          <Pagination
+            page={tripList.page}
+            pageSize={tripList.pageSize}
+            highestKnownPage={tripList.highestKnownPage}
+            totalPages={tripList.totalPages}
+            isLastPageReached={tripList.isLastPageReached}
+            isLoading={tripList.isLoading}
+            onPageChange={(p) => void tripList.goToPage(p)}
+            onPageSizeChange={tripList.setPageSize}
+          />
         </div>
       )}
 

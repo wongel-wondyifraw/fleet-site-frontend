@@ -25,6 +25,7 @@ import {
 
 import { fieldClass } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   PanelError,
@@ -32,9 +33,11 @@ import {
   type DriverSelection,
 } from "@/components/vehicles/VehicleForm";
 import { saveVehicleWithDriver } from "@/components/vehicles/saveVehicle";
+import { Pagination } from "@/components/ui/Pagination";
 import { ApiError } from "@/lib/api/client";
 import { listDrivers } from "@/lib/api/drivers";
 import { listSites } from "@/lib/api/sites";
+import { useCursorPagedList } from "@/lib/api/useCursorPagedList";
 import {
   VEHICLE_TYPES,
   prettyEnum,
@@ -46,7 +49,7 @@ import {
 } from "@/lib/api/types";
 import {
   deleteVehicle,
-  listVehicles,
+  listVehiclesPage,
   type CreateVehicleRequest,
 } from "@/lib/api/vehicles";
 import { staggerStyle } from "@/lib/animations";
@@ -70,26 +73,33 @@ export function VehiclesPanel({
 }: {
   density?: "comfortable" | "compact";
 }) {
-  const [vehicles, setVehicles] = useState<ApiVehicle[]>([]);
   const [drivers, setDrivers] = useState<ApiDriver[]>([]);
   const [sites, setSites] = useState<ApiSite[]>([]);
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [searchQuery, setSearchQuery] = useState("");
   // "ALL" means no filter; otherwise narrow the list to a single vehicle type.
   const [typeFilter, setTypeFilter] = useState<VehicleType | "ALL">("ALL");
-  const [isLoading, setIsLoading] = useState(true);
+  const [auxLoading, setAuxLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Vehicle pending a delete confirmation. `null` keeps the dialog closed;
   // setting it opens the dialog and seeds its title/description.
   const [pendingDelete, setPendingDelete] = useState<ApiVehicle | null>(null);
 
-  // Reusable loader - vehicles + drivers + sites in parallel.
-  const refresh = useCallback(async () => {
-    setIsLoading(true);
+  const vehicleList = useCursorPagedList({
+    fetchPage: (cursor, limit) =>
+      listVehiclesPage({
+        type: typeFilter === "ALL" ? undefined : typeFilter,
+        cursor,
+        limit,
+      }),
+    deps: [typeFilter],
+  });
+
+  const refreshAux = useCallback(async () => {
+    setAuxLoading(true);
     setLoadError(null);
     try {
-      const [v, d, s] = await Promise.all([
-        listVehicles(),
+      const [d, s] = await Promise.all([
         listDrivers().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
@@ -99,7 +109,6 @@ export function VehiclesPanel({
           throw err;
         }),
       ]);
-      setVehicles(v);
       setDrivers(d);
       setSites(s);
     } catch (err) {
@@ -107,13 +116,23 @@ export function VehiclesPanel({
         err instanceof ApiError ? err.message : "Unable to load vehicles.",
       );
     } finally {
-      setIsLoading(false);
+      setAuxLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    refreshAux();
+  }, [refreshAux]);
+
+  useEffect(() => {
+    if (vehicleList.error) {
+      setLoadError(vehicleList.error.message);
+    }
+  }, [vehicleList.error]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([vehicleList.reload(), refreshAux()]);
+  }, [vehicleList, refreshAux]);
 
   // O(1) lookups for the row metadata.
   const siteById = useMemo(() => {
@@ -130,12 +149,11 @@ export function VehiclesPanel({
     return map;
   }, [drivers]);
 
-  // Type filter first, then free-text search across asset/plate/driver/site.
+  // Free-text search on the current page (backend has no vehicle search param).
   const filteredVehicles = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return vehicles.filter((v) => {
-      if (typeFilter !== "ALL" && v.type !== typeFilter) return false;
-      if (!q) return true;
+    if (!q) return vehicleList.items;
+    return vehicleList.items.filter((v) => {
       const driver = driverByVehicleId.get(v.id);
       const site = v.assignedSite ? siteById.get(v.assignedSite) : null;
       const hay = [
@@ -149,7 +167,9 @@ export function VehiclesPanel({
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [vehicles, driverByVehicleId, siteById, searchQuery, typeFilter]);
+  }, [vehicleList.items, driverByVehicleId, siteById, searchQuery]);
+
+  const isLoading = auxLoading || vehicleList.isLoading;
 
   // Create handler - delegates the multi-step save to the shared helper.
   async function handleCreate(args: {
@@ -204,8 +224,10 @@ export function VehiclesPanel({
             <span className="font-semibold text-primary">
               {filteredVehicles.length}
             </span>{" "}
-            of {vehicles.length}{" "}
-            {vehicles.length === 1 ? "vehicle" : "vehicles"} shown
+            on this page
+            {vehicleList.isLastPageReached && vehicleList.totalPages !== undefined
+              ? ` · ${vehicleList.totalPages} page${vehicleList.totalPages === 1 ? "" : "s"} total`
+              : null}
           </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative w-full sm:max-w-xs">
@@ -219,23 +241,22 @@ export function VehiclesPanel({
                 aria-label="Search vehicles"
               />
             </div>
-            <div className="relative w-full sm:w-52">
-              <Filter className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <select
+            <div className="w-full sm:w-52">
+              <Select
                 value={typeFilter}
-                onChange={(e) =>
-                  setTypeFilter(e.target.value as VehicleType | "ALL")
+                onValueChange={(v) =>
+                  setTypeFilter(v as VehicleType | "ALL")
                 }
-                className={`${fieldClass} pl-9`}
+                leftIcon={Filter}
                 aria-label="Filter by vehicle type"
-              >
-                <option value="ALL">All types</option>
-                {VEHICLE_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {prettyEnum(t)}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "ALL", label: "All types" },
+                  ...VEHICLE_TYPES.map((t) => ({
+                    value: t,
+                    label: prettyEnum(t),
+                  })),
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -255,7 +276,7 @@ export function VehiclesPanel({
           <Loader2 className="size-5 animate-spin text-primary" />
         </div>
       ) : filteredVehicles.length === 0 ? (
-        vehicles.length === 0 ? (
+        vehicleList.items.length === 0 && !searchQuery.trim() ? (
           <EmptyState />
         ) : (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center">
@@ -302,6 +323,16 @@ export function VehiclesPanel({
             />
             </div>
           ))}
+          <Pagination
+            page={vehicleList.page}
+            pageSize={vehicleList.pageSize}
+            highestKnownPage={vehicleList.highestKnownPage}
+            totalPages={vehicleList.totalPages}
+            isLastPageReached={vehicleList.isLastPageReached}
+            isLoading={vehicleList.isLoading}
+            onPageChange={(p) => void vehicleList.goToPage(p)}
+            onPageSizeChange={vehicleList.setPageSize}
+          />
         </div>
       )}
 

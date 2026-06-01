@@ -27,17 +27,21 @@ import {
 } from "@/components/drivers/DriverForm";
 import { fieldClass } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Pagination } from "@/components/ui/Pagination";
 import { PanelError } from "@/components/vehicles/VehicleForm";
 import { ApiError } from "@/lib/api/client";
 import {
   createDriver,
   deleteDriver,
   listDrivers,
+  listDriversPage,
   updateDriver,
   type CreateDriverRequest,
   type UpdateDriverRequest,
 } from "@/lib/api/drivers";
+import { useCursorPagedList } from "@/lib/api/useCursorPagedList";
 import { listSites } from "@/lib/api/sites";
 import { createVehicle, listVehicles } from "@/lib/api/vehicles";
 import {
@@ -73,29 +77,50 @@ export function DriversPanel({
 }: {
   density?: "comfortable" | "compact";
 }) {
-  const [drivers, setDrivers] = useState<ApiDriver[]>([]);
+  const [allDrivers, setAllDrivers] = useState<ApiDriver[]>([]);
   const [sites, setSites] = useState<ApiSite[]>([]);
   const [vehicles, setVehicles] = useState<ApiVehicle[]>([]);
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   // "ALL" means no filter; otherwise narrow the list by status.
   const [statusFilter, setStatusFilter] = useState<DriverStatus | "ALL">(
     "ALL",
   );
   // "ALL" means no filter; otherwise narrow by the assigned vehicle's site.
   const [siteFilter, setSiteFilter] = useState<string>("ALL");
-  const [isLoading, setIsLoading] = useState(true);
+  const [auxLoading, setAuxLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Driver pending a delete confirmation. null keeps the dialog closed.
   const [pendingDelete, setPendingDelete] = useState<ApiDriver | null>(null);
 
-  // Reusable loader - drivers + sites + vehicles in parallel.
-  const refresh = useCallback(async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [searchQuery]);
+
+  const driverList = useCursorPagedList({
+    fetchPage: (cursor, limit) =>
+      listDriversPage({
+        status: statusFilter === "ALL" ? undefined : statusFilter,
+        search: debouncedSearch || undefined,
+        cursor,
+        limit,
+      }),
+    deps: [statusFilter, debouncedSearch],
+  });
+
+  const refreshAux = useCallback(async () => {
+    setAuxLoading(true);
     setLoadError(null);
     try {
       const [d, s, v] = await Promise.all([
-        listDrivers(),
+        listDrivers().catch((err) => {
+          if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
+          throw err;
+        }),
         listSites().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
@@ -105,7 +130,7 @@ export function DriversPanel({
           throw err;
         }),
       ]);
-      setDrivers(d);
+      setAllDrivers(d);
       setSites(s);
       setVehicles(v);
     } catch (err) {
@@ -113,13 +138,23 @@ export function DriversPanel({
         err instanceof ApiError ? err.message : "Unable to load drivers.",
       );
     } finally {
-      setIsLoading(false);
+      setAuxLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    refreshAux();
+  }, [refreshAux]);
+
+  useEffect(() => {
+    if (driverList.error) {
+      setLoadError(driverList.error.message);
+    }
+  }, [driverList.error]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([driverList.reload(), refreshAux()]);
+  }, [driverList, refreshAux]);
 
   // O(1) lookup of vehicle records by id, for showing the assigned vehicle.
   const vehicleById = useMemo(() => {
@@ -133,50 +168,33 @@ export function DriversPanel({
   // hiding vehicles claimed by *other* drivers.
   const driverByVehicleId = useMemo(() => {
     const map = new Map<string, ApiDriver>();
-    for (const d of drivers) {
+    for (const d of allDrivers) {
       if (d.assignedVehicleId) map.set(d.assignedVehicleId, d);
     }
     return map;
-  }, [drivers]);
+  }, [allDrivers]);
 
   // Site names for the filter — derived from each driver's assigned vehicle.
   const siteOptions = useMemo(() => {
     const names = new Set<string>();
     for (const s of sites) names.add(s.name);
-    for (const d of drivers) {
+    for (const d of driverList.items) {
       const name = driverSiteName(d, vehicleById, sites);
       if (name) names.add(name);
     }
     return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [sites, drivers, vehicleById]);
+  }, [sites, driverList.items, vehicleById]);
 
-  // Filter cascade: status -> site -> free-text search.
+  // Site filter is client-side on the current page (resolved site name).
   const filteredDrivers = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return drivers.filter((d) => {
-      if (statusFilter !== "ALL" && d.status !== statusFilter) return false;
+    return driverList.items.filter((d) => {
       const siteName = driverSiteName(d, vehicleById, sites);
       if (siteFilter !== "ALL" && (siteName ?? "") !== siteFilter) return false;
-      if (!q) return true;
-      const vehicle = d.assignedVehicleId
-        ? vehicleById.get(d.assignedVehicleId)
-        : null;
-      const hay = [
-        d.employeeId,
-        d.firstName,
-        d.lastName,
-        d.licenseNumber,
-        d.email ?? "",
-        d.phoneNumber,
-        siteName ?? "",
-        vehicle?.assetNumber ?? "",
-        vehicle?.plateNumber ?? "",
-      ]
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
+      return true;
     });
-  }, [drivers, vehicleById, sites, searchQuery, statusFilter, siteFilter]);
+  }, [driverList.items, vehicleById, sites, siteFilter]);
+
+  const isLoading = auxLoading || driverList.isLoading;
 
   // Resolve a VehicleSelection into the assignedVehicleId that should land
   // on the driver record. For "new" we create the vehicle first and return
@@ -268,8 +286,10 @@ export function DriversPanel({
             <span className="font-semibold text-primary">
               {filteredDrivers.length}
             </span>{" "}
-            of {drivers.length}{" "}
-            {drivers.length === 1 ? "driver" : "drivers"} shown
+            on this page
+            {driverList.isLastPageReached && driverList.totalPages !== undefined
+              ? ` · ${driverList.totalPages} page${driverList.totalPages === 1 ? "" : "s"} total`
+              : null}
           </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
             <div className="relative w-full sm:max-w-xs">
@@ -283,39 +303,37 @@ export function DriversPanel({
                 aria-label="Search drivers"
               />
             </div>
-            <div className="relative w-full sm:w-44">
-              <Filter className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <select
+            <div className="w-full sm:w-44">
+              <Select
                 value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(e.target.value as DriverStatus | "ALL")
+                onValueChange={(v) =>
+                  setStatusFilter(v as DriverStatus | "ALL")
                 }
-                className={`${fieldClass} pl-9`}
+                leftIcon={Filter}
                 aria-label="Filter by status"
-              >
-                <option value="ALL">All statuses</option>
-                {DRIVER_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {prettyEnum(s)}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "ALL", label: "All statuses" },
+                  ...DRIVER_STATUSES.map((s) => ({
+                    value: s,
+                    label: prettyEnum(s),
+                  })),
+                ]}
+              />
             </div>
-            <div className="relative w-full sm:w-56">
-              <Building2 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <select
+            <div className="w-full sm:w-56">
+              <Select
                 value={siteFilter}
-                onChange={(e) => setSiteFilter(e.target.value)}
-                className={`${fieldClass} pl-9`}
+                onValueChange={setSiteFilter}
+                leftIcon={Building2}
                 aria-label="Filter by site"
-              >
-                <option value="ALL">All sites</option>
-                {siteOptions.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "ALL", label: "All sites" },
+                  ...siteOptions.map((name) => ({
+                    value: name,
+                    label: name,
+                  })),
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -335,7 +353,7 @@ export function DriversPanel({
           <Loader2 className="size-5 animate-spin text-primary" />
         </div>
       ) : filteredDrivers.length === 0 ? (
-        drivers.length === 0 ? (
+        driverList.items.length === 0 && siteFilter === "ALL" ? (
           <EmptyState />
         ) : (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center">
@@ -384,6 +402,16 @@ export function DriversPanel({
             />
             </div>
           ))}
+          <Pagination
+            page={driverList.page}
+            pageSize={driverList.pageSize}
+            highestKnownPage={driverList.highestKnownPage}
+            totalPages={driverList.totalPages}
+            isLastPageReached={driverList.isLastPageReached}
+            isLoading={driverList.isLoading}
+            onPageChange={(p) => void driverList.goToPage(p)}
+            onPageSizeChange={driverList.setPageSize}
+          />
         </div>
       )}
 

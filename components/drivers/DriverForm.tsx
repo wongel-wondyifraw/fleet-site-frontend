@@ -38,6 +38,7 @@ import {
 } from "@/components/settings/SettingsShared";
 import { PhoneInput } from "@/components/shared/PhoneInput";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { PanelError } from "@/components/vehicles/VehicleForm";
 import { ApiError } from "@/lib/api/client";
 import type {
@@ -381,19 +382,17 @@ export function DriverForm({
           />
         </SettingsField>
         <SettingsField label="Status">
-          <select
+          <Select
             value={status}
-            onChange={(e) => setStatus(e.target.value as DriverStatus)}
-            className={fieldClass}
+            onValueChange={(v) => setStatus(v as DriverStatus)}
             disabled={!isEdit || isSubmitting}
             aria-label="Driver status"
-          >
-            {DRIVER_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {prettyEnum(s)}
-              </option>
-            ))}
-          </select>
+            searchable={false}
+            options={DRIVER_STATUSES.map((s) => ({
+              value: s,
+              label: prettyEnum(s),
+            }))}
+          />
         </SettingsField>
       </FieldGrid>
 
@@ -429,19 +428,17 @@ export function DriverForm({
           />
         </SettingsField>
         <SettingsField label="License class">
-          <select
+          <Select
             value={licenseClass}
-            onChange={(e) => setLicenseClass(e.target.value as LicenseClass)}
-            className={fieldClass}
+            onValueChange={(v) => setLicenseClass(v as LicenseClass)}
             disabled={isSubmitting}
             aria-label="License class"
-          >
-            {LICENSE_CLASSES.map((c) => (
-              <option key={c} value={c}>
-                {formatLicenseClass(c)}
-              </option>
-            ))}
-          </select>
+            searchable={false}
+            options={LICENSE_CLASSES.map((c) => ({
+              value: c,
+              label: formatLicenseClass(c),
+            }))}
+          />
         </SettingsField>
       </FieldGrid>
 
@@ -865,39 +862,31 @@ function NewVehicleSubForm({
           />
         </SettingsField>
         <SettingsField label="Vehicle type">
-          <select
-            className={fieldClass}
+          <Select
             value={form.type}
-            onChange={(e) => onChange("type", e.target.value as VehicleType)}
+            onValueChange={(v) => onChange("type", v as VehicleType)}
             disabled={disabled}
             aria-label="Vehicle type"
-          >
-            {VEHICLE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {prettyEnum(t)}
-              </option>
-            ))}
-          </select>
+            searchable={false}
+            options={VEHICLE_TYPES.map((t) => ({
+              value: t,
+              label: prettyEnum(t),
+            }))}
+          />
         </SettingsField>
         <SettingsField label="Fuel type">
-          <div className="relative">
-            <Fuel className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <select
-              className={`${fieldClass} pl-9`}
-              value={form.fuelType}
-              onChange={(e) =>
-                onChange("fuelType", e.target.value as FuelType)
-              }
-              disabled={disabled}
-              aria-label="Fuel type"
-            >
-              {FUEL_TYPES.map((f) => (
-                <option key={f} value={f}>
-                  {prettyEnum(f)}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            value={form.fuelType}
+            onValueChange={(v) => onChange("fuelType", v as FuelType)}
+            disabled={disabled}
+            leftIcon={Fuel}
+            aria-label="Fuel type"
+            searchable={false}
+            options={FUEL_TYPES.map((f) => ({
+              value: f,
+              label: prettyEnum(f),
+            }))}
+          />
         </SettingsField>
         <SettingsField label="Fuel capacity (L)">
           <IconInput
@@ -920,23 +909,22 @@ function NewVehicleSubForm({
           />
         </SettingsField>
         <SettingsField label="Assigned site" hint="Optional">
-          <div className="relative">
-            <Building2 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <select
-              className={`${fieldClass} pl-9`}
-              value={form.assignedSite}
-              onChange={(e) => onChange("assignedSite", e.target.value)}
-              disabled={disabled}
-              aria-label="Assigned site (vehicle)"
-            >
-              <option value="">No site</option>
-              {sites.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            value={form.assignedSite}
+            onValueChange={(v) => onChange("assignedSite", v)}
+            disabled={disabled}
+            leftIcon={Building2}
+            aria-label="Assigned site (vehicle)"
+            placeholder="No site"
+            options={[
+              { value: "", label: "No site" },
+              ...sites.map((s) => ({
+                value: s.id,
+                label: s.name,
+                searchText: `${s.name} ${s.city}`,
+              })),
+            ]}
+          />
         </SettingsField>
       </FieldGrid>
     </div>

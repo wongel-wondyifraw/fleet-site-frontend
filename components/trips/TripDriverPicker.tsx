@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import { fieldClass } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { formatLicenseClass, prettyEnum } from "@/lib/api/types";
 import type {
   ApiDriver,
@@ -158,41 +159,40 @@ export function TripDriverPicker({
             aria-label="Search drivers"
           />
         </div>
-        <div className="relative w-full sm:w-40">
-          <Filter className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <select
+        <div className="w-full sm:w-40">
+          <Select
             value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(e.target.value as DriverStatus | "ALL")
+            onValueChange={(v) =>
+              setStatusFilter(v as DriverStatus | "ALL")
             }
             disabled={disabled}
-            className={`${fieldClass} pl-9`}
+            leftIcon={Filter}
             aria-label="Filter drivers by status"
-          >
-            <option value="ALL">All statuses</option>
-            {DRIVER_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {prettyEnum(s)}
-              </option>
-            ))}
-          </select>
+            searchable={false}
+            options={[
+              { value: "ALL", label: "All statuses" },
+              ...DRIVER_STATUSES.map((s) => ({
+                value: s,
+                label: prettyEnum(s),
+              })),
+            ]}
+          />
         </div>
-        <div className="relative w-full sm:w-48">
-          <Building2 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <select
+        <div className="w-full sm:w-48">
+          <Select
             value={siteFilter}
-            onChange={(e) => setSiteFilter(e.target.value)}
+            onValueChange={setSiteFilter}
             disabled={disabled}
-            className={`${fieldClass} pl-9`}
+            leftIcon={Building2}
             aria-label="Filter drivers by site"
-          >
-            <option value="ALL">All sites</option>
-            {siteOptions.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: "ALL", label: "All sites" },
+              ...siteOptions.map((name) => ({
+                value: name,
+                label: name,
+              })),
+            ]}
+          />
         </div>
       </div>
 

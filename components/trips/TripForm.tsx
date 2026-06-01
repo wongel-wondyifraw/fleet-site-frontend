@@ -43,6 +43,7 @@ import {
 } from "@/components/shared/LocationAutocomplete";
 import { TripDriverPicker } from "@/components/trips/TripDriverPicker";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { PanelError } from "@/components/vehicles/VehicleForm";
 import { ApiError } from "@/lib/api/client";
 import type { CreateTripRequest } from "@/lib/api/trips";
@@ -526,18 +527,16 @@ export function TripForm({
 
       <FormCard title="Status" icon={Route}>
         <SettingsField label="Trip status">
-          <select
-            className={fieldClass}
+          <Select
             value={form.status}
-            onChange={(e) => update("status", e.target.value as TripStatus)}
+            onValueChange={(v) => update("status", v as TripStatus)}
             disabled={isSubmitting}
-          >
-            {TRIP_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {prettyEnum(s)}
-              </option>
-            ))}
-          </select>
+            searchable={false}
+            options={TRIP_STATUSES.map((s) => ({
+              value: s,
+              label: prettyEnum(s),
+            }))}
+          />
         </SettingsField>
       </FormCard>
 

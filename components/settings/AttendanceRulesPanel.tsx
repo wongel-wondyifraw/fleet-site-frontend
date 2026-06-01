@@ -1,12 +1,21 @@
 "use client";
 
-import { Coffee, Loader2, LogIn, LogOut, Save, Timer } from "@/lib/icons";
+import {
+  ChevronDown,
+  Clock,
+  Coffee,
+  Loader2,
+  LogIn,
+  LogOut,
+  Save,
+  Timer,
+} from "@/lib/icons";
 import {
   useCallback,
   useEffect,
-  useId,
+  useMemo,
+  useRef,
   useState,
-  type ComponentType,
 } from "react";
 
 import {
@@ -27,17 +36,14 @@ import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { useToast } from "@/lib/toast/ToastContext";
 import { cn } from "@/lib/utils";
 
-// Suggested values surfaced via the native <datalist>. Users can pick
-// from these or type any other value within the valid range.
-const HOUR_SUGGESTIONS_24H = Array.from({ length: 24 }, (_, i) =>
-  String(i).padStart(2, "0"),
-);
-const HOUR_SUGGESTIONS_12H = Array.from({ length: 12 }, (_, i) =>
-  String(i + 1).padStart(2, "0"),
-);
-const MINUTE_SUGGESTIONS = ["00", "15", "30", "45"];
-
 type Period = "AM" | "PM";
+
+// Hour / minute option lists driving the dropdown columns. We surface
+// every valid value so the popover behaves like a true picker rather
+// than a suggestion list.
+const HOURS_24 = Array.from({ length: 24 }, (_, i) => i);
+const HOURS_12 = Array.from({ length: 12 }, (_, i) => i + 1);
+const MINUTES_ALL = Array.from({ length: 60 }, (_, i) => i);
 
 function timeToMinutes(value: string): number {
   const [h, m] = value.split(":").map(Number);
@@ -74,12 +80,8 @@ function from12h(hour12: number, minute: number, period: Period): string {
   return `${String(hour24).padStart(2, "0")}:${String(safeMinute).padStart(2, "0")}`;
 }
 
-function clampUnit(raw: string, max: number, min = 0): string {
-  if (raw.trim() === "") return String(min).padStart(2, "0");
-  const n = Number.parseInt(raw, 10);
-  if (!Number.isFinite(n)) return String(min).padStart(2, "0");
-  const clamped = Math.max(min, Math.min(max, n));
-  return String(clamped).padStart(2, "0");
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
 }
 
 function validateSchedule(draft: ApiAttendanceRules): string | null {
@@ -206,9 +208,9 @@ export function AttendanceRulesPanel({
         <SettingsField
           label="Day check-in"
           hint="Expected time drivers start their shift."
+          icon={LogIn}
         >
           <TimePicker
-            icon={LogIn}
             value={draft.dayInTime}
             onChange={(next) => updateField("dayInTime", next)}
             ariaLabel="Day check-in time"
@@ -218,9 +220,9 @@ export function AttendanceRulesPanel({
         <SettingsField
           label="Lunch check-out"
           hint="Expected time drivers leave for lunch."
+          icon={Coffee}
         >
           <TimePicker
-            icon={Coffee}
             value={draft.lunchOutTime}
             onChange={(next) => updateField("lunchOutTime", next)}
             ariaLabel="Lunch check-out time"
@@ -230,9 +232,9 @@ export function AttendanceRulesPanel({
         <SettingsField
           label="Lunch check-in"
           hint="Expected time drivers return from lunch."
+          icon={Coffee}
         >
           <TimePicker
-            icon={Coffee}
             value={draft.lunchInTime}
             onChange={(next) => updateField("lunchInTime", next)}
             ariaLabel="Lunch check-in time"
@@ -242,9 +244,9 @@ export function AttendanceRulesPanel({
         <SettingsField
           label="Day check-out"
           hint="Expected time drivers finish their shift."
+          icon={LogOut}
         >
           <TimePicker
-            icon={LogOut}
             value={draft.dayOutTime}
             onChange={(next) => updateField("dayOutTime", next)}
             ariaLabel="Day check-out time"
@@ -254,24 +256,22 @@ export function AttendanceRulesPanel({
         <SettingsField
           label="Target working hours"
           hint="Daily hours target per driver for worked-hours tracking."
+          icon={Timer}
         >
-          <div className="relative">
-            <Timer className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="number"
-              min={0}
-              max={24}
-              step={0.5}
-              value={draft.targetHours}
-              onChange={(e) => {
-                const parsed = Number.parseFloat(e.target.value);
-                if (!Number.isFinite(parsed)) return;
-                updateField("targetHours", Math.max(0, Math.min(24, parsed)));
-              }}
-              aria-label="Target working hours per day"
-              className={`${fieldClass} pl-9`}
-            />
-          </div>
+          <input
+            type="number"
+            min={0}
+            max={24}
+            step={0.5}
+            value={draft.targetHours}
+            onChange={(e) => {
+              const parsed = Number.parseFloat(e.target.value);
+              if (!Number.isFinite(parsed)) return;
+              updateField("targetHours", Math.max(0, Math.min(24, parsed)));
+            }}
+            aria-label="Target working hours per day"
+            className={fieldClass}
+          />
         </SettingsField>
       </FieldGrid>
 
@@ -305,180 +305,213 @@ export function AttendanceRulesPanel({
   );
 }
 
-// Side-by-side hour/minute fields with a built-in dropdown selector
-// (via native <datalist>) plus free-text entry. In 12-hour mode an
-// AM/PM segmented toggle appears alongside; under the hood the value
-// is always stored as a 24-hour HH:MM string so the backend (and the
-// rest of the app) never has to special-case the format.
+// Click-to-open time picker. The trigger button displays the current
+// formatted time and a chevron; clicking opens a popover with two
+// scrollable columns (hours and minutes) plus an AM/PM toggle in
+// 12-hour mode. Selecting a value commits immediately to the parent.
+// Under the hood the value is always stored as a 24-hour HH:MM string
+// so the backend (and the rest of the app) never has to special-case
+// the format.
 function TimePicker({
-  icon: Icon,
   value,
   onChange,
   ariaLabel,
   timeFormat,
 }: {
-  icon: ComponentType<{ className?: string }>;
   value: string;
   onChange: (next: string) => void;
   ariaLabel: string;
   timeFormat: "12" | "24";
 }) {
-  const reactId = useId();
-  const hourListId = `${reactId}-hours`;
-  const minuteListId = `${reactId}-minutes`;
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
-  // Drafts decouple typing UX from the canonical 24-hour value.
-  const [hourDraft, setHourDraft] = useState("");
-  const [minuteDraft, setMinuteDraft] = useState("");
-  const [period, setPeriod] = useState<Period>("AM");
+  // Derive selected hour / minute / period from the canonical value.
+  const { hour24, hour12, minute, period } = useMemo(() => {
+    const { hour, minute } = splitTime24(value);
+    const twelve = to12h(value);
+    return {
+      hour24: hour,
+      hour12: twelve.hour,
+      minute,
+      period: twelve.period as Period,
+    };
+  }, [value]);
 
-  // Resync drafts whenever the parent value or format changes (e.g. on
-  // initial load, after a save, or after the user flips 12/24 in the
-  // Time settings panel). Deferred to the next tick so the React strict
-  // effect lint doesn't flag the cascading setState.
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      if (timeFormat === "12") {
-        const { hour, minute, period } = to12h(value);
-        setHourDraft(String(hour).padStart(2, "0"));
-        setMinuteDraft(String(minute).padStart(2, "0"));
-        setPeriod(period);
-      } else {
-        const { hour, minute } = splitTime24(value);
-        setHourDraft(String(hour).padStart(2, "0"));
-        setMinuteDraft(String(minute).padStart(2, "0"));
-      }
-    }, 0);
-    return () => window.clearTimeout(t);
-  }, [value, timeFormat]);
-
-  function commit(nextHourRaw: string, nextMinuteRaw: string, nextPeriod: Period) {
+  const displayValue = useMemo(() => {
     if (timeFormat === "12") {
-      const hourNum = Number.parseInt(clampUnit(nextHourRaw, 12, 1), 10);
-      const minuteNum = Number.parseInt(clampUnit(nextMinuteRaw, 59), 10);
-      onChange(from12h(hourNum, minuteNum, nextPeriod));
+      return `${pad2(hour12)}:${pad2(minute)} ${period}`;
+    }
+    return `${pad2(hour24)}:${pad2(minute)}`;
+  }, [timeFormat, hour12, hour24, minute, period]);
+
+  // Close on outside click / Escape.
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function selectHour(nextHour: number) {
+    if (timeFormat === "12") {
+      onChange(from12h(nextHour, minute, period));
     } else {
-      const hour24 = clampUnit(nextHourRaw, 23);
-      const minute = clampUnit(nextMinuteRaw, 59);
-      onChange(`${hour24}:${minute}`);
+      onChange(`${pad2(nextHour)}:${pad2(minute)}`);
     }
   }
 
-  function handleHourBlur(raw: string) {
-    const max = timeFormat === "12" ? 12 : 23;
-    const min = timeFormat === "12" ? 1 : 0;
-    const next = clampUnit(raw, max, min);
-    setHourDraft(next);
-    commit(next, minuteDraft, period);
+  function selectMinute(nextMinute: number) {
+    if (timeFormat === "12") {
+      onChange(from12h(hour12, nextMinute, period));
+    } else {
+      onChange(`${pad2(hour24)}:${pad2(nextMinute)}`);
+    }
   }
 
-  function handleMinuteBlur(raw: string) {
-    const next = clampUnit(raw, 59);
-    setMinuteDraft(next);
-    commit(hourDraft, next, period);
+  function selectPeriod(nextPeriod: Period) {
+    if (timeFormat !== "12") return;
+    onChange(from12h(hour12, minute, nextPeriod));
   }
 
-  function handlePeriodChange(next: Period) {
-    setPeriod(next);
-    commit(hourDraft, minuteDraft, next);
-  }
-
-  const hourSuggestions =
-    timeFormat === "12" ? HOUR_SUGGESTIONS_12H : HOUR_SUGGESTIONS_24H;
-
-  const inputClass = cn(
-    "h-10 w-16 rounded-xl border border-slate-200 bg-white px-2 text-center text-sm font-semibold text-primary",
-    "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25",
-    "tabular-nums",
-  );
+  const selectedHour = timeFormat === "12" ? hour12 : hour24;
+  const hours = timeFormat === "12" ? HOURS_12 : HOURS_24;
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-muted-foreground">
-        <Icon className="size-4" />
-      </span>
-      <div className="flex items-center gap-1.5" aria-label={ariaLabel}>
-        <input
-          type="text"
-          inputMode="numeric"
-          maxLength={2}
-          list={hourListId}
-          value={hourDraft}
-          onChange={(e) => setHourDraft(e.target.value.replace(/[^0-9]/g, ""))}
-          onBlur={(e) => handleHourBlur(e.target.value)}
-          aria-label={`${ariaLabel} hour`}
-          placeholder="HH"
-          className={inputClass}
+    <div ref={wrapRef} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label={ariaLabel}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={cn(
+          "inline-flex h-10 items-center gap-2 rounded-xl border bg-white px-3 text-sm font-semibold text-primary transition-colors",
+          open
+            ? "border-primary ring-2 ring-primary/25"
+            : "border-slate-200 hover:border-primary/40",
+        )}
+      >
+        <Clock className="size-4 text-muted-foreground" aria-hidden />
+        <span className="tabular-nums">{displayValue}</span>
+        <ChevronDown
+          className={cn(
+            "size-3.5 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+          aria-hidden
         />
-        <datalist id={hourListId}>
-          {hourSuggestions.map((h) => (
-            <option key={h} value={h} />
-          ))}
-        </datalist>
-        <span className="text-sm font-bold text-muted-foreground">:</span>
-        <input
-          type="text"
-          inputMode="numeric"
-          maxLength={2}
-          list={minuteListId}
-          value={minuteDraft}
-          onChange={(e) =>
-            setMinuteDraft(e.target.value.replace(/[^0-9]/g, ""))
-          }
-          onBlur={(e) => handleMinuteBlur(e.target.value)}
-          aria-label={`${ariaLabel} minute`}
-          placeholder="MM"
-          className={inputClass}
-        />
-        <datalist id={minuteListId}>
-          {MINUTE_SUGGESTIONS.map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-      </div>
-      {timeFormat === "12" ? (
-        <PeriodToggle
-          value={period}
-          onChange={handlePeriodChange}
-          ariaLabel={`${ariaLabel} period`}
-        />
-      ) : null}
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label={`${ariaLabel} picker`}
+          className="absolute left-0 z-50 mt-1.5 flex gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
+        >
+          <ScrollColumn
+            label="Hours"
+            options={hours}
+            selected={selectedHour}
+            onSelect={selectHour}
+          />
+          <ScrollColumn
+            label="Minutes"
+            options={MINUTES_ALL}
+            selected={minute}
+            onSelect={selectMinute}
+          />
+          {timeFormat === "12" ? (
+            <div
+              role="radiogroup"
+              aria-label="AM or PM"
+              className="flex w-12 flex-col gap-1 pl-1"
+            >
+              {(["AM", "PM"] as Period[]).map((opt) => {
+                const active = period === opt;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => selectPeriod(opt)}
+                    className={cn(
+                      "inline-flex h-10 items-center justify-center rounded-lg text-xs font-semibold transition-colors",
+                      active
+                        ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                        : "text-muted-foreground hover:bg-slate-100 hover:text-primary",
+                    )}
+                  >
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
 
-function PeriodToggle({
-  value,
-  onChange,
-  ariaLabel,
+function ScrollColumn({
+  label,
+  options,
+  selected,
+  onSelect,
 }: {
-  value: Period;
-  onChange: (next: Period) => void;
-  ariaLabel: string;
+  label: string;
+  options: number[];
+  selected: number;
+  onSelect: (value: number) => void;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const selectedRef = useRef<HTMLButtonElement>(null);
+
+  // Scroll the selected option into view whenever the column mounts or
+  // the selection changes. Centered so the user sees a few options
+  // above and below the current value.
+  useEffect(() => {
+    const node = selectedRef.current;
+    if (!node) return;
+    node.scrollIntoView({ block: "center" });
+  }, [selected]);
+
   return (
     <div
-      role="radiogroup"
-      aria-label={ariaLabel}
-      className="inline-flex h-10 items-center gap-0.5 rounded-xl border border-slate-200 bg-slate-50 p-0.5"
+      ref={listRef}
+      role="listbox"
+      aria-label={label}
+      className="h-48 w-14 overflow-y-auto rounded-lg bg-slate-50/60 py-1"
     >
-      {(["AM", "PM"] as Period[]).map((opt) => {
-        const active = value === opt;
+      {options.map((opt) => {
+        const active = opt === selected;
         return (
           <button
             key={opt}
+            ref={active ? selectedRef : undefined}
             type="button"
-            role="radio"
-            aria-checked={active}
-            onClick={() => onChange(opt)}
+            role="option"
+            aria-selected={active}
+            onClick={() => onSelect(opt)}
             className={cn(
-              "inline-flex h-9 min-w-[42px] items-center justify-center rounded-lg px-2 text-xs font-semibold transition-colors",
+              "block h-8 w-full text-center text-sm font-semibold tabular-nums transition-colors",
               active
-                ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
-                : "text-muted-foreground hover:bg-white hover:text-primary",
+                ? "bg-primary text-primary-foreground"
+                : "text-primary hover:bg-slate-200/60",
             )}
           >
-            {opt}
+            {pad2(opt)}
           </button>
         );
       })}

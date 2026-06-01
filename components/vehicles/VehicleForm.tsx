@@ -36,6 +36,7 @@ import {
 } from "@/components/settings/SettingsShared";
 import { PhoneInput } from "@/components/shared/PhoneInput";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { ApiError } from "@/lib/api/client";
 import { type CreateDriverRequest } from "@/lib/api/drivers";
 import {
@@ -352,35 +353,29 @@ export function VehicleForm({
             />
           </SettingsField>
           <SettingsField label="Type">
-            <select
-              className={fieldClass}
+            <Select
               value={form.type}
-              onChange={(e) => update("type", e.target.value as VehicleType)}
+              onValueChange={(v) => update("type", v as VehicleType)}
               disabled={isSubmitting}
-            >
-              {VEHICLE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {prettyEnum(t)}
-                </option>
-              ))}
-            </select>
+              searchable={false}
+              options={VEHICLE_TYPES.map((t) => ({
+                value: t,
+                label: prettyEnum(t),
+              }))}
+            />
           </SettingsField>
           {!isNew && (
             <SettingsField label="Status">
-              <select
-                className={fieldClass}
+              <Select
                 value={form.status}
-                onChange={(e) =>
-                  update("status", e.target.value as VehicleStatus)
-                }
+                onValueChange={(v) => update("status", v as VehicleStatus)}
                 disabled={isSubmitting}
-              >
-                {VEHICLE_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {prettyEnum(s)}
-                  </option>
-                ))}
-              </select>
+                searchable={false}
+                options={VEHICLE_STATUSES.map((s) => ({
+                  value: s,
+                  label: prettyEnum(s),
+                }))}
+              />
             </SettingsField>
           )}
         </FieldGrid>
@@ -393,18 +388,16 @@ export function VehicleForm({
       >
         <FieldGrid>
           <SettingsField label="Fuel Type">
-            <select
-              className={fieldClass}
+            <Select
               value={form.fuelType}
-              onChange={(e) => update("fuelType", e.target.value as FuelType)}
+              onValueChange={(v) => update("fuelType", v as FuelType)}
               disabled={isSubmitting}
-            >
-              {FUEL_TYPES.map((f) => (
-                <option key={f} value={f}>
-                  {prettyEnum(f)}
-                </option>
-              ))}
-            </select>
+              searchable={false}
+              options={FUEL_TYPES.map((f) => ({
+                value: f,
+                label: prettyEnum(f),
+              }))}
+            />
           </SettingsField>
           <SettingsField label="Fuel Capacity (L)">
             <input
@@ -454,19 +447,20 @@ export function VehicleForm({
               : "Optional - leave empty to register without a site."
           }
         >
-          <select
-            className={fieldClass}
+          <Select
             value={form.assignedSite}
-            onChange={(e) => update("assignedSite", e.target.value)}
+            onValueChange={(v) => update("assignedSite", v)}
             disabled={isSubmitting || sites.length === 0}
-          >
-            <option value="">— No site —</option>
-            {sites.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} · {s.city}
-              </option>
-            ))}
-          </select>
+            placeholder="— No site —"
+            options={[
+              { value: "", label: "— No site —" },
+              ...sites.map((s) => ({
+                value: s.id,
+                label: `${s.name} · ${s.city}`,
+                searchText: `${s.name} ${s.city}`,
+              })),
+            ]}
+          />
         </SettingsField>
       </FormCard>
 
@@ -816,20 +810,16 @@ function NewDriverSubForm({
           />
         </SettingsField>
         <SettingsField label="License class">
-          <select
-            className={fieldClass}
+          <Select
             value={form.licenseClass}
-            onChange={(e) =>
-              onChange("licenseClass", e.target.value as LicenseClass)
-            }
+            onValueChange={(v) => onChange("licenseClass", v as LicenseClass)}
             disabled={disabled}
-          >
-            {LICENSE_CLASSES.map((c) => (
-              <option key={c} value={c}>
-                {formatLicenseClass(c)}
-              </option>
-            ))}
-          </select>
+            searchable={false}
+            options={LICENSE_CLASSES.map((c) => ({
+              value: c,
+              label: formatLicenseClass(c),
+            }))}
+          />
         </SettingsField>
         <SettingsField label="License expiry">
           <input

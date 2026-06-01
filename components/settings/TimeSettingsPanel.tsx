@@ -9,6 +9,7 @@ import {
   fieldClass,
 } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { PanelError } from "@/components/vehicles/VehicleForm";
 import { ApiError } from "@/lib/api/client";
 import {
@@ -159,25 +160,21 @@ export function TimeSettingsPanel({
           label="Timezone"
           hint="Used to render punch times, schedules, and reports."
         >
-          <div className="relative">
-            <MapPin className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <select
-              value={draft.timezone}
-              onChange={(e) => updateField("timezone", e.target.value)}
-              aria-label="Timezone"
-              className={`${fieldClass} pl-9 pr-8 appearance-none cursor-pointer`}
-            >
-              {grouped.map(({ region, items }) => (
-                <optgroup key={region} label={region}>
-                  {items.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </div>
+          <Select
+            value={draft.timezone}
+            onValueChange={(v) => updateField("timezone", v)}
+            leftIcon={MapPin}
+            aria-label="Timezone"
+            searchable
+            groups={grouped.map(({ region, items }) => ({
+              label: region,
+              options: items.map((opt) => ({
+                value: opt.value,
+                label: opt.label,
+                searchText: `${opt.label} ${opt.value} ${region}`,
+              })),
+            }))}
+          />
         </SettingsField>
 
         <SettingsField
