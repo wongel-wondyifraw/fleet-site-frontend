@@ -11,6 +11,7 @@ import { ToastProvider } from "@/lib/toast/ToastContext";
 // Registers the PWA service worker so the site is installable and serves an
 // offline fallback. No-op in development; see the component for details.
 import { ServiceWorkerRegister } from "@/components/pwa/ServiceWorkerRegister";
+import { BackendWakePing } from "@/components/system/BackendWakePing";
 
 export const metadata: Metadata = {
   title: "FleetSite | Sign In",
@@ -68,6 +69,8 @@ export default function RootLayout({
         <AuthProvider>
           <ToastProvider>{children}</ToastProvider>
         </AuthProvider>
+        {/* Best-effort Render backend warmup; never blocks the UI. */}
+        <BackendWakePing />
         {/* Registers the PWA service worker (production-only). */}
         <ServiceWorkerRegister />
       </body>
