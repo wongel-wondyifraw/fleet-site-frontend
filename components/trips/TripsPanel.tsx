@@ -24,6 +24,7 @@ import {
   X,
 } from "@/lib/icons";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { DailyTargetEditor } from "@/components/trips/DailyTargetEditor";
 import { TripDateFilterMenu } from "@/components/trips/TripDateFilterMenu";
 import { TripDateTabs } from "@/components/trips/TripDateTabs";
@@ -1261,6 +1262,10 @@ function TripRow({
         density === "compact" ? "p-3" : "p-4",
       )}
     >
+      <Link
+        href={`/dashboard/trips/${trip.id}`}
+        className="flex min-w-0 flex-1 items-center gap-3"
+      >
       <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
         <Route className="size-5" />
       </span>
@@ -1327,6 +1332,7 @@ function TripRow({
           )}
         </div>
       </div>
+      </Link>
       <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
         {trip.status === "COMPLETED" && (
           <TripCompletedStats

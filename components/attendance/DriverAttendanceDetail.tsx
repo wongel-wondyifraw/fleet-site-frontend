@@ -22,6 +22,7 @@ import {
   Calendar,
   CheckCircle,
   ChevronDown,
+  ChevronRight,
   Clock,
   Coffee,
   LogIn,
@@ -819,9 +820,21 @@ function DriverHeaderCard({
               <p className="font-label-caps text-[10px] tracking-wide text-muted-foreground uppercase">
                 Driver
               </p>
-              <h2 className="truncate text-xl font-semibold text-primary">
-                {fullName || "Unnamed driver"}
-              </h2>
+              <Link
+                href={`/dashboard/drivers/${driver.id}`}
+                className="group/name inline-flex max-w-full items-center gap-1"
+              >
+                <h2 className="truncate text-xl font-semibold text-primary group-hover/name:underline">
+                  {fullName || "Unnamed driver"}
+                </h2>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/name:opacity-100" />
+              </Link>
+              <Link
+                href={`/dashboard/drivers/${driver.id}`}
+                className="mt-0.5 inline-flex text-[11px] font-semibold text-primary/70 hover:text-primary"
+              >
+                View driver profile
+              </Link>
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span className="font-mono">{driver.employeeId}</span>
                 {driver.homeSite && (

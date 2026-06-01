@@ -19,6 +19,7 @@ import {
   UserPlus,
   UserRound,
 } from "@/lib/icons";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -466,6 +467,10 @@ function DriverRow({
         density === "compact" ? "p-3" : "p-4",
       )}
     >
+      <Link
+        href={`/dashboard/drivers/${driver.id}`}
+        className="flex min-w-0 flex-1 items-center gap-3"
+      >
       <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
         <UserRound className="size-5" />
       </span>
@@ -528,6 +533,7 @@ function DriverRow({
           )}
         </div>
       </div>
+      </Link>
       <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
