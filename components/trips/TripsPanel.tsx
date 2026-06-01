@@ -48,6 +48,7 @@ import {
   createTrip,
   deleteTrip,
   listTrips,
+  listTripsPage,
   setTripStatus,
   updateTrip,
   type CreateTripRequest,
@@ -56,13 +57,8 @@ import { listCustomTripRoutes } from "@/lib/api/customTripRoutes";
 import { listSites } from "@/lib/api/sites";
 import {
   clearTripTargetOverride,
-  getEffectiveTripTarget,
   setTripTargetOverride,
 } from "@/lib/api/tripTargets";
-import {
-  fetchDrivingDistance,
-  geocodeAddress,
-} from "@/lib/locationiq/directions";
 import { formatDateTime } from "@/lib/time/format";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { useToast } from "@/lib/toast/ToastContext";
@@ -98,6 +94,7 @@ import {
   type TripGroup,
   type TripsPanelMode as Mode,
 } from "@/lib/trips/tripFormState";
+import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
 const TripForm = dynamic(
@@ -151,46 +148,11 @@ export function TripsPanel({
     null,
   );
   const [isSavingTarget, setIsSavingTarget] = useState(false);
+  const [inProgressDriverIds, setInProgressDriverIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const { showToast } = useToast();
-
-  const refresh = useCallback(async () => {
-    setIsLoading(true);
-    setLoadError(null);
-    try {
-      const [t, v, d, s, r] = await Promise.all([
-        listTrips(),
-        listVehicles(),
-        listDrivers().catch((err) => {
-          if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
-          throw err;
-        }),
-        listSites().catch((err) => {
-          if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
-          throw err;
-        }),
-        listCustomTripRoutes().catch((err) => {
-          if (err instanceof ApiError && err.isAuth)
-            return [] as ApiCustomTripRoute[];
-          throw err;
-        }),
-      ]);
-      setTrips(t);
-      setVehicles(v);
-      setDrivers(d);
-      setSites(s);
-      setCustomRoutes(r);
-    } catch (err) {
-      setLoadError(
-        err instanceof ApiError ? err.message : "Unable to load trips.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const { settings: timeSettings } = useTimeSettings();
 
   const vehicleById = useMemo(() => {
     const map = new Map<string, ApiVehicle>();
@@ -209,12 +171,12 @@ export function TripsPanel({
   // the operator can't pile on additional work while someone is still
   // on the road. Mirrors the backend rule in TripService.create.
   const busyDriverIds = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set(inProgressDriverIds);
     for (const t of trips) {
       if (t.status === "IN_PROGRESS" && t.driverId) set.add(t.driverId);
     }
     return set;
-  }, [trips]);
+  }, [trips, inProgressDriverIds]);
 
   // Resolve the date the active date tab is asking us to match. Computed
   // up front so the filter loop doesn't recreate `Date` objects per row.
@@ -228,17 +190,65 @@ export function TripsPanel({
     return customDate;
   }, [dateFilter, customDate]);
 
+  const refresh = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const [tripsPage, v, d, s, r, inProgressTrips] = await Promise.all([
+        listTripsPage({
+          date: targetDateKey,
+          timezone: timeSettings.timezone,
+          includeTarget: true,
+          limit: 100,
+        }),
+        listVehicles(),
+        listDrivers().catch((err) => {
+          if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
+          throw err;
+        }),
+        listSites().catch((err) => {
+          if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
+          throw err;
+        }),
+        listCustomTripRoutes().catch((err) => {
+          if (err instanceof ApiError && err.isAuth)
+            return [] as ApiCustomTripRoute[];
+          throw err;
+        }),
+        listTrips({ status: "IN_PROGRESS" }).catch(() => [] as ApiTrip[]),
+      ]);
+      setTrips(tripsPage.data);
+      if (tripsPage.meta?.targetForDate) {
+        setTargetState(tripsPage.meta.targetForDate);
+      }
+      setVehicles(v);
+      setDrivers(d);
+      setSites(s);
+      setCustomRoutes(r);
+      const busy = new Set<string>();
+      for (const trip of inProgressTrips) {
+        if (trip.driverId) busy.add(trip.driverId);
+      }
+      setInProgressDriverIds(busy);
+    } catch (err) {
+      setLoadError(
+        err instanceof ApiError ? err.message : "Unable to load trips.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [targetDateKey, timeSettings.timezone]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
   const filteredTrips = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return trips.filter((t) => {
       if (statusFilter !== "ALL" && t.status !== statusFilter) return false;
       if (vehicleFilter !== "ALL" && t.vehicleId !== vehicleFilter)
         return false;
-      const tripDate = getTripEffectiveDate(t);
-      // Trips with no usable timestamp can't match any specific date,
-      // so they fall out of the filtered list while a date tab is on.
-      if (!tripDate) return false;
-      if (toLocalDateKey(tripDate) !== targetDateKey) return false;
       if (!q) return true;
       // Resolve nested summaries first, then fall back to the locally
       // looked-up records so the search works whether the API returned
@@ -267,7 +277,6 @@ export function TripsPanel({
     trips,
     statusFilter,
     vehicleFilter,
-    targetDateKey,
     searchQuery,
     vehicleById,
     driverById,
@@ -292,43 +301,6 @@ export function TripsPanel({
       return next;
     });
   }
-
-  // Refresh the effective target whenever the active date changes. We
-  // intentionally don't bind it to `targetState` so a fresh fetch can
-  // overwrite an earlier optimistic save without looping. AbortController
-  // protects against the user flipping tabs faster than the API responds.
-  useEffect(() => {
-    const controller = new AbortController();
-    let cancelled = false;
-    (async () => {
-      try {
-        const next = await getEffectiveTripTarget(
-          targetDateKey,
-          controller.signal,
-        );
-        if (!cancelled) setTargetState(next);
-      } catch (err) {
-        // Auth bounces and aborts are expected when navigating; swallow
-        // those so the trips panel still renders. Anything else surfaces
-        // as a toast since the donut quietly degrades to "no target".
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        if (err instanceof ApiError && err.isAuth) return;
-        if (!cancelled) {
-          showToast({
-            variant: "error",
-            message:
-              err instanceof ApiError
-                ? err.message
-                : "Unable to load daily trip target.",
-          });
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [targetDateKey, showToast]);
 
   async function handleSaveTarget(nextCount: number) {
     if (!Number.isFinite(nextCount) || nextCount < 0) return;
@@ -717,13 +689,17 @@ export function TripsPanel({
           </div>
         )
       ) : (
-        <div className="space-y-2">
-          {groupedTrips.map((group) => {
+        <div className="space-y-2 fs-content-fade">
+          {groupedTrips.map((group, index) => {
             if (group.trips.length === 1) {
               const trip = group.trips[0];
               return (
-                <TripRow
+                <div
                   key={trip.id}
+                  className="fs-row-in"
+                  style={staggerStyle(index)}
+                >
+                <TripRow
                   trip={trip}
                   vehicle={trip.vehicle ?? vehicleById.get(trip.vehicleId) ?? null}
                   driver={
@@ -741,12 +717,17 @@ export function TripsPanel({
                     handleStatusChange(trip, next, options)
                   }
                 />
+                </div>
               );
             }
 
             return (
-              <TripGroupCard
+              <div
                 key={group.key}
+                className="fs-row-in"
+                style={staggerStyle(index)}
+              >
+              <TripGroupCard
                 groupKey={group.key}
                 trips={group.trips}
                 driver={
@@ -775,6 +756,7 @@ export function TripsPanel({
                   handleStatusChange(trip, next, options)
                 }
               />
+              </div>
             );
           })}
         </div>
@@ -1174,128 +1156,44 @@ function TripRow({
     if (typeof trip.distanceKm === "number") return trip.distanceKm;
     return trip.status === "COMPLETED" ? getTripDistanceKm(trip) : null;
   });
-  const [isDistanceLoading, setIsDistanceLoading] = useState(false);
-
   useEffect(() => {
-    let cancelled = false;
-    const abort = new AbortController();
-
-    async function compute() {
-      if (trip.status !== "COMPLETED") {
-        if (!cancelled) setDistanceKm(null);
-        return;
-      }
-
-      // A matching Custom Trip Route always wins â€” its distance is
-      // authoritative and we don't want a stale persisted value
-      // displayed when we have a known-good admin-entered figure.
-      if (matchedCustomRoute) {
-        if (!cancelled)
-          setDistanceKm(customRouteDistanceKm(trip, matchedCustomRoute));
-        return;
-      }
-
-      // Trust the persisted distance if the server provided it.
-      if (typeof trip.distanceKm === "number") {
-        if (!cancelled) setDistanceKm(trip.distanceKm);
-        return;
-      }
-
-      const hasStartCoords =
-        typeof trip.startLat === "number" && typeof trip.startLon === "number";
-      const hasEndCoords =
-        typeof trip.endLat === "number" && typeof trip.endLon === "number";
-
-      const straightKm =
-        hasStartCoords && hasEndCoords
-          ? haversineKm(
-              trip.startLat as number,
-              trip.startLon as number,
-              trip.endLat as number,
-              trip.endLon as number,
-            )
-          : null;
-
-      if (!cancelled) setDistanceKm(straightKm);
-      if (abort.signal.aborted) return;
-
-      // If we don't have a complete coordinate pair, try geocoding the
-      // saved start/end addresses to recover lat/lon.
-      const startQuery = formatLocationLine(
-        trip.startAddress,
-        trip.startCity ?? null,
-        trip.startState ?? null,
-      );
-      const endQuery = formatLocationLine(
-        trip.endAddress,
-        trip.endCity ?? null,
-        trip.endState ?? null,
-      );
-
-      setIsDistanceLoading(true);
-      try {
-        const start =
-          hasStartCoords && trip.startLat !== null && trip.startLon !== null
-            ? { lat: trip.startLat as number, lon: trip.startLon as number }
-            : await geocodeAddress(startQuery, abort.signal);
-
-        const end =
-          hasEndCoords && trip.endLat !== null && trip.endLon !== null
-            ? { lat: trip.endLat as number, lon: trip.endLon as number }
-            : await geocodeAddress(endQuery, abort.signal);
-
-        if (!start || !end) return;
-
-        const oneWayStraight = haversineKm(
-          start.lat,
-          start.lon,
-          end.lat,
-          end.lon,
-        );
-        if (!cancelled && !abort.signal.aborted) {
-          setDistanceKm(trip.isRoundTrip ? oneWayStraight * 2 : oneWayStraight);
-        }
-
-        const driving = await fetchDrivingDistance(
-          start.lat,
-          start.lon,
-          end.lat,
-          end.lon,
-          abort.signal,
-          trip.isRoundTrip ?? false,
-        );
-
-        if (!driving) return;
-        if (cancelled || abort.signal.aborted) return;
-        setDistanceKm(driving.distanceKm);
-      } finally {
-        if (!cancelled) setIsDistanceLoading(false);
-      }
+    if (trip.status !== "COMPLETED") {
+      setDistanceKm(null);
+      return;
     }
-
-    compute();
-
-    return () => {
-      cancelled = true;
-      abort.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (matchedCustomRoute) {
+      setDistanceKm(customRouteDistanceKm(trip, matchedCustomRoute));
+      return;
+    }
+    if (typeof trip.distanceKm === "number") {
+      setDistanceKm(trip.distanceKm);
+      return;
+    }
+    const hasStartCoords =
+      typeof trip.startLat === "number" && typeof trip.startLon === "number";
+    const hasEndCoords =
+      typeof trip.endLat === "number" && typeof trip.endLon === "number";
+    if (hasStartCoords && hasEndCoords) {
+      const straight = haversineKm(
+        trip.startLat as number,
+        trip.startLon as number,
+        trip.endLat as number,
+        trip.endLon as number,
+      );
+      setDistanceKm(trip.isRoundTrip ? straight * 2 : straight);
+      return;
+    }
+    setDistanceKm(null);
   }, [
+    trip,
+    matchedCustomRoute,
     trip.status,
-    trip.id,
     trip.distanceKm,
     trip.startLat,
     trip.startLon,
     trip.endLat,
     trip.endLon,
-    trip.startAddress,
-    trip.startCity,
-    trip.startState,
-    trip.endAddress,
-    trip.endCity,
-    trip.endState,
     trip.isRoundTrip,
-    matchedCustomRoute,
   ]);
 
   // A PLANNED trip whose effective date has slipped past today (the
@@ -1407,7 +1305,6 @@ function TripRow({
           <TripCompletedStats
             durationMs={elapsedMs}
             distanceKm={distanceKm}
-            isDistanceLoading={isDistanceLoading}
             startedAt={trip.startedAt}
             completedAt={trip.completedAt}
           />
@@ -1548,22 +1445,16 @@ function TripActionButton({
 function TripCompletedStats({
   durationMs,
   distanceKm,
-  isDistanceLoading,
   startedAt,
   completedAt,
 }: {
   durationMs: number | null;
   distanceKm: number | null;
-  isDistanceLoading?: boolean;
   startedAt?: string | null;
   completedAt?: string | null;
 }) {
   const distanceLabel =
-    distanceKm !== null
-      ? formatDistance(distanceKm)
-      : isDistanceLoading
-        ? "â€¦"
-        : "â€”";
+    distanceKm !== null ? formatDistance(distanceKm) : "—";
 
   return (
     <div className="mr-auto flex min-w-[170px] flex-col divide-y divide-slate-200/70 sm:mr-10">

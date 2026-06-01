@@ -9,7 +9,7 @@ import { VehiclesPanel } from "@/components/vehicles/VehiclesPanel";
 // used by the mobile Settings page so the navigation feels uniform.
 export function MobileVehicleRegistry() {
   return (
-    <div className="space-y-5 lg:hidden">
+    <div className="space-y-5 lg:hidden fs-panel-in">
       <header>
         <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
           Fleet

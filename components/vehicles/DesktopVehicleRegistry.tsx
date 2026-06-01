@@ -9,7 +9,7 @@ import { VehiclesPanel } from "@/components/vehicles/VehiclesPanel";
 // Settings desktop view: page header on top, card-shaped panel below.
 export function DesktopVehicleRegistry() {
   return (
-    <div className="hidden lg:block">
+    <div className="hidden lg:block fs-panel-in">
       <header className="mb-8">
         <p className="text-[11px] font-bold tracking-widest text-dashboard-on-surface-variant uppercase">
           Fleet

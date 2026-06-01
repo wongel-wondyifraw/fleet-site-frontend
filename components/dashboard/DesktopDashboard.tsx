@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 
 export function DesktopDashboard() {
   return (
-    <div className="hidden lg:block">
+    <div className="hidden lg:block fs-panel-in">
       <PageIntro />
     </div>
   );

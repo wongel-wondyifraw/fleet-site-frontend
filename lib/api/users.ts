@@ -1,5 +1,7 @@
 // API wrappers for the /users resource on the backend.
 import { apiRequest } from "@/lib/api/client";
+import type { PageResponse } from "@/lib/api/pagination";
+import { fetchAllPages } from "@/lib/api/pagination";
 import type { ApiUser, UserRole } from "@/lib/api/types";
 
 // Body for POST /users when creating a new account from the admin UI.
@@ -31,19 +33,35 @@ export interface ListUsersQuery {
   siteId?: string;
   isActive?: boolean;
   search?: string;
+  expand?: string;
+  limit?: number;
+  cursor?: string;
 }
 
-// GET /users with optional filters appended as querystring.
-export async function listUsers(query: ListUsersQuery = {}): Promise<ApiUser[]> {
-  // Build a clean querystring, dropping undefined fields so the URL stays tidy.
+function buildUsersQuery(query: ListUsersQuery): string {
   const params = new URLSearchParams();
   if (query.role) params.set("role", query.role);
   if (query.siteId) params.set("siteId", query.siteId);
   if (typeof query.isActive === "boolean")
     params.set("isActive", String(query.isActive));
   if (query.search) params.set("search", query.search);
+  if (query.expand) params.set("expand", query.expand);
+  if (query.limit) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
   const qs = params.toString();
-  return apiRequest<ApiUser[]>(`/users${qs ? `?${qs}` : ""}`);
+  return qs ? `?${qs}` : "";
+}
+
+export async function listUsersPage(
+  query: ListUsersQuery = {},
+): Promise<PageResponse<ApiUser>> {
+  return apiRequest<PageResponse<ApiUser>>(`/users${buildUsersQuery(query)}`);
+}
+
+export async function listUsers(query: ListUsersQuery = {}): Promise<ApiUser[]> {
+  return fetchAllPages((cursor) =>
+    listUsersPage({ ...query, cursor, limit: query.limit ?? 100 }),
+  );
 }
 
 // GET /users/:id - fetch a single user with site assignments eager-loaded.

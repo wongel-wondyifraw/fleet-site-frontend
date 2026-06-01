@@ -14,7 +14,7 @@
 //   4. Performance line chart (days × worked hours)
 //   5. Day-by-day breakdown list
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import {
   AlertTriangle,
@@ -50,6 +50,7 @@ import type {
   AttendancePunchType,
 } from "@/lib/api/types";
 import { DEFAULT_TARGET_HOURS } from "@/lib/attendance-targets";
+import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
 // Status pill palette. Restricted to the blue / green / red family the
@@ -542,7 +543,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
   }, [isLoading, rangePreset]);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 fs-panel-in">
       <Link
         href="/dashboard/attendance"
         className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary"
@@ -737,16 +738,18 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
             them.
           </p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-2 fs-content-fade">
             {[...days]
               .sort((a, b) => (a.date < b.date ? 1 : -1))
-              .map((day) => (
+              .map((day, index) => (
                 <DayRow
                   key={day.id}
                   day={day}
                   hours={computeWorkedHours(day)}
                   targetHours={targetHours}
                   lateAfterMinutes={timeStringToMinutes(lateAfter)}
+                  className="fs-row-in"
+                  style={staggerStyle(index)}
                 />
               ))}
           </ul>
@@ -1387,11 +1390,15 @@ function DayRow({
   hours,
   targetHours,
   lateAfterMinutes,
+  className,
+  style,
 }: {
   day: ApiAttendanceDay;
   hours: number;
   targetHours: number;
   lateAfterMinutes: number | null;
+  className?: string;
+  style?: CSSProperties;
 }) {
   const { settings } = useTimeSettings();
   const [expanded, setExpanded] = useState(false);
@@ -1416,11 +1423,13 @@ function DayRow({
 
   return (
     <li
+      style={style}
       className={cn(
         "overflow-hidden rounded-xl border bg-slate-50/50 transition-colors",
         expanded
           ? "border-primary/20 ring-1 ring-primary/10"
           : "border-slate-100",
+        className,
       )}
     >
       <button

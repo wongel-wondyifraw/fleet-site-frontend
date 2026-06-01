@@ -22,8 +22,9 @@ export function DashboardAuthGate({ children }: { children: ReactNode }) {
     }
   }, [isLoading, isAuthenticated, router]);
 
-  // While bootstrapping the auth state, render a centered spinner.
-  if (isLoading) {
+  // Block only when we have no cached user to show. If localStorage already
+  // hydrated a profile, render the dashboard while /auth/me reconciles.
+  if (isLoading && !isAuthenticated) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-background">
         <Loader2 className="size-6 animate-spin text-primary" />

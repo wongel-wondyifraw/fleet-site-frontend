@@ -9,7 +9,7 @@ import { SettingsSection } from "@/components/settings/SettingsShared";
 // used by the mobile Vehicle Registry so the navigation feels uniform.
 export function MobileDriversManagement() {
   return (
-    <div className="space-y-5 lg:hidden">
+    <div className="space-y-5 lg:hidden fs-panel-in">
       <header>
         <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
           Fleet

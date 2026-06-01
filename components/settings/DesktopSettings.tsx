@@ -149,7 +149,7 @@ export function DesktopSettings() {
     visibleSections.find((s) => s.id === active) ?? visibleSections[0];
 
   return (
-    <div className="hidden lg:block">
+    <div className="hidden lg:block fs-panel-in">
       <header className="mb-8">
         <p className="text-[11px] font-bold tracking-widest text-dashboard-on-surface-variant uppercase">
           Account

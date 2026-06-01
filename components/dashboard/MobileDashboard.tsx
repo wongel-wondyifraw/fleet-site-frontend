@@ -11,6 +11,7 @@ import {
 } from "@/lib/icons";
 
 import { Button } from "@/components/ui/button";
+import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
 const ACTIVITY_ITEMS = [
@@ -42,13 +43,16 @@ const ACTIVITY_ITEMS = [
 
 export function MobileDashboard() {
   return (
-    <div className="lg:hidden">
+    <div className="lg:hidden fs-panel-in">
       <div className="mb-5">
         <h1 className="text-lg font-semibold text-primary">Dashboard</h1>
       </div>
 
       <section className="mb-5 grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+        <div
+          className="fs-card-in rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5"
+          style={staggerStyle(0)}
+        >
           <span className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
             Active Vehicles
           </span>
@@ -59,7 +63,10 @@ export function MobileDashboard() {
             </span>
           </div>
         </div>
-        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+        <div
+          className="fs-card-in rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5"
+          style={staggerStyle(1)}
+        >
           <span className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
             Open Issues
           </span>
@@ -73,7 +80,10 @@ export function MobileDashboard() {
       </section>
 
       <section className="mb-5">
-        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+        <div
+          className="fs-card-in rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5"
+          style={staggerStyle(2)}
+        >
           <div className="mb-2 flex items-start justify-between gap-2">
             <h2 className="text-base font-semibold text-primary">
               Safety Protocol
@@ -118,10 +128,11 @@ export function MobileDashboard() {
           </button>
         </div>
         <div className="space-y-2">
-          {ACTIVITY_ITEMS.map((item) => (
+          {ACTIVITY_ITEMS.map((item, index) => (
             <div
               key={item.title}
-              className="flex items-center gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-black/5"
+              className="fs-row-in flex items-center gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-black/5"
+              style={staggerStyle(index + 3)}
             >
               <span
                 className={cn(

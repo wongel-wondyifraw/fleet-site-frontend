@@ -49,6 +49,7 @@ import {
   listVehicles,
   type CreateVehicleRequest,
 } from "@/lib/api/vehicles";
+import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
 // Tailwind color tokens for the vehicle status pill, kept in one place so
@@ -281,10 +282,14 @@ export function VehiclesPanel({
           </div>
         )
       ) : (
-        <div className="space-y-2">
-          {filteredVehicles.map((vehicle) => (
-            <VehicleRow
+        <div className="space-y-2 fs-content-fade">
+          {filteredVehicles.map((vehicle, index) => (
+            <div
               key={vehicle.id}
+              className="fs-row-in"
+              style={staggerStyle(index)}
+            >
+            <VehicleRow
               vehicle={vehicle}
               driver={driverByVehicleId.get(vehicle.id) ?? null}
               site={
@@ -295,6 +300,7 @@ export function VehiclesPanel({
               density={density}
               onDelete={() => setPendingDelete(vehicle)}
             />
+            </div>
           ))}
         </div>
       )}

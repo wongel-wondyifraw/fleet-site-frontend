@@ -193,7 +193,7 @@ export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
 
   // ---- View mode ----------------------------------------------------------
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 fs-panel-in">
       <BackLink />
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

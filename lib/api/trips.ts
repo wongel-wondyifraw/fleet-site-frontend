@@ -1,6 +1,12 @@
 // API wrappers for the /trips resource. Used by the Trip Management page.
 import { apiRequest } from "@/lib/api/client";
-import type { ApiTrip, TripStatus } from "@/lib/api/types";
+import type { PageResponse } from "@/lib/api/pagination";
+import { fetchAllPages } from "@/lib/api/pagination";
+import type {
+  ApiTrip,
+  ApiTripTargetEffective,
+  TripStatus,
+} from "@/lib/api/types";
 
 export interface CreateTripRequest {
   vehicleId: string;
@@ -17,8 +23,6 @@ export interface CreateTripRequest {
   endLat?: number;
   endLon?: number;
   scheduledAt?: string;
-  // When true, the trip is a round trip and the client computes
-  // distance as A → B → A (or via OSRM with the return waypoint).
   isRoundTrip?: boolean;
   notes?: string;
 }
@@ -33,17 +37,49 @@ export interface ListTripsQuery {
   vehicleId?: string;
   driverId?: string;
   status?: TripStatus;
+  /** YYYY-MM-DD effective trip date (single day). */
+  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  timezone?: string;
+  includeTarget?: boolean;
+  limit?: number;
+  cursor?: string;
 }
 
-export async function listTrips(
-  query: ListTripsQuery = {},
-): Promise<ApiTrip[]> {
+export interface TripsListMeta {
+  targetForDate?: ApiTripTargetEffective;
+}
+
+export type TripsPageResponse = PageResponse<ApiTrip, TripsListMeta>;
+
+function buildTripsQuery(query: ListTripsQuery): string {
   const params = new URLSearchParams();
   if (query.vehicleId) params.set("vehicleId", query.vehicleId);
   if (query.driverId) params.set("driverId", query.driverId);
   if (query.status) params.set("status", query.status);
+  if (query.date) params.set("date", query.date);
+  if (query.dateFrom) params.set("dateFrom", query.dateFrom);
+  if (query.dateTo) params.set("dateTo", query.dateTo);
+  if (query.timezone) params.set("timezone", query.timezone);
+  if (query.includeTarget) params.set("includeTarget", "true");
+  if (query.limit) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
   const qs = params.toString();
-  return apiRequest<ApiTrip[]>(`/trips${qs ? `?${qs}` : ""}`);
+  return qs ? `?${qs}` : "";
+}
+
+export async function listTripsPage(
+  query: ListTripsQuery = {},
+): Promise<TripsPageResponse> {
+  return apiRequest<TripsPageResponse>(`/trips${buildTripsQuery(query)}`);
+}
+
+/** Loads all pages for the given query (use scoped date/status filters). */
+export async function listTrips(query: ListTripsQuery = {}): Promise<ApiTrip[]> {
+  return fetchAllPages<ApiTrip, TripsListMeta>((cursor) =>
+    listTripsPage({ ...query, cursor, limit: query.limit ?? 100 }),
+  );
 }
 
 export async function getTrip(id: string): Promise<ApiTrip> {
@@ -65,14 +101,6 @@ export async function deleteTrip(id: string): Promise<void> {
   return apiRequest<void>(`/trips/${id}`, { method: "DELETE" });
 }
 
-// PATCH /trips/:id/status — used by the row action buttons (Trip Checkout /
-// Check-in / Cancel). Lives separate from updateTrip so the start/complete
-// timestamp side-effects are explicit.
-//
-// On the COMPLETED transition the caller may pass `distanceKm` — the
-// driving distance computed client-side via the LocationIQ Directions
-// API. The backend persists it so subsequent list responses can render
-// the final number without recomputing.
 export async function setTripStatus(
   id: string,
   status: TripStatus,

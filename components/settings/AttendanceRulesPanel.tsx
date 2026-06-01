@@ -194,7 +194,7 @@ export function AttendanceRulesPanel({
   const timeFormat = timeSettings.timeFormat;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 fs-panel-in">
       <p className="text-sm text-muted-foreground">
         Configure the expected daily schedule and working-hours target used by
         the attendance roster and driver detail pages.

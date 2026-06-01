@@ -47,40 +47,35 @@ export function TimeSettingsPanel({
   density?: "comfortable" | "compact";
 }) {
   const { showToast } = useToast();
-  const { setSettings: applyGlobal } = useTimeSettings();
-  const [draft, setDraft] = useState<ApiTimeSettings>({
-    timezone: DEFAULT_TIMEZONE,
-    timeFormat: DEFAULT_TIME_FORMAT,
-  });
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    settings: globalSettings,
+    isLoading: isGlobalLoading,
+    setSettings: applyGlobal,
+    refresh: refreshGlobal,
+  } = useTimeSettings();
+  const [draft, setDraft] = useState<ApiTimeSettings>(globalSettings);
+  const [isLoading, setIsLoading] = useState(isGlobalLoading);
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setDraft(globalSettings);
+    setIsLoading(isGlobalLoading);
+  }, [globalSettings, isGlobalLoading]);
+
   const refresh = useCallback(async () => {
-    setIsLoading(true);
     setLoadError(null);
     try {
-      const settings = await getTimeSettings();
-      setDraft(settings);
-      applyGlobal(settings);
+      await refreshGlobal();
     } catch (err) {
       setLoadError(
         err instanceof ApiError
           ? err.message
           : "Unable to load time settings.",
       );
-    } finally {
-      setIsLoading(false);
     }
-  }, [applyGlobal]);
-
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      void refresh();
-    }, 0);
-    return () => window.clearTimeout(t);
-  }, [refresh]);
+  }, [refreshGlobal]);
 
   function updateField<K extends keyof ApiTimeSettings>(
     key: K,
@@ -151,7 +146,7 @@ export function TimeSettingsPanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 fs-panel-in">
       <p className="text-sm text-muted-foreground">
         Choose the application timezone and how times are displayed across the
         dashboard. These settings apply globally to all users.
