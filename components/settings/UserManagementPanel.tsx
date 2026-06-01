@@ -20,6 +20,7 @@ import {
   X,
 } from "@/lib/icons";
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import {
   useCallback,
   useEffect,
@@ -47,6 +48,7 @@ import {
   type CreateUserRequest,
 } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
 // Color tokens for the role pill - kept in one place so the UI stays consistent.
@@ -86,7 +88,10 @@ export function UserManagementPanel({
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [u, s] = await Promise.all([listUsers(), listSites()]);
+      const [u, s] = await Promise.all([
+        listUsers({ expand: "sites" }),
+        listSites(),
+      ]);
       setUsers(u);
       setSites(s);
     } catch (err) {
@@ -203,17 +208,19 @@ export function UserManagementPanel({
       ) : (
         // User list rendered as cards for visual consistency with SitesPanel.
         // Each row links to the detail page so admins can open + edit a user.
-        <ul className={cn("space-y-2", density === "compact" && "space-y-1.5")}>
-          {filteredUsers.map((u) => (
+        <div className={cn("space-y-2 fs-content-fade", density === "compact" && "space-y-1.5")}>
+          {filteredUsers.map((u, index) => (
             <UserRow
               key={u.id}
               user={u}
               isSelf={u.id === currentUser?.id}
               onDeactivate={() => requestDeactivate(u)}
               density={density}
+              className="fs-row-in"
+              style={staggerStyle(index)}
             />
           ))}
-        </ul>
+        </div>
       )}
 
       <ConfirmDialog
@@ -252,11 +259,15 @@ function UserRow({
   isSelf,
   onDeactivate,
   density,
+  className,
+  style,
 }: {
   user: ApiUser;
   isSelf: boolean;
   onDeactivate: () => void;
   density: "comfortable" | "compact";
+  className?: string;
+  style?: CSSProperties;
 }) {
   function handleDeactivateClick(e: MouseEvent<HTMLButtonElement>) {
     // Prevent the parent Link from intercepting the click.
@@ -266,14 +277,15 @@ function UserRow({
   }
 
   return (
-    <li>
       <Link
         href={`/dashboard/users/${user.id}`}
         aria-label={`Open ${user.firstName} ${user.lastName} details`}
+        style={style}
         className={cn(
           "group flex flex-col gap-3 rounded-xl border border-slate-100 bg-white p-3 transition-colors hover:border-primary/30 hover:bg-slate-50/60 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:flex-row sm:items-center sm:justify-between",
           density === "compact" && "p-2.5",
           !user.isActive && "opacity-60",
+          className,
         )}
       >
         <div className="flex min-w-0 items-center gap-3">
@@ -334,7 +346,6 @@ function UserRow({
           <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
         </div>
       </Link>
-    </li>
   );
 }
 

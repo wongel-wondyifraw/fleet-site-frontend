@@ -7,7 +7,7 @@ import { TripsPanel } from "@/components/trips/TripsPanel";
 
 export function DesktopTripManagement() {
   return (
-    <div className="hidden lg:block">
+    <div className="hidden lg:block fs-panel-in">
       <header className="mb-8">
         <p className="text-[11px] font-bold tracking-widest text-dashboard-on-surface-variant uppercase">
           Fleet

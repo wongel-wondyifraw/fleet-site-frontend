@@ -50,6 +50,7 @@ import {
   type DriverStatus,
 } from "@/lib/api/types";
 import { driverSiteName } from "@/lib/drivers/resolveDriverSite";
+import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
 // Tailwind classes for the driver status pill, kept in one place so colors
@@ -362,10 +363,14 @@ export function DriversPanel({
           </div>
         )
       ) : (
-        <div className="space-y-2">
-          {filteredDrivers.map((driver) => (
-            <DriverRow
+        <div className="space-y-2 fs-content-fade">
+          {filteredDrivers.map((driver, index) => (
+            <div
               key={driver.id}
+              className="fs-row-in"
+              style={staggerStyle(index)}
+            >
+            <DriverRow
               driver={driver}
               vehicle={
                 driver.assignedVehicleId
@@ -377,6 +382,7 @@ export function DriversPanel({
               onEdit={() => setMode({ kind: "edit", driver })}
               onDelete={() => setPendingDelete(driver)}
             />
+            </div>
           ))}
         </div>
       )}

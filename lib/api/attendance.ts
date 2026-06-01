@@ -35,6 +35,26 @@ export async function listAttendanceRoster(
   );
 }
 
+export interface ListAttendanceRosterBulkQuery {
+  date: string;
+  siteIds: string[];
+  status?: AttendanceDayStatus;
+  search?: string;
+}
+
+export async function listAttendanceRosterBulk(
+  query: ListAttendanceRosterBulkQuery,
+): Promise<{ bySite: Record<string, ApiAttendanceDay[]> }> {
+  const params = new URLSearchParams();
+  params.set("date", query.date);
+  params.set("siteIds", query.siteIds.join(","));
+  if (query.status) params.set("status", query.status);
+  if (query.search) params.set("search", query.search);
+  return apiRequest<{ bySite: Record<string, ApiAttendanceDay[]> }>(
+    `/attendance/roster/bulk?${params.toString()}`,
+  );
+}
+
 // Body for POST /attendance/days/:dayId/punches. `at` is optional — when
 // omitted the backend stamps `new Date()` so the typical "punch now" flow
 // doesn't need to send a timestamp. `odometer` (in kilometres) is captured

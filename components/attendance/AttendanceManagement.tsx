@@ -16,6 +16,9 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { staggerStyle } from "@/lib/animations";
+import { DESKTOP_MEDIA_QUERY, useMediaQuery } from "@/lib/hooks/useMediaQuery";
+
 import { AttendanceDateFilterMenu } from "@/components/attendance/AttendanceDateFilterMenu";
 import { AttendanceDateTabs } from "@/components/attendance/AttendanceDateTabs";
 import { DriverAttendanceRow } from "@/components/attendance/DriverAttendanceRow";
@@ -35,6 +38,7 @@ import {
   createAttendancePunch,
   deleteAttendancePunch,
   listAttendanceRoster,
+  listAttendanceRosterBulk,
   updateAttendancePunch,
 } from "@/lib/api/attendance";
 import { getAttendanceRules } from "@/lib/api/attendanceRules";
@@ -294,20 +298,18 @@ function AttendancePanel({
       setLoadError(null);
       setSiteMessage(null);
       try {
-        const results = await Promise.all(
-          sortedSites.map((site) =>
-            listAttendanceRoster({
-              date: targetDateKey,
-              siteId: site.id,
-              status: statusFilter === "ALL" ? undefined : statusFilter,
-              search: searchQuery.trim() || undefined,
-            }).catch((err) => {
-              if (err instanceof ApiError && err.isAuth) return [] as ApiAttendanceDay[];
-              throw err;
-            }),
-          ),
-        );
-        setRosterDays(results.flat());
+        const bulk = await listAttendanceRosterBulk({
+          date: targetDateKey,
+          siteIds: sortedSites.map((site) => site.id),
+          status: statusFilter === "ALL" ? undefined : statusFilter,
+          search: searchQuery.trim() || undefined,
+        }).catch((err) => {
+          if (err instanceof ApiError && err.isAuth) {
+            return { bySite: {} as Record<string, ApiAttendanceDay[]> };
+          }
+          throw err;
+        });
+        setRosterDays(Object.values(bulk.bySite).flat());
       } catch (err) {
         setLoadError(
           err instanceof ApiError ? err.message : "Unable to load attendance roster.",
@@ -651,10 +653,14 @@ function AttendancePanel({
           </p>
         </div>
       ) : (
-        <div className="grid gap-2">
-          {rosterDays.map((day) => (
-            <DriverAttendanceRow
+        <div className="grid gap-2 fs-content-fade">
+          {rosterDays.map((day, index) => (
+            <div
               key={day.id}
+              className="fs-row-in"
+              style={staggerStyle(index)}
+            >
+            <DriverAttendanceRow
               day={day}
               dateKey={targetDateKey}
               targetHours={targetHours}
@@ -690,6 +696,7 @@ function AttendancePanel({
               isMutating={isMutating}
               timeSettings={timeSettings}
             />
+            </div>
           ))}
         </div>
       )}
@@ -775,7 +782,7 @@ function SiteTab({
 
 function DesktopAttendanceManagement() {
   return (
-    <div className="hidden lg:block">
+    <div className="hidden lg:block fs-panel-in">
       <header className="mb-8">
         <p className="text-[11px] font-bold tracking-widest text-dashboard-on-surface-variant uppercase">
           Fleet
@@ -800,7 +807,7 @@ function DesktopAttendanceManagement() {
 
 function MobileAttendanceManagement() {
   return (
-    <div className="space-y-5 lg:hidden">
+    <div className="space-y-5 lg:hidden fs-panel-in">
       <header>
         <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
           Fleet
@@ -822,10 +829,12 @@ function MobileAttendanceManagement() {
 }
 
 export function AttendanceManagement() {
-  return (
-    <>
-      <MobileAttendanceManagement />
-      <DesktopAttendanceManagement />
-    </>
+  const isDesktop = useMediaQuery(DESKTOP_MEDIA_QUERY);
+
+  if (isDesktop === null) return null;
+  return isDesktop ? (
+    <DesktopAttendanceManagement />
+  ) : (
+    <MobileAttendanceManagement />
   );
 }

@@ -43,6 +43,7 @@ import {
   type CreateCustomTripRouteRequest,
 } from "@/lib/api/customTripRoutes";
 import type { ApiCustomTripRoute } from "@/lib/api/types";
+import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
 // Shape of the controlled form state. City / state are intentionally
@@ -163,15 +164,20 @@ export function CustomTripRoutesPanel({
       ) : routes.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="space-y-2">
-          {routes.map((route) => (
-            <RouteRow
+        <div className="space-y-2 fs-content-fade">
+          {routes.map((route, index) => (
+            <div
               key={route.id}
+              className="fs-row-in"
+              style={staggerStyle(index)}
+            >
+            <RouteRow
               route={route}
               density={density}
               onEdit={() => setMode({ kind: "form", editing: route })}
               onDelete={() => setPendingDelete(route)}
             />
+            </div>
           ))}
         </div>
       )}

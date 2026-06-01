@@ -51,7 +51,7 @@ export function MobileSettings() {
     : "?";
 
   return (
-    <div className="space-y-5 lg:hidden">
+    <div className="space-y-5 lg:hidden fs-panel-in">
       <header>
         <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
           Account

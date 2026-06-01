@@ -57,6 +57,7 @@ import {
   type SiteType,
 } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
 // Re-export so any callers that imported these from SitesPanel keep working.
@@ -123,7 +124,7 @@ export function SitesPanel({
       // listUsers may 403 for non-admins; we tolerate that and just leave
       // the picker empty rather than failing the whole panel.
       const sitesPromise = listSites();
-      const usersPromise = listUsers().catch((err) => {
+      const usersPromise = listUsers({ expand: "sites" }).catch((err) => {
         if (err instanceof ApiError && err.isAuth) return [] as ApiUser[];
         throw err;
       });
@@ -169,7 +170,11 @@ export function SitesPanel({
       // assigned-sites list, so always refresh the auth context here.
       const affectsMe =
         !!currentUser &&
-        (target.users ?? []).some((u) => u.id === currentUser.id);
+        users.some(
+          (u) =>
+            u.id === currentUser.id &&
+            u.sites?.some((s) => s.id === target.id),
+        );
       await refresh();
       if (affectsMe) await refreshCurrentUser();
     } catch (err) {
@@ -194,7 +199,11 @@ export function SitesPanel({
       : undefined;
     const meWasAssignedBefore =
       !!previousSite &&
-      (previousSite.users ?? []).some((u) => u.id === currentUser.id);
+      users.some(
+        (u) =>
+          u.id === currentUser.id &&
+          u.sites?.some((s) => s.id === previousSite.id),
+      );
     // Reload /auth/me only when the current user's membership flipped (or for
     // a brand-new site that includes them) so we don't spam the endpoint.
     if (meIsAssignedNow || meWasAssignedBefore) {
@@ -238,15 +247,21 @@ export function SitesPanel({
       ) : sites.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="space-y-2">
-          {sites.map((site) => (
-            <SiteRow
+        <div className="space-y-2 fs-content-fade">
+          {sites.map((site, index) => (
+            <div
               key={site.id}
+              className="fs-row-in"
+              style={staggerStyle(index)}
+            >
+            <SiteRow
               site={site}
+              allUsers={users}
               density={density}
               onEdit={() => setMode({ kind: "form", editing: site })}
               onDelete={() => setPendingDelete(site)}
             />
+            </div>
           ))}
         </div>
       )}
@@ -280,16 +295,21 @@ export function SitesPanel({
 
 function SiteRow({
   site,
+  allUsers,
   density,
   onEdit,
   onDelete,
 }: {
   site: ApiSite;
+  allUsers: ApiUser[];
   density: "comfortable" | "compact";
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const assigneeCount = site.users?.length ?? 0;
+  const assignees = allUsers.filter((u) =>
+    u.sites?.some((s) => s.id === site.id),
+  );
+  const assigneeCount = assignees.length;
   return (
     <div
       className={cn(
@@ -321,7 +341,7 @@ function SiteRow({
             <span>{assigneeCount === 1 ? "assignee" : "assignees"}</span>
             <span className="mx-1 text-slate-300">·</span>
             <span className="truncate">
-              {(site.users ?? [])
+              {assignees
                 .slice(0, 3)
                 .map((u) => `${u.firstName} ${u.lastName}`)
                 .join(", ")}
