@@ -5,6 +5,7 @@ import {
   Ban,
   Calendar,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   CircleCheck,
   Filter,
@@ -1264,7 +1265,8 @@ function TripRow({
     >
       <Link
         href={`/dashboard/trips/${trip.id}`}
-        className="flex min-w-0 flex-1 items-center gap-3"
+        className="group/link flex min-w-0 flex-1 items-center gap-3"
+        aria-label="Open trip detail"
       >
       <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
         <Route className="size-5" />
@@ -1420,6 +1422,13 @@ function TripRow({
             )}
           </div>
         )}
+        <Link
+          href={`/dashboard/trips/${trip.id}`}
+          aria-label="Open trip detail"
+          className="group/chev flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+        >
+          <ChevronRight className="size-4 transition-transform group-hover/chev:translate-x-0.5" />
+        </Link>
       </div>
     </div>
   );

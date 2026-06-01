@@ -6,6 +6,7 @@
 // vehicles which have their own detail page.
 import {
   Building2,
+  ChevronRight,
   Filter,
   IdCard,
   Loader2,
@@ -469,7 +470,8 @@ function DriverRow({
     >
       <Link
         href={`/dashboard/drivers/${driver.id}`}
-        className="flex min-w-0 flex-1 items-center gap-3"
+        className="group/link flex min-w-0 flex-1 items-center gap-3"
+        aria-label={`Open profile for ${driver.firstName} ${driver.lastName}`}
       >
       <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
         <UserRound className="size-5" />
@@ -551,6 +553,13 @@ function DriverRow({
         >
           <Trash2 className="size-4" />
         </button>
+        <Link
+          href={`/dashboard/drivers/${driver.id}`}
+          aria-label={`Open profile for ${driver.firstName} ${driver.lastName}`}
+          className="group/chev flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+        >
+          <ChevronRight className="size-4 transition-transform group-hover/chev:translate-x-0.5" />
+        </Link>
       </div>
     </div>
   );

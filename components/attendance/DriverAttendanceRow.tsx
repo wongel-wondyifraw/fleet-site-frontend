@@ -140,19 +140,18 @@ export function DriverAttendanceRow({
             background gives a subtle "this is clickable" cue. */}
         <Link
           href={`/dashboard/attendance/drivers/${day.driverId}`}
-          className="group flex min-w-0 items-center gap-3 rounded-lg -mx-1 px-1 py-1 transition-colors hover:bg-primary/5"
+          className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg -mx-1 px-1 py-1 transition-colors hover:bg-primary/5"
           aria-label={`Open attendance detail for ${driverName(day)}`}
         >
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
             {day.driver?.firstName?.[0] ?? "?"}
             {day.driver?.lastName?.[0] ?? ""}
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate text-sm font-semibold text-primary group-hover:underline">
                 {driverName(day)}
               </p>
-              <ChevronRight className="size-3 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
               <span
                 className={cn(
                   "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase",
@@ -285,6 +284,13 @@ export function DriverAttendanceRow({
               )}
             </span>
           </span>
+          <Link
+            href={`/dashboard/attendance/drivers/${day.driverId}`}
+            aria-label={`Open attendance detail for ${driverName(day)}`}
+            className="group/chev flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+          >
+            <ChevronRight className="size-4 transition-transform group-hover/chev:translate-x-0.5" />
+          </Link>
         </div>
       </div>
     </article>
