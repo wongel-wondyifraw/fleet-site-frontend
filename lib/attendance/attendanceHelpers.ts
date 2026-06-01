@@ -51,6 +51,7 @@ export const AUTO_CLOSE_REASON_LABELS: Record<string, string> = {
   MISSING_DAY_OUT: "No day out",
   MISSING_LUNCH_RETURN: "Afternoon absent",
   MISSING_MAINT_RETURN: "Maint not closed",
+  INCOMPLETE_DISTANCE: "Distance incomplete",
 };
 
 export type FeatherIcon = ComponentType<SVGProps<SVGSVGElement>>;

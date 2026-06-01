@@ -114,7 +114,12 @@ function AttendancePanel({
     punch: ApiAttendancePunch;
     at: string;
     note: string;
+    odometer: string;
+    type: AttendancePunchType;
   } | null>(null);
+  const [correctionOdometerError, setCorrectionOdometerError] = useState<
+    string | null
+  >(null);
   // Odometer input that lives inside the currently-open punch dropdown.
   // `value` is the in-flight string the user is typing — kept as a string
   // so partial / decimal-in-progress inputs survive without being coerced
@@ -464,17 +469,37 @@ function AttendancePanel({
 
   async function handleCorrectionSave() {
     if (!correctionTarget) return;
+
+    const needsOdometer = ODOMETER_REQUIRED_PUNCH_TYPES.has(correctionTarget.type);
+    let odometerPayload: number | null | undefined = undefined;
+
+    if (needsOdometer) {
+      const normalised = correctionTarget.odometer.trim().replace(",", ".");
+      const parsed = Number.parseFloat(normalised);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setCorrectionOdometerError(
+          "Enter a non-negative odometer reading in kilometres.",
+        );
+        return;
+      }
+      odometerPayload = Math.round(parsed * 100) / 100;
+    }
+
     setIsMutating(true);
     setLoadError(null);
+    setCorrectionOdometerError(null);
     try {
       const updated = await updateAttendancePunch(correctionTarget.punch.id, {
         at: fromLocalDateTimeInput(correctionTarget.at),
         note: correctionTarget.note.trim() || null,
+        ...(needsOdometer ? { odometer: odometerPayload } : {}),
       });
       upsertDay(updated);
       setCorrectionTarget(null);
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : "Unable to update punch.");
+      const message =
+        err instanceof ApiError ? err.message : "Unable to update punch.";
+      setCorrectionOdometerError(message);
     } finally {
       setIsMutating(false);
     }
@@ -692,13 +717,16 @@ function AttendancePanel({
                   }}
                   onPunch={handlePunch}
                   onPunchWithOdometer={handleSubmitPunchWithOdometer}
-                  onEditPunch={(punch) =>
+                  onEditPunch={(punch) => {
+                    setCorrectionOdometerError(null);
                     setCorrectionTarget({
                       punch,
                       at: toLocalDateTimeInput(punch.at),
                       note: punch.note ?? "",
-                    })
-                  }
+                      odometer: punch.odometer ?? "",
+                      type: punch.type,
+                    });
+                  }}
                   onDeletePunch={(punch) => setDeleteTarget(punch)}
                   isMutating={isMutating}
                   timeSettings={timeSettings}
@@ -731,13 +759,16 @@ function AttendancePanel({
           }}
           onPunch={handlePunch}
           onPunchWithOdometer={handleSubmitPunchWithOdometer}
-          onEditPunch={(punch) =>
+          onEditPunch={(punch) => {
+            setCorrectionOdometerError(null);
             setCorrectionTarget({
               punch,
               at: toLocalDateTimeInput(punch.at),
               note: punch.note ?? "",
-            })
-          }
+              odometer: punch.odometer ?? "",
+              type: punch.type,
+            });
+          }}
           onDeletePunch={(punch) => setDeleteTarget(punch)}
           isMutating={isMutating}
           timeSettings={timeSettings}
@@ -764,16 +795,28 @@ function AttendancePanel({
         <AttendancePunchCorrectionDialog
           open
           onOpenChange={(open) => {
-            if (!open && !isMutating) setCorrectionTarget(null);
+            if (!open && !isMutating) {
+              setCorrectionTarget(null);
+              setCorrectionOdometerError(null);
+            }
           }}
           correction={{
             at: correctionTarget.at,
             note: correctionTarget.note,
+            odometer: correctionTarget.odometer,
+            type: correctionTarget.type,
           }}
+          odometerError={correctionOdometerError}
           onCorrectionChange={(updater) =>
             setCorrectionTarget((prev) => {
               if (!prev) return prev;
-              const next = updater({ at: prev.at, note: prev.note });
+              const next = updater({
+                at: prev.at,
+                note: prev.note,
+                odometer: prev.odometer,
+                type: prev.type,
+              });
+              if (next) setCorrectionOdometerError(null);
               return next ? { ...prev, ...next } : null;
             })
           }

@@ -11,6 +11,8 @@ import {
   Trash2,
 } from "@/lib/icons";
 import Link from "next/link";
+import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { WorkedHoursDonut } from "@/components/attendance/WorkedHoursDonut";
@@ -86,7 +88,11 @@ export function DriverAttendanceRow({
     day.workDistanceKm !== null && day.workDistanceKm !== undefined
       ? Number.parseFloat(String(day.workDistanceKm))
       : NaN;
-  const hasDistance = Number.isFinite(distanceKmRaw) && distanceKmRaw > 0;
+  const hasDistance = Number.isFinite(distanceKmRaw);
+  const distanceIncomplete = (day.autoCloseReason ?? "")
+    .split(",")
+    .map((c) => c.trim())
+    .includes("INCOMPLETE_DISTANCE");
   const anyBreakOpen = lunchOpen || maintOpen;
   const hasDayIn = punches.some((p) => p.type === "DAY_IN");
   const hasDayOut = punches.some((p) => p.type === "DAY_OUT");
@@ -191,23 +197,22 @@ export function DriverAttendanceRow({
             const pairPunches = punches.filter(
               (p) => p.type === pair.outType || p.type === pair.inType,
             );
-            const PairIcon = pair.Icon;
             // Break punches conflict with an in-progress trip — you can't
             // start/end a lunch while you're physically driving — so we
             // disable the action button when the driver has an active trip.
             // The pill stays clickable so the user can still inspect past
             // punches; only the next-punch action is blocked.
             const blockedByTrip = isBreakPair && isOnActiveTrip;
-            // State is communicated by the colour of the icon + label only:
-            // IN uses a deep emerald so it reads as "active/clocked in", OUT
-            // uses a softer rose so a finished/ended state doesn't shout, and
-            // IDLE inherits the muted primary so it stays neutral until the
-            // first punch lands.
+            // State is communicated by the IN / OUT / IDLE label itself; we
+            // keep the colour unified on the primary palette so the row reads
+            // as one cohesive control instead of a rainbow of tones. Active
+            // (IN) gets a fully saturated primary, finished (OUT) gets a
+            // muted primary, and IDLE stays softest.
             const stateClass =
               state === "IN"
-                ? "text-emerald-700"
+                ? "text-primary"
                 : state === "OUT"
-                  ? "text-rose-400"
+                  ? "text-primary/60"
                   : "text-primary/70";
             // Action icon for the dropdown next-punch button. The verbs map
             // cleanly to LogIn / LogOut so the icon reinforces what tapping
@@ -222,168 +227,27 @@ export function DriverAttendanceRow({
                 : LogOut
               : null;
             return (
-              <div
+              <PunchPairControl
                 key={pair.key}
-                data-action-menu="true"
-                className="relative flex flex-col items-center gap-1"
-              >
-                <span className="text-[10px] font-black tracking-wide text-primary/70 uppercase">
-                  {pair.label}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onToggleMenu(pair.key)}
-                  aria-label={
-                    blockedByTrip
-                      ? `${pair.label} (${state}) - driver is on an active trip`
-                      : `${pair.label} (${state}) - tap to manage punches`
-                  }
-                  title={
-                    blockedByTrip
-                      ? "Driver is on an active trip"
-                      : undefined
-                  }
-                  className={cn(
-                    "group inline-flex w-24 items-center justify-between gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[11px] font-black shadow-sm shadow-primary/10 transition-colors hover:bg-primary/10 hover:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/40",
-                    blockedByTrip && "opacity-70",
-                  )}
-                >
-                  <span className={cn("inline-flex items-center gap-1.5", stateClass)}>
-                    <PairIcon className="size-4" />
-                    <span className="tracking-wide">{state}</span>
-                  </span>
-                  <ChevronDown
-                    className={cn(
-                      "size-3 text-primary/60 transition-transform",
-                      open && "rotate-180",
-                    )}
-                  />
-                </button>
-                {open && (
-                  <div className="absolute top-full left-0 z-30 mt-1 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-                    {blockedByTrip ? (
-                      <p className="px-2 py-1 text-[11px] font-medium text-rose-600">
-                        Driver is on an active trip. Complete the trip before
-                        recording a {pair.label.toLowerCase()} punch.
-                      </p>
-                    ) : next ? (
-                      (() => {
-                        const needsOdometer = ODOMETER_REQUIRED_PUNCH_TYPES.has(
-                          next.type,
-                        );
-                        const trimmed = pendingOdometer.value.trim();
-                        const submitDisabled =
-                          isMutating || (needsOdometer && trimmed.length === 0);
-                        return (
-                          <form
-                            onSubmit={(e) => {
-                              e.preventDefault();
-                              if (needsOdometer) {
-                                void onPunchWithOdometer(day, next.type);
-                              } else {
-                                void onPunch(day, next.type);
-                              }
-                            }}
-                            className="space-y-2"
-                          >
-                            {needsOdometer && (
-                              <label className="block">
-                                <span className="mb-1 block text-[9px] font-bold tracking-wide text-muted-foreground uppercase">
-                                  Odometer (km)
-                                </span>
-                                <input
-                                  type="number"
-                                  inputMode="decimal"
-                                  step="0.01"
-                                  min={0}
-                                  autoFocus
-                                  value={pendingOdometer.value}
-                                  onChange={(e) => onChangeOdometer(e.target.value)}
-                                  placeholder="e.g. 152340.50"
-                                  aria-invalid={
-                                    pendingOdometer.error ? true : undefined
-                                  }
-                                  className="block h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs tabular-nums focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                                />
-                                {pendingOdometer.error && (
-                                  <span className="mt-1 block text-[10px] font-medium text-rose-600">
-                                    {pendingOdometer.error}
-                                  </span>
-                                )}
-                              </label>
-                            )}
-                            <Button
-                              type="submit"
-                              disabled={submitDisabled}
-                              className="h-8 w-full justify-start gap-2 rounded-lg px-2 text-xs"
-                            >
-                              {isMutating ? (
-                                <Loader2 className="size-3.5 animate-spin" />
-                              ) : NextIcon ? (
-                                <NextIcon className="size-3.5" />
-                              ) : null}
-                              {next.label}
-                            </Button>
-                          </form>
-                        );
-                      })()
-                    ) : (
-                      <p className="px-2 py-1 text-[11px] text-muted-foreground">
-                        No action available
-                      </p>
-                    )}
-                    <div className="mt-1 space-y-1 border-t border-slate-100 pt-1">
-                      {pairPunches.length === 0 ? (
-                        <p className="px-2 py-1 text-[11px] text-muted-foreground">No punches yet</p>
-                      ) : (
-                        pairPunches.map((p) => {
-                          const isInPunch =
-                            p.type === "DAY_IN" ||
-                            p.type === "LUNCH_IN" ||
-                            p.type === "MAINT_IN";
-                          const HistoryIcon = isInPunch ? LogIn : LogOut;
-                          return (
-                          <div
-                            key={p.id}
-                            className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-[11px] text-slate-700"
-                          >
-                            <span className="inline-flex items-center gap-1.5 truncate">
-                              <HistoryIcon
-                                className={cn(
-                                  "size-3 shrink-0",
-                                  isInPunch ? "text-emerald-600" : "text-rose-500",
-                                )}
-                              />
-                              <span className="truncate">
-                                {p.type.replace("_", " ")} · {formatPunchTime(p.at, timeSettings)}
-                              </span>
-                            </span>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                className="rounded p-1 text-muted-foreground hover:bg-slate-100 hover:text-primary"
-                                onClick={() => onEditPunch(p)}
-                                aria-label="Edit punch"
-                              >
-                                <Pencil className="size-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded p-1 text-muted-foreground hover:bg-slate-100 hover:text-rose-600"
-                                onClick={() => onDeletePunch(p)}
-                                aria-label="Void punch"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+                pair={pair}
+                open={open}
+                state={state}
+                stateClass={stateClass}
+                blockedByTrip={blockedByTrip}
+                next={next}
+                nextIcon={NextIcon}
+                pairPunches={pairPunches}
+                pendingOdometer={pendingOdometer}
+                onChangeOdometer={onChangeOdometer}
+                onToggleMenu={() => onToggleMenu(pair.key)}
+                onPunch={onPunch}
+                onPunchWithOdometer={onPunchWithOdometer}
+                onEditPunch={onEditPunch}
+                onDeletePunch={onDeletePunch}
+                day={day}
+                isMutating={isMutating}
+                timeSettings={timeSettings}
+              />
             );
           })}
           <WorkedHoursDonut worked={worked} target={targetHours} />
@@ -391,18 +255,34 @@ export function DriverAttendanceRow({
             className={cn(
               "inline-flex flex-col items-center rounded-md border px-2 py-1 text-[10px] font-black tracking-wide uppercase",
               hasDistance
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                ? "border-primary/20 bg-primary/5 text-primary"
                 : "border-slate-200 bg-slate-50 text-slate-500",
             )}
             title={
               hasDistance
-                ? `Work distance: (LUNCH_OUT − DAY_IN) + (DAY_OUT − LUNCH_IN) = ${distanceKmRaw.toFixed(2)} km`
+                ? distanceIncomplete
+                  ? `Distance partial — odometer missing on one or more punches. Edit the punch to add it. (${distanceKmRaw.toFixed(2)} km computed)`
+                  : `Work distance: (LUNCH_OUT − DAY_IN) + (DAY_OUT − LUNCH_IN) = ${distanceKmRaw.toFixed(2)} km`
                 : "Capture odometer at DAY_IN / LUNCH_OUT / LUNCH_IN / DAY_OUT to compute distance"
             }
           >
-            <span className="text-[9px] text-slate-500">Distance</span>
+            <span
+              className={cn(
+                "text-[9px]",
+                hasDistance ? "text-primary/70" : "text-slate-500",
+              )}
+            >
+              Distance
+            </span>
             <span className="text-xs tabular-nums">
-              {hasDistance ? `${distanceKmRaw.toFixed(1)} km` : "—"}
+              {hasDistance ? (
+                <>
+                  {distanceKmRaw.toFixed(1)} km
+                  {distanceIncomplete ? "*" : null}
+                </>
+              ) : (
+                "—"
+              )}
             </span>
           </span>
         </div>
@@ -411,3 +291,256 @@ export function DriverAttendanceRow({
   );
 }
 
+function PunchPairControl({
+  pair,
+  open,
+  state,
+  stateClass,
+  blockedByTrip,
+  next,
+  nextIcon: NextIcon,
+  pairPunches,
+  pendingOdometer,
+  onChangeOdometer,
+  onToggleMenu,
+  onPunch,
+  onPunchWithOdometer,
+  onEditPunch,
+  onDeletePunch,
+  day,
+  isMutating,
+  timeSettings,
+}: {
+  pair: (typeof PUNCH_PAIRS)[number];
+  open: boolean;
+  state: "IN" | "OUT" | "IDLE";
+  stateClass: string;
+  blockedByTrip: boolean;
+  next: { label: string; type: AttendancePunchType } | null;
+  nextIcon: FeatherIcon | null;
+  pairPunches: ApiAttendancePunch[];
+  pendingOdometer: { value: string; error: string | null };
+  onChangeOdometer: (value: string) => void;
+  onToggleMenu: () => void;
+  onPunch: (day: ApiAttendanceDay, type: AttendancePunchType) => Promise<void>;
+  onPunchWithOdometer: (
+    day: ApiAttendanceDay,
+    type: AttendancePunchType,
+  ) => Promise<void>;
+  onEditPunch: (punch: ApiAttendancePunch) => void;
+  onDeletePunch: (punch: ApiAttendancePunch) => void;
+  day: ApiAttendanceDay;
+  isMutating: boolean;
+  timeSettings: ApiTimeSettings;
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
+    null,
+  );
+  const PairIcon = pair.Icon;
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) {
+      setMenuPos(null);
+      return;
+    }
+    const update = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuPos({ top: rect.bottom + 6, left: rect.left });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [open]);
+
+  const needsOdometer =
+    next != null && ODOMETER_REQUIRED_PUNCH_TYPES.has(next.type);
+  const trimmed = pendingOdometer.value.trim();
+  const submitDisabled =
+    isMutating || (needsOdometer && trimmed.length === 0);
+
+  const menuPanel = open && menuPos && (
+    <div
+      role="dialog"
+      aria-label={`${pair.label} punch actions`}
+      data-action-menu="true"
+      style={{ position: "fixed", top: menuPos.top, left: menuPos.left, zIndex: 9999 }}
+      className="w-64 overflow-hidden rounded-xl border border-slate-200 bg-[#ffffff] shadow-[0_12px_40px_rgba(18,53,112,0.22)]"
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-[#f4f6f9] px-3 py-2.5">
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold tracking-wide text-primary uppercase">
+          <PairIcon className="size-3.5" />
+          {pair.label}
+        </span>
+        <span
+          className={cn(
+            "rounded-full px-1.5 py-0.5 text-[9px] font-black tracking-wide uppercase",
+            state === "IN"
+              ? "bg-primary text-primary-foreground"
+              : state === "OUT"
+                ? "bg-slate-200 text-primary"
+                : "bg-slate-200 text-slate-600",
+          )}
+        >
+          {state}
+        </span>
+      </div>
+      <div className="bg-[#ffffff] p-2.5">
+        {blockedByTrip ? (
+          <p className="px-2 py-1 text-[11px] font-medium text-rose-600">
+            Driver is on an active trip. Complete the trip before recording a{" "}
+            {pair.label.toLowerCase()} punch.
+          </p>
+        ) : next ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (needsOdometer) {
+                void onPunchWithOdometer(day, next.type);
+              } else {
+                void onPunch(day, next.type);
+              }
+            }}
+            className="space-y-2"
+          >
+            {needsOdometer && (
+              <label className="block">
+                <span className="mb-1 block text-[9px] font-bold tracking-wide text-slate-600 uppercase">
+                  Odometer (km)
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min={0}
+                  autoFocus
+                  value={pendingOdometer.value}
+                  onChange={(e) => onChangeOdometer(e.target.value)}
+                  placeholder="e.g. 152340.50"
+                  aria-invalid={pendingOdometer.error ? true : undefined}
+                  className="block h-9 w-full rounded-lg border border-slate-200 bg-[#ffffff] px-2.5 text-xs tabular-nums text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                {pendingOdometer.error && (
+                  <span className="mt-1 block text-[10px] font-medium text-rose-600">
+                    {pendingOdometer.error}
+                  </span>
+                )}
+              </label>
+            )}
+            <Button
+              type="submit"
+              disabled={submitDisabled}
+              className="h-9 w-full justify-center gap-2 rounded-lg px-2 text-xs font-semibold"
+            >
+              {isMutating ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : NextIcon ? (
+                <NextIcon className="size-3.5" />
+              ) : null}
+              {next.label}
+            </Button>
+          </form>
+        ) : (
+          <p className="rounded-lg bg-slate-100 px-2 py-1.5 text-center text-[11px] text-slate-600">
+            No action available
+          </p>
+        )}
+        <div className="mt-2.5 space-y-0.5 border-t border-slate-200 pt-2">
+          <p className="px-1 pb-1 text-[9px] font-bold tracking-wide text-slate-500 uppercase">
+            History
+          </p>
+          {pairPunches.length === 0 ? (
+            <p className="px-2 py-1 text-[11px] text-slate-500">No punches yet</p>
+          ) : (
+            pairPunches.map((p) => {
+              const isInPunch =
+                p.type === "DAY_IN" ||
+                p.type === "LUNCH_IN" ||
+                p.type === "MAINT_IN";
+              const HistoryIcon = isInPunch ? LogIn : LogOut;
+              return (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-[11px] text-slate-800 transition-colors hover:bg-slate-100"
+                >
+                  <span className="inline-flex items-center gap-1.5 truncate">
+                    <HistoryIcon
+                      className={cn(
+                        "size-3 shrink-0",
+                        isInPunch ? "text-primary" : "text-slate-500",
+                      )}
+                    />
+                    <span className="truncate">
+                      {p.type.replace("_", " ")} ·{" "}
+                      {formatPunchTime(p.at, timeSettings)}
+                    </span>
+                  </span>
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      className="rounded p-1 text-slate-500 transition-colors hover:bg-slate-200 hover:text-primary"
+                      onClick={() => onEditPunch(p)}
+                      aria-label="Edit punch"
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded p-1 text-slate-500 transition-colors hover:bg-rose-100 hover:text-rose-600"
+                      onClick={() => onDeletePunch(p)}
+                      aria-label="Void punch"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div data-action-menu="true" className="relative flex flex-col items-center gap-1">
+      <span className="text-[10px] font-black tracking-wide text-primary/70 uppercase">
+        {pair.label}
+      </span>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={onToggleMenu}
+        aria-label={
+          blockedByTrip
+            ? `${pair.label} (${state}) - driver is on an active trip`
+            : `${pair.label} (${state}) - tap to manage punches`
+        }
+        title={blockedByTrip ? "Driver is on an active trip" : undefined}
+        className={cn(
+          "group inline-flex w-24 items-center justify-between gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[11px] font-black shadow-sm shadow-primary/10 transition-colors hover:bg-primary/10 hover:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/40",
+          blockedByTrip && "opacity-70",
+        )}
+      >
+        <span className={cn("inline-flex items-center gap-1.5", stateClass)}>
+          <PairIcon className="size-4" />
+          <span className="tracking-wide">{state}</span>
+        </span>
+        <ChevronDown
+          className={cn(
+            "size-3 text-primary/60 transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {typeof document !== "undefined" && menuPanel
+        ? createPortal(menuPanel, document.body)
+        : null}
+    </div>
+  );
+}

@@ -12,16 +12,21 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import type { AttendancePunchType } from "@/lib/api/types";
+import { ODOMETER_REQUIRED_PUNCH_TYPES } from "@/lib/attendance/attendanceHelpers";
 
 export type PunchCorrectionState = {
   at: string;
   note: string;
+  odometer: string;
+  type: AttendancePunchType;
 };
 
 export function AttendancePunchCorrectionDialog({
   open,
   onOpenChange,
   correction,
+  odometerError,
   onCorrectionChange,
   isMutating,
   onSave,
@@ -29,12 +34,18 @@ export function AttendancePunchCorrectionDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   correction: PunchCorrectionState | null;
+  odometerError?: string | null;
   onCorrectionChange: (
     updater: (prev: PunchCorrectionState | null) => PunchCorrectionState | null,
   ) => void;
   isMutating: boolean;
   onSave: () => void;
 }) {
+  const needsOdometer =
+    correction != null && ODOMETER_REQUIRED_PUNCH_TYPES.has(correction.type);
+  const odometerMissing =
+    needsOdometer && correction != null && correction.odometer.trim().length === 0;
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent className="max-w-sm">
@@ -58,6 +69,34 @@ export function AttendancePunchCorrectionDialog({
                 className={fieldClass}
               />
             </label>
+            {needsOdometer && (
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                  Odometer (km)
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min={0}
+                  value={correction.odometer}
+                  onChange={(e) =>
+                    onCorrectionChange((prev) =>
+                      prev ? { ...prev, odometer: e.target.value } : prev,
+                    )
+                  }
+                  placeholder="e.g. 152340.50"
+                  aria-invalid={odometerError || odometerMissing ? true : undefined}
+                  className={fieldClass}
+                />
+                {(odometerError || odometerMissing) && (
+                  <span className="mt-1 block text-[10px] font-medium text-rose-600">
+                    {odometerError ??
+                      "Enter an odometer reading before saving this punch."}
+                  </span>
+                )}
+              </label>
+            )}
             <label className="block">
               <span className="mb-1 block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
                 Note
@@ -81,7 +120,11 @@ export function AttendancePunchCorrectionDialog({
           <Button
             type="button"
             onClick={onSave}
-            disabled={isMutating || !correction?.at}
+            disabled={
+              isMutating ||
+              !correction?.at ||
+              (needsOdometer && odometerMissing)
+            }
             className="h-10 gap-2 rounded-xl px-4 text-sm font-semibold"
           >
             {isMutating ? <Loader2 className="size-4 animate-spin" /> : null}

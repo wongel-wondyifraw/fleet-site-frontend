@@ -19,18 +19,11 @@ export function WorkedHoursDonut({
   const label = `Worked ${worked.toFixed(1)}h of ${target}h target`;
   const display =
     worked >= 10 ? Math.round(worked).toString() : worked.toFixed(1);
-  const tierColor =
-    rawRatio >= 0.9
-      ? "text-emerald-600"
-      : rawRatio >= 0.5
-        ? "text-amber-500"
-        : "text-rose-600";
-
   return (
     <span
       className={cn(
         "relative ml-1 inline-flex shrink-0 items-center justify-center",
-        tierColor,
+        "text-primary",
       )}
       style={{ width: size, height: size }}
       role="img"

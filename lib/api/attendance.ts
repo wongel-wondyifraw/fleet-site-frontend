@@ -100,6 +100,7 @@ export async function updateAttendanceDay(
 export interface UpdateAttendancePunchRequest {
   at?: string;
   note?: string | null;
+  odometer?: number | null;
 }
 
 export async function updateAttendancePunch(

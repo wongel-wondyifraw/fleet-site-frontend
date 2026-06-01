@@ -9,7 +9,7 @@
 //
 // Page is structured top-to-bottom as:
 //   1. Back link + driver header
-//   2. Date-range picker + "late after" knob
+//   2. Date-range picker + schedule from attendance rules
 //   3. Stat cards (absent / late / missed check-in / missed check-out + worked hours)
 //   4. Performance line chart (days × worked hours)
 //   5. Day-by-day breakdown list
@@ -37,6 +37,7 @@ import { getAttendanceRules } from "@/lib/api/attendanceRules";
 import {
   formatDate,
   formatDateTime,
+  formatScheduleTime,
   formatTimeOfDay,
 } from "@/lib/time/format";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
@@ -49,7 +50,14 @@ import type {
   AttendanceDayStatus,
   AttendancePunchType,
 } from "@/lib/api/types";
-import { DEFAULT_TARGET_HOURS } from "@/lib/attendance-targets";
+import {
+  DEFAULT_ATTENDANCE_SCHEDULE,
+  evaluateDayScheduleCompliance,
+  formatScheduleSummary,
+  getPunchScheduleTiming,
+  type DayScheduleFlags,
+} from "@/lib/attendance/scheduleCompliance";
+import { AUTO_CLOSE_REASON_LABELS } from "@/lib/attendance/attendanceHelpers";
 import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
@@ -66,23 +74,11 @@ const STATUS_STYLES: Record<AttendanceDayStatus, string> = {
   ON_LEAVE: "bg-slate-100 text-slate-700",
 };
 
-const AUTO_CLOSE_REASON_LABELS: Record<string, string> = {
-  MISSING_DAY_OUT: "No day out",
-  MISSING_LUNCH_RETURN: "Afternoon absent",
-  MISSING_MAINT_RETURN: "Maint not closed",
-};
-
 const RANGE_PRESETS: { id: "7" | "30" | "90"; label: string; days: number }[] = [
   { id: "7", label: "Last 7 days", days: 7 },
   { id: "30", label: "Last 30 days", days: 30 },
   { id: "90", label: "Last 90 days", days: 90 },
 ];
-
-// Driver is "late" when their first DAY_IN of the day is after this
-// HH:MM local time. Kept in component state so the user can tune it
-// without a redeploy; the default mirrors a standard 8:00 start with a
-// 30-minute grace window.
-const DEFAULT_LATE_AFTER = "08:30";
 
 const PUNCH_LABELS: Record<AttendancePunchType, string> = {
   DAY_IN: "Day in",
@@ -256,19 +252,6 @@ function computeWorkedHours(day: ApiAttendanceDay): number {
   return Math.max(0, (end - start - breakMs) / (1000 * 60 * 60));
 }
 
-// HH:MM string -> minutes after midnight, used to compare punch times
-// against the user-configurable "late after" threshold.
-function timeStringToMinutes(value: string): number | null {
-  const [hh, mm] = value.split(":").map((s) => Number.parseInt(s, 10));
-  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
-  return hh * 60 + mm;
-}
-
-function punchMinutesOfDay(iso: string): number {
-  const d = new Date(iso);
-  return d.getHours() * 60 + d.getMinutes();
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -290,6 +273,7 @@ interface DerivedStats {
 }
 
 export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
+  const { settings } = useTimeSettings();
   const [rangePreset, setRangePreset] = useState<"7" | "30" | "90" | "CUSTOM">(
     "30",
   );
@@ -297,9 +281,10 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
     toDateKey(addDays(new Date(), -29)),
   );
   const [customTo, setCustomTo] = useState<string>(() => toDateKey(new Date()));
-  const lateAfter = DEFAULT_LATE_AFTER;
   const [rules, setRules] = useState<ApiAttendanceRules | null>(null);
-  const targetHours = rules?.targetHours ?? DEFAULT_TARGET_HOURS;
+  const schedule = rules ?? DEFAULT_ATTENDANCE_SCHEDULE;
+  const targetHours = schedule.targetHours;
+  const scheduleSummary = formatScheduleSummary(schedule, settings);
 
   const [driver, setDriver] = useState<ApiDriver | null>(null);
   const [days, setDays] = useState<ApiAttendanceDay[]>([]);
@@ -317,7 +302,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
         if (!cancelled) setRules(loaded);
       })
       .catch(() => {
-        // Soft-fail: fall back to DEFAULT_TARGET_HOURS.
+        // Soft-fail: DEFAULT_ATTENDANCE_SCHEDULE is used until rules load.
       });
     return () => {
       cancelled = true;
@@ -387,7 +372,6 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
   const todayKey = useMemo(() => toDateKey(new Date()), []);
 
   const stats: DerivedStats = useMemo(() => {
-    const lateThresholdMinutes = timeStringToMinutes(lateAfter);
     const acc: DerivedStats = {
       scheduledDays: 0,
       workedDays: 0,
@@ -413,31 +397,19 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
 
       const punches = liveSortedPunches(day);
       const dayIn = firstPunchOfType(punches, "DAY_IN");
-      const dayOut = lastPunchOfType(punches, "DAY_OUT");
-      const isPast = dateKey < todayKey;
+      const flags = evaluateDayScheduleCompliance(day, schedule, todayKey);
 
       if (!dayIn) {
         // Past dates with no DAY_IN are absent. Today/future stay neutral.
-        if (isPast) acc.absentDays += 1;
-        if (isPast) acc.missedCheckInDays += 1;
+        if (flags.missedCheckIn) acc.absentDays += 1;
+        if (flags.missedCheckIn) acc.missedCheckInDays += 1;
         continue;
       }
 
       acc.workedDays += 1;
 
-      if (
-        lateThresholdMinutes !== null &&
-        punchMinutesOfDay(dayIn.at) > lateThresholdMinutes
-      ) {
-        acc.lateDays += 1;
-      }
-
-      if (!dayOut && isPast) {
-        // A past day with DAY_IN but no DAY_OUT counts as missed-out even
-        // if the system already auto-closed it (the synthetic DAY_OUT
-        // doesn't undo the fact that the driver forgot).
-        acc.missedCheckOutDays += 1;
-      }
+      if (flags.lateCheckIn) acc.lateDays += 1;
+      if (flags.missedCheckOut) acc.missedCheckOutDays += 1;
 
       if (day.autoClosedAt) acc.autoClosedDays += 1;
 
@@ -447,7 +419,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
     acc.averageWorkedHours =
       acc.workedDays > 0 ? acc.totalWorkedHours / acc.workedDays : 0;
     return acc;
-  }, [allDates, dayByDate, lateAfter, todayKey]);
+  }, [allDates, dayByDate, schedule, todayKey]);
 
   // Chart datapoints: one entry per calendar date in the range. `hours`
   // is worked hours (0 for missing/absent so the line stays continuous);
@@ -621,6 +593,18 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
               </div>
             )}
 
+            <p className="flex items-start gap-2 text-[11px] text-muted-foreground">
+              <Clock className="mt-0.5 size-3.5 shrink-0 text-primary/70" />
+              <span>
+                <span className="font-semibold text-primary">Schedule</span>
+                {" — "}
+                {scheduleSummary}
+                {!rules && (
+                  <span className="text-slate-400"> (default until rules load)</span>
+                )}
+              </span>
+            </p>
+
             <div className="mt-1 border-t border-slate-100 pt-3">
               <p className="font-label-caps text-[10px] tracking-wide text-muted-foreground uppercase">
                 Summary stats
@@ -640,7 +624,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
                   label="Late days"
                   value={stats.lateDays}
                   tone="primary"
-                  help={`First punch later than ${lateAfter}.`}
+                  help={`Day in after ${formatScheduleTime(schedule.dayInTime, settings)}.`}
                 />
                 <StatCard
                   embedded
@@ -656,7 +640,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
                   label="Missed check-outs"
                   value={stats.missedCheckOutDays}
                   tone="rose"
-                  help="Past days with DAY_IN but no DAY_OUT (auto-closed by the system)."
+                  help={`Past days with day in but no day out by ${formatScheduleTime(schedule.dayOutTime, settings)} (including auto-closed).`}
                 />
                 <StatCard
                   embedded
@@ -747,7 +731,8 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
                   day={day}
                   hours={computeWorkedHours(day)}
                   targetHours={targetHours}
-                  lateAfterMinutes={timeStringToMinutes(lateAfter)}
+                  schedule={schedule}
+                  todayKey={todayKey}
                   className="fs-row-in"
                   style={staggerStyle(index)}
                 />
@@ -1389,30 +1374,23 @@ function DayRow({
   day,
   hours,
   targetHours,
-  lateAfterMinutes,
+  schedule,
+  todayKey,
   className,
   style,
 }: {
   day: ApiAttendanceDay;
   hours: number;
   targetHours: number;
-  lateAfterMinutes: number | null;
+  schedule: ApiAttendanceRules;
+  todayKey: string;
   className?: string;
   style?: CSSProperties;
 }) {
   const { settings } = useTimeSettings();
   const [expanded, setExpanded] = useState(false);
   const punches = liveSortedPunches(day);
-  const dayIn = firstPunchOfType(punches, "DAY_IN");
-  const dayOut = lastPunchOfType(punches, "DAY_OUT");
-  const isLate =
-    lateAfterMinutes !== null &&
-    dayIn !== null &&
-    punchMinutesOfDay(dayIn.at) > lateAfterMinutes;
-  const todayKey = toDateKey(new Date());
-  const isPast = day.date < todayKey;
-  const missedCheckIn = !dayIn && isPast && day.status !== "ON_LEAVE";
-  const missedCheckOut = !!dayIn && !dayOut && isPast;
+  const flags = evaluateDayScheduleCompliance(day, schedule, todayKey);
   const distanceKm =
     day.workDistanceKm !== null && day.workDistanceKm !== undefined
       ? Number.parseFloat(String(day.workDistanceKm))
@@ -1461,14 +1439,7 @@ function DayRow({
               >
                 {day.status.replace("_", " ")}
               </span>
-              {isLate && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold tracking-wide text-rose-700 uppercase">
-                  <Clock className="size-2.5" />
-                  Late
-                </span>
-              )}
-              {missedCheckIn && <MissedTag label="Missed check-in" />}
-              {missedCheckOut && <MissedTag label="Missed check-out" />}
+              <DayScheduleBadges flags={flags} />
               {!expanded &&
                 day.autoClosedAt &&
                 (day.autoCloseReason ?? "")
@@ -1564,7 +1535,12 @@ function DayRow({
               </p>
               <div className="flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto scrollbar-hide pb-0.5">
                 {punches.map((p) => (
-                  <PunchChip key={p.id} punch={p} variant="blue" />
+                  <PunchChip
+                    key={p.id}
+                    punch={p}
+                    schedule={schedule}
+                    variant="blue"
+                  />
                 ))}
               </div>
             </div>
@@ -1580,9 +1556,48 @@ function DayRow({
   );
 }
 
-function MissedTag({ label }: { label: string }) {
+const SCHEDULE_BADGES: {
+  key: keyof DayScheduleFlags;
+  label: string;
+  tone: "rose" | "orange" | "primary";
+}[] = [
+  { key: "lateCheckIn", label: "Late check-in", tone: "rose" },
+  { key: "lateCheckOut", label: "Late check-out", tone: "rose" },
+  { key: "earlyCheckOut", label: "Early check-out", tone: "orange" },
+  { key: "lateLunchOut", label: "Late lunch out", tone: "rose" },
+  { key: "earlyLunchReturn", label: "Early lunch return", tone: "orange" },
+  { key: "lateLunchReturn", label: "Late lunch return", tone: "rose" },
+  { key: "missedCheckIn", label: "Missed check-in", tone: "orange" },
+  { key: "missedCheckOut", label: "Missed check-out", tone: "orange" },
+  { key: "missedLunchOut", label: "Missed lunch out", tone: "orange" },
+  { key: "missedLunchReturn", label: "Missed lunch return", tone: "orange" },
+  { key: "openLunchBreak", label: "On lunch", tone: "primary" },
+  { key: "openMaintBreak", label: "On maintenance", tone: "primary" },
+];
+
+function DayScheduleBadges({ flags }: { flags: DayScheduleFlags }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-bold tracking-wide text-orange-700 uppercase">
+    <>
+      {SCHEDULE_BADGES.filter(({ key }) => flags[key]).map(({ key, label, tone }) => (
+        <ScheduleFlagBadge key={key} label={label} tone={tone} />
+      ))}
+    </>
+  );
+}
+
+function ScheduleFlagBadge({
+  label,
+}: {
+  label: string;
+  tone?: "rose" | "orange" | "primary";
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase",
+        "bg-blue-50 text-blue-700",
+      )}
+    >
       <AlertTriangle className="size-2.5" />
       {label}
     </span>
@@ -1591,12 +1606,16 @@ function MissedTag({ label }: { label: string }) {
 
 function PunchChip({
   punch,
+  schedule,
   variant = "directional",
 }: {
   punch: ApiAttendancePunch;
+  schedule?: ApiAttendanceRules;
   variant?: "directional" | "blue";
 }) {
   const { settings } = useTimeSettings();
+  const timing =
+    schedule != null ? getPunchScheduleTiming(punch, schedule) : null;
   const isIn =
     punch.type === "DAY_IN" ||
     punch.type === "LUNCH_IN" ||
@@ -1609,17 +1628,28 @@ function PunchChip({
         : isIn
           ? LogIn
           : LogOut;
+  const timingHint =
+    timing?.isLate === true
+      ? "Late vs schedule"
+      : timing?.isEarly === true
+        ? "Early vs schedule"
+        : undefined;
+
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[10px] font-bold tracking-wide uppercase",
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[10px] font-bold tracking-wide uppercase ring-1 ring-transparent",
         variant === "blue"
-          ? "bg-blue-50 text-blue-700"
+          ? timing?.isLate
+            ? "bg-rose-50 text-rose-700 ring-rose-200"
+            : timing?.isEarly
+              ? "bg-orange-50 text-orange-700 ring-orange-200"
+              : "bg-blue-50 text-blue-700"
           : isIn
             ? "bg-emerald-50 text-emerald-700"
             : "bg-rose-50 text-rose-700",
       )}
-      title={punch.note ?? undefined}
+      title={[timingHint, punch.note].filter(Boolean).join(" · ") || undefined}
     >
       <Icon className="size-3" />
       {PUNCH_LABELS[punch.type]}
@@ -1631,6 +1661,12 @@ function PunchChip({
       >
         {formatPunchTime(punch.at, settings)}
       </span>
+      {timing?.isLate && (
+        <span className="text-[9px] font-bold text-rose-600">late</span>
+      )}
+      {timing?.isEarly && !timing.isLate && (
+        <span className="text-[9px] font-bold text-orange-600">early</span>
+      )}
     </span>
   );
 }
