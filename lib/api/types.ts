@@ -427,6 +427,59 @@ export interface ApiAttendanceRules {
   targetHours: number;
 }
 
+// ---------------------------------------------------------------------------
+// Fuel consumption types — mirror backend FuelConsumptionDayDto.
+// ---------------------------------------------------------------------------
+
+/** Slim driver snapshot on a fuel consumption roster row. */
+export interface ApiFuelConsumptionDriver {
+  id: string;
+  employeeId: string;
+  firstName: string;
+  lastName: string;
+}
+
+/** Slim site snapshot on a fuel consumption roster row. */
+export interface ApiFuelConsumptionSite {
+  id: string;
+  name: string;
+}
+
+/** Slim vehicle snapshot on a fuel consumption roster row. */
+export interface ApiFuelConsumptionVehicle {
+  id: string;
+  plateNumber: string;
+  assetNumber?: string | null;
+  mileage: number;
+  fuelType: FuelType;
+}
+
+/** Latest odometer reading per punch type for the day. */
+export interface ApiFuelOdometerSummary {
+  dayIn?: number | null;
+  lunchOut?: number | null;
+  lunchIn?: number | null;
+  dayOut?: number | null;
+}
+
+/** One driver-day row from GET /fuel/consumption/roster. */
+export interface ApiFuelConsumptionDay {
+  attendanceDayId: string;
+  date: string;
+  driverId: string;
+  siteId: string;
+  workDistanceKm?: string | null;
+  autoCloseReason?: string | null;
+  driver?: ApiFuelConsumptionDriver | null;
+  site?: ApiFuelConsumptionSite | null;
+  vehicleId?: string | null;
+  vehicle?: ApiFuelConsumptionVehicle | null;
+  ratedKmPerLitre?: number | null;
+  estimatedLiters?: number | null;
+  distanceIncomplete: boolean;
+  odometerSummary?: ApiFuelOdometerSummary | null;
+}
+
 // Global time / locale settings — IANA timezone + 12h vs 24h format
 // preference. Configured in Settings → Time and used app-wide for any
 // surface that renders timestamps.

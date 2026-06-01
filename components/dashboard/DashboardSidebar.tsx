@@ -2,6 +2,7 @@
 
 import {
   Clock,
+  Fuel,
   LayoutDashboard,
   LogOut,
   Route,
@@ -32,6 +33,11 @@ const SIDEBAR_NAV = [
     label: "Attendance Management",
     icon: Clock,
     href: "/dashboard/attendance",
+  },
+  {
+    label: "Fuel Management",
+    icon: Fuel,
+    href: "/dashboard/fuel",
   },
 ] as const;
 
