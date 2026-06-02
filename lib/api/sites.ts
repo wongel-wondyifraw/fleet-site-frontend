@@ -24,6 +24,11 @@ export interface CreateSiteRequest {
 // omitting it leaves the existing assignments untouched.
 export type UpdateSiteRequest = Partial<CreateSiteRequest>;
 
+// GET /sites/me - sites the caller may access (all when bypass permission).
+export async function listMySites(): Promise<ApiSite[]> {
+  return apiRequest<ApiSite[]>("/sites/me");
+}
+
 // GET /sites - returns the full list.
 export async function listSites(): Promise<ApiSite[]> {
   return apiRequest<ApiSite[]>("/sites");

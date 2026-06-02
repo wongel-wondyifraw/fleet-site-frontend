@@ -46,8 +46,10 @@ import {
 import { getAttendanceRules } from "@/lib/api/attendanceRules";
 import { ApiError } from "@/lib/api/client";
 import { listDrivers } from "@/lib/api/drivers";
-import { listSites } from "@/lib/api/sites";
+import { listMySites } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
+import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
+import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { DEFAULT_TARGET_HOURS } from "@/lib/attendance-targets";
 import type {
   ApiAttendanceDay,
@@ -171,6 +173,7 @@ function AttendancePanel({
   }, [dateFilter, customDate]);
 
   const { settings: timeSettings } = useTimeSettings();
+  const { hasAssignments } = useScopedSiteIds();
   const targetHours = rules?.targetHours ?? DEFAULT_TARGET_HOURS;
   const scheduleLabel = rules
     ? `Day ${formatScheduleTime(rules.dayInTime, timeSettings)}–${formatScheduleTime(rules.dayOutTime, timeSettings)} · Lunch ${formatScheduleTime(rules.lunchOutTime, timeSettings)}–${formatScheduleTime(rules.lunchInTime, timeSettings)} · Target ${rules.targetHours}h`
@@ -180,10 +183,13 @@ function AttendancePanel({
     () => [...sites].sort((a, b) => a.name.localeCompare(b.name)),
     [sites],
   );
-  const knownSiteNames = useMemo(() => new Set(sites.map((s) => s.name)), [sites]);
+  const knownSiteIds = useMemo(() => new Set(sites.map((s) => s.id)), [sites]);
   const hasUnassignedDrivers = useMemo(
-    () => drivers.some((d) => !d.homeSite || !knownSiteNames.has(d.homeSite)),
-    [drivers, knownSiteNames],
+    () =>
+      drivers.some(
+        (d) => !d.siteId || !knownSiteIds.has(d.siteId),
+      ),
+    [drivers, knownSiteIds],
   );
 
   // Only ACTIVE drivers ever appear in a roster (the backend filters by
@@ -198,18 +204,17 @@ function AttendancePanel({
     let unassigned = 0;
     let knownSiteTotal = 0;
     for (const s of sortedSites) {
-      const count = activeDrivers.filter((d) => d.homeSite === s.name).length;
+      const count = activeDrivers.filter((d) => d.siteId === s.id).length;
       map.set(s.id, count);
       knownSiteTotal += count;
     }
     for (const d of activeDrivers) {
-      const site = d.homeSite ?? "";
-      if (!site || !knownSiteNames.has(site)) unassigned += 1;
+      if (!d.siteId || !knownSiteIds.has(d.siteId)) unassigned += 1;
     }
     map.set(ALL_SITES_TAB, knownSiteTotal);
     map.set(UNASSIGNED_TAB, unassigned);
     return map;
-  }, [drivers, sortedSites, knownSiteNames]);
+  }, [drivers, sortedSites, knownSiteIds]);
 
   const resolvedSiteId = useMemo(() => {
     if (activeTab === ALL_SITES_TAB) return null;
@@ -247,7 +252,7 @@ function AttendancePanel({
     setLoadError(null);
     try {
       const [s, d, loadedRules] = await Promise.all([
-        listSites().catch((err) => {
+        listMySites().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
@@ -518,6 +523,10 @@ function AttendancePanel({
     }
     return summary;
   }, [rosterDays]);
+
+  if (!hasAssignments) {
+    return <SiteScopeEmptyState />;
+  }
 
   return (
     <div className="space-y-4">

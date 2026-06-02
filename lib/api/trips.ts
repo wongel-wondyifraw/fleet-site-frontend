@@ -43,6 +43,7 @@ export interface ListTripsQuery {
   dateTo?: string;
   timezone?: string;
   includeTarget?: boolean;
+  siteId?: string;
   limit?: number;
   cursor?: string;
 }
@@ -63,6 +64,7 @@ function buildTripsQuery(query: ListTripsQuery): string {
   if (query.dateTo) params.set("dateTo", query.dateTo);
   if (query.timezone) params.set("timezone", query.timezone);
   if (query.includeTarget) params.set("includeTarget", "true");
+  if (query.siteId) params.set("siteId", query.siteId);
   if (query.limit) params.set("limit", String(query.limit));
   if (query.cursor) params.set("cursor", query.cursor);
   const qs = params.toString();

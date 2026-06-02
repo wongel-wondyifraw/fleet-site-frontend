@@ -23,7 +23,9 @@ import {
   listFuelConsumptionRosterBulk,
 } from "@/lib/api/fuel";
 import { listDrivers } from "@/lib/api/drivers";
-import { listSites } from "@/lib/api/sites";
+import { listMySites } from "@/lib/api/sites";
+import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
+import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { useClientPagedList } from "@/lib/api/useClientPagedList";
 import type { ApiDriver, ApiFuelConsumptionDay, ApiSite } from "@/lib/api/types";
 import {
@@ -40,6 +42,7 @@ import { DESKTOP_MEDIA_QUERY, useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
 
 function FuelPanel({ density = "comfortable" }: { density?: "comfortable" | "compact" }) {
+  const { hasAssignments } = useScopedSiteIds();
   const [sites, setSites] = useState<ApiSite[]>([]);
   const [drivers, setDrivers] = useState<ApiDriver[]>([]);
   const [rosterDays, setRosterDays] = useState<ApiFuelConsumptionDay[]>([]);
@@ -68,10 +71,13 @@ function FuelPanel({ density = "comfortable" }: { density?: "comfortable" | "com
     () => [...sites].sort((a, b) => a.name.localeCompare(b.name)),
     [sites],
   );
-  const knownSiteNames = useMemo(() => new Set(sites.map((s) => s.name)), [sites]);
+  const knownSiteIds = useMemo(() => new Set(sites.map((s) => s.id)), [sites]);
   const hasUnassignedDrivers = useMemo(
-    () => drivers.some((d) => !d.homeSite || !knownSiteNames.has(d.homeSite)),
-    [drivers, knownSiteNames],
+    () =>
+      drivers.some(
+        (d) => !d.siteId || !knownSiteIds.has(d.siteId),
+      ),
+    [drivers, knownSiteIds],
   );
 
   const tabCounts = useMemo(() => {
@@ -80,18 +86,17 @@ function FuelPanel({ density = "comfortable" }: { density?: "comfortable" | "com
     let unassigned = 0;
     let knownSiteTotal = 0;
     for (const s of sortedSites) {
-      const count = activeDrivers.filter((d) => d.homeSite === s.name).length;
+      const count = activeDrivers.filter((d) => d.siteId === s.id).length;
       map.set(s.id, count);
       knownSiteTotal += count;
     }
     for (const d of activeDrivers) {
-      const site = d.homeSite ?? "";
-      if (!site || !knownSiteNames.has(site)) unassigned += 1;
+      if (!d.siteId || !knownSiteIds.has(d.siteId)) unassigned += 1;
     }
     map.set(ALL_SITES_TAB, knownSiteTotal);
     map.set(UNASSIGNED_TAB, unassigned);
     return map;
-  }, [drivers, sortedSites, knownSiteNames]);
+  }, [drivers, sortedSites, knownSiteIds]);
 
   const resolvedSiteId = useMemo(() => {
     if (activeTab === ALL_SITES_TAB) return null;
@@ -111,7 +116,7 @@ function FuelPanel({ density = "comfortable" }: { density?: "comfortable" | "com
     setLoadError(null);
     try {
       const [s, d] = await Promise.all([
-        listSites().catch((err) => {
+        listMySites().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
@@ -238,6 +243,10 @@ function FuelPanel({ density = "comfortable" }: { density?: "comfortable" | "com
     () => computeRosterTotals(filteredRows),
     [filteredRows],
   );
+
+  if (!hasAssignments) {
+    return <SiteScopeEmptyState />;
+  }
 
   return (
     <div className="space-y-4">

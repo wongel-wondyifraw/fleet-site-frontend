@@ -1023,7 +1023,7 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
           (key) => byDate.get(key) ?? null,
         );
 
-        const siteVehicles = vehicles.filter((v) => v.assignedSite === siteId);
+        const siteVehicles = vehicles.filter((v) => v.siteId === siteId);
         const siteVehicleIds = new Set(siteVehicles.map((v) => v.id));
         const siteTrips = trips.filter((trip) =>
           siteVehicleIds.has(trip.vehicleId),

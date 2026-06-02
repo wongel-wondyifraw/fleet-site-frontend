@@ -14,7 +14,7 @@ import {
 } from "@/components/dashboard/useSitesOverview";
 import { staggerStyle } from "@/lib/animations";
 import { listFuelConsumptionRosterBulk } from "@/lib/api/fuel";
-import { listSites } from "@/lib/api/sites";
+import { listMySites } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
 import type { ApiTrip, SiteHealthStatusBand } from "@/lib/api/types";
 import {
@@ -347,7 +347,8 @@ export function SiteScoreCard({
 }
 
 export function SitesOverviewPanel({ compact = false }: { compact?: boolean }) {
-  const { sites, isLoading, isRefreshing, error, refresh } = useSitesOverview();
+  const { sites, isLoading, isRefreshing, error, hasAssignments, refresh } =
+    useSitesOverview();
 
   return (
     <section className={cardClass("p-4")}>
@@ -370,6 +371,10 @@ export function SitesOverviewPanel({ compact = false }: { compact?: boolean }) {
             />
           ))}
         </div>
+      ) : !hasAssignments ? (
+        <p className="text-sm text-muted-foreground">
+          You have no site assignments. Ask an admin to assign you to a site.
+        </p>
       ) : sites.length === 0 ? (
         <p className="text-sm text-muted-foreground">No sites in scope.</p>
       ) : (
@@ -402,7 +407,7 @@ export function FuelUsagePanel() {
       setIsLoading(true);
       try {
         const today = toLocalDateKey(new Date());
-        const sites = await listSites();
+        const sites = await listMySites();
         const siteIds = sites.map((site) => site.id);
         const nameById = new Map(sites.map((site) => [site.id, site.name]));
 

@@ -808,6 +808,8 @@ function DriverHeaderCard({
     );
   }
   const fullName = `${driver.firstName ?? ""} ${driver.lastName ?? ""}`.trim();
+  const homeSiteName =
+    days.find((d) => d.site?.name)?.site?.name ?? null;
   return (
     <div className={cardClassName} style={heightStyle}>
         <div className="shrink-0 border-b border-slate-100 p-5">
@@ -837,11 +839,11 @@ function DriverHeaderCard({
               </Link>
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span className="font-mono">{driver.employeeId}</span>
-                {driver.homeSite && (
+                {homeSiteName && (
                   <span>
                     <span className="text-slate-300">·</span> Home site{" "}
                     <span className="font-semibold text-primary">
-                      {driver.homeSite}
+                      {homeSiteName}
                     </span>
                   </span>
                 )}

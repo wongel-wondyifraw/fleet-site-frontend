@@ -1,63 +1,44 @@
 import type { ApiDriver, ApiSite, ApiVehicle } from "@/lib/api/types";
 
-/** Match a site by UUID (vehicle.assignedSite) or by name (driver.homeSite). */
+/** Match a site by UUID or by name (case-insensitive). */
 export function findSite(
   sites: ApiSite[],
-  key: string | null | undefined,
+  idOrName: string,
 ): ApiSite | undefined {
-  if (!key?.trim()) return undefined;
-  const trimmed = key.trim();
-  return (
-    sites.find((s) => s.id === trimmed) ??
-    sites.find((s) => s.name === trimmed)
+  const needle = idOrName.trim().toLowerCase();
+  return sites.find(
+    (site) =>
+      site.id === idOrName ||
+      site.name.trim().toLowerCase() === needle,
   );
-}
-
-/** Driver assigned to this vehicle, if any. */
-export function findDriverForVehicle(
-  drivers: ApiDriver[],
-  vehicleId: string,
-): ApiDriver | undefined {
-  return drivers.find((d) => d.assignedVehicleId === vehicleId);
-}
-
-/**
- * Primary departure site: taken from the assigned vehicle's site. Falls back
- * to the stored driver home site for legacy records without a vehicle link.
- */
-export function resolvePrimarySite(
-  driver: ApiDriver | null | undefined,
-  vehicle: ApiVehicle | null | undefined,
-  sites: ApiSite[],
-): ApiSite | undefined {
-  if (vehicle?.assignedSite) {
-    const fromVehicle = findSite(sites, vehicle.assignedSite);
-    if (fromVehicle) return fromVehicle;
-  }
-  if (driver?.homeSite) {
-    return findSite(sites, driver.homeSite);
-  }
-  return undefined;
-}
-
-export type StartLocationFields = {
-  startAddress: string;
-  startCity: string;
-  startState: string;
-  startLat: number | null;
-  startLon: number | null;
-};
-
-export function siteToStartFields(site: ApiSite): StartLocationFields {
-  return {
-    startAddress: site.address,
-    startCity: site.city,
-    startState: site.state,
-    startLat: null,
-    startLon: null,
-  };
 }
 
 export function formatSiteLocation(site: ApiSite): string {
   return [site.address, site.city, site.state].filter(Boolean).join(", ");
+}
+
+export function siteToStartFields(site: ApiSite) {
+  return {
+    startAddress: site.address,
+    startCity: site.city,
+    startState: site.state,
+    startLat: null as number | null,
+    startLon: null as number | null,
+  };
+}
+
+/** Pick the best start site from the selected vehicle or driver assignment. */
+export function resolvePrimarySite(
+  driver: ApiDriver | null | undefined,
+  vehicle: ApiVehicle | null | undefined,
+  sites: ApiSite[],
+): ApiSite | null {
+  if (vehicle?.siteId) {
+    const fromVehicle = findSite(sites, vehicle.siteId);
+    if (fromVehicle) return fromVehicle;
+  }
+  if (driver?.siteId) {
+    return findSite(sites, driver.siteId) ?? null;
+  }
+  return null;
 }

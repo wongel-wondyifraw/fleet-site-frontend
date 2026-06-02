@@ -40,7 +40,7 @@ import {
 import { saveVehicleWithDriver } from "@/components/vehicles/saveVehicle";
 import { ApiError } from "@/lib/api/client";
 import { listDrivers } from "@/lib/api/drivers";
-import { listSites } from "@/lib/api/sites";
+import { listMySites } from "@/lib/api/sites";
 import { formatDate } from "@/lib/time/format";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import {
@@ -93,7 +93,7 @@ export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),
-        listSites().catch((err) => {
+        listMySites().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
@@ -119,8 +119,8 @@ export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
     ? (drivers.find((d) => d.assignedVehicleId === vehicle.id) ?? null)
     : null;
   const assignedSite =
-    vehicle && vehicle.assignedSite
-      ? (sites.find((s) => s.id === vehicle.assignedSite) ?? null)
+    vehicle && vehicle.siteId
+      ? (sites.find((s) => s.id === vehicle.siteId) ?? null)
       : null;
 
   async function handleEditSubmit(args: {

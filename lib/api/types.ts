@@ -184,8 +184,8 @@ export interface ApiVehicle {
   // Fuel economy in km/L.
   mileage: number;
   currentOdometer: number;
-  // assignedSite stores the site UUID (nullable). The UI joins to ApiSite.
-  assignedSite?: string | null;
+  // Site UUID (nullable). Join to ApiSite for display.
+  siteId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -259,7 +259,7 @@ export interface ApiDriver {
   assignedVehicleId?: string | null;
   // Optional nested vehicle, present when the backend joins it in.
   assignedVehicle?: ApiVehicle | null;
-  homeSite?: string | null;
+  siteId?: string | null;
   notes?: string | null;
   createdAt?: string;
   updatedAt?: string;

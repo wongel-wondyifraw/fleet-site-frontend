@@ -13,10 +13,11 @@ import {
 
 import { listAttendanceRosterBulk } from "@/lib/api/attendance";
 import { listFuelConsumptionRosterBulk } from "@/lib/api/fuel";
-import { listSites } from "@/lib/api/sites";
+import { listMySites } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
 import { listVehicles } from "@/lib/api/vehicles";
 import type { ApiSite, ApiTrip, ApiVehicle } from "@/lib/api/types";
+import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { toLocalDateKey } from "@/lib/trips/tripFormatters";
 
 // Public shape consumed by MetricCard. Mirrors the previous static
@@ -108,9 +109,11 @@ const CHECKED_IN_STATUSES = new Set(["PRESENT", "ON_BREAK", "DONE"]);
 export function useDashboardStats(): {
   stats: DashboardKpi[];
   siteCount: number | null;
+  hasAssignments: boolean;
   isLoading: boolean;
   error: string | null;
 } {
+  const { hasAssignments } = useScopedSiteIds();
   const [data, setData] = useState<RawStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -127,9 +130,12 @@ export function useDashboardStats(): {
         );
 
         // Phase 1: vehicles + sites + today's trips run in parallel.
+        // `listMySites` returns only the sites in the caller's scope (or
+        // the full list when they hold the bypass permission), so the KPI
+        // tiles automatically respect site-scoping.
         const [vehicles, sites, trips] = await Promise.all([
           listVehicles(),
-          listSites(),
+          listMySites(),
           listTrips({ date: today }),
         ]);
 
@@ -288,5 +294,5 @@ export function useDashboardStats(): {
 
   const siteCount = data ? data.sites.length : null;
 
-  return { stats, siteCount, isLoading, error };
+  return { stats, siteCount, hasAssignments, isLoading, error };
 }

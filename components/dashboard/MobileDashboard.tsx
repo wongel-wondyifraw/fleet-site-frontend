@@ -12,9 +12,11 @@ import {
 } from "@/components/dashboard/DashboardShared";
 import { useDashboardStats } from "@/components/dashboard/useDashboardStats";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 
 export function MobileDashboard() {
   const { user } = useAuth();
+  const { hasAssignments } = useScopedSiteIds();
   const { stats } = useDashboardStats();
   const [greeting, setGreeting] = useState("Welcome back");
 
@@ -34,25 +36,35 @@ export function MobileDashboard() {
           {greeting}, {firstName}!
         </h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Here&apos;s what&apos;s happening across your sites.
+          {hasAssignments
+            ? "Here's what's happening across your sites."
+            : "You have no site assignments yet."}
         </p>
       </header>
 
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-        {stats.map((stat, index) => (
-          <MetricCard
-            key={stat.label}
-            {...stat}
-            index={index}
-            compact
-          />
-        ))}
-      </section>
+      {!hasAssignments ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center">
+          <p className="text-sm font-semibold text-primary">
+            You have no site assignments.
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ask an admin to assign you to a site to see fleet activity here.
+          </p>
+        </div>
+      ) : (
+        <>
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+            {stats.map((stat, index) => (
+              <MetricCard key={stat.label} {...stat} index={index} compact />
+            ))}
+          </section>
 
-      <SitesOverviewPanel compact />
-      <FuelUsagePanel />
-      <TripStatusPanel />
-      <SitePerformancePanel />
+          <SitesOverviewPanel compact />
+          <FuelUsagePanel />
+          <TripStatusPanel />
+          <SitePerformancePanel />
+        </>
+      )}
     </div>
   );
 }

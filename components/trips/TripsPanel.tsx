@@ -3,6 +3,7 @@
 import {
   ArrowRight,
   Ban,
+  Building2,
   Calendar,
   ChevronDown,
   ChevronRight,
@@ -60,11 +61,13 @@ import {
   type TripsListMeta,
 } from "@/lib/api/trips";
 import { listCustomTripRoutes } from "@/lib/api/customTripRoutes";
-import { listSites } from "@/lib/api/sites";
+import { listMySites } from "@/lib/api/sites";
 import {
   clearTripTargetOverride,
   setTripTargetOverride,
 } from "@/lib/api/tripTargets";
+import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
+import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { formatDateTime } from "@/lib/time/format";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { useToast } from "@/lib/toast/ToastContext";
@@ -123,6 +126,7 @@ export function TripsPanel({
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [statusFilter, setStatusFilter] = useState<TripStatus | "ALL">("ALL");
   const [vehicleFilter, setVehicleFilter] = useState<string>("ALL");
+  const [siteFilter, setSiteFilter] = useState<string>("ALL");
   // Free-text search across the active date's trips. Matched against the
   // driver, vehicle, and start/end location fields so the operator can
   // narrow the list without flipping filter dropdowns.
@@ -158,6 +162,7 @@ export function TripsPanel({
   );
   const { showToast } = useToast();
   const { settings: timeSettings } = useTimeSettings();
+  const { hasAssignments } = useScopedSiteIds();
 
   const vehicleById = useMemo(() => {
     const map = new Map<string, ApiVehicle>();
@@ -195,10 +200,17 @@ export function TripsPanel({
         includeTarget: true,
         status: statusFilter === "ALL" ? undefined : statusFilter,
         vehicleId: vehicleFilter === "ALL" ? undefined : vehicleFilter,
+        siteId: siteFilter === "ALL" ? undefined : siteFilter,
         cursor,
         limit,
       }),
-    deps: [targetDateKey, timeSettings.timezone, statusFilter, vehicleFilter],
+    deps: [
+      targetDateKey,
+      timeSettings.timezone,
+      statusFilter,
+      vehicleFilter,
+      siteFilter,
+    ],
   });
 
   useEffect(() => {
@@ -225,7 +237,7 @@ export function TripsPanel({
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),
-        listSites().catch((err) => {
+        listMySites().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
@@ -476,6 +488,10 @@ export function TripsPanel({
     );
   }
 
+  if (!hasAssignments) {
+    return <SiteScopeEmptyState />;
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -644,6 +660,21 @@ export function TripsPanel({
             ]}
           />
         </div>
+        <div className="w-56">
+          <Select
+            value={siteFilter}
+            onValueChange={setSiteFilter}
+            leftIcon={Building2}
+            aria-label="Filter by site"
+            options={[
+              { value: "ALL", label: "All my sites" },
+              ...sites.map((s) => ({
+                value: s.id,
+                label: s.name,
+              })),
+            ]}
+          />
+        </div>
         <DailyTargetEditor
           target={targetState}
           isSaving={isSavingTarget}
@@ -688,6 +719,7 @@ export function TripsPanel({
             </p>
             {(statusFilter !== "ALL" ||
               vehicleFilter !== "ALL" ||
+              siteFilter !== "ALL" ||
               dateFilter !== "TODAY" ||
               searchQuery.trim() !== "") && (
               <Button
@@ -697,6 +729,7 @@ export function TripsPanel({
                 onClick={() => {
                   setStatusFilter("ALL");
                   setVehicleFilter("ALL");
+                  setSiteFilter("ALL");
                   setDateFilter("TODAY");
                   setSearchQuery("");
                 }}

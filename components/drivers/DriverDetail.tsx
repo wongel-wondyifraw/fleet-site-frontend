@@ -178,7 +178,13 @@ export function DriverDetail({ driverId }: { driverId: string }) {
       ? vehicleById.get(driver.assignedVehicleId) ?? null
       : null);
   const siteName = driver
-    ? driverSiteName(driver, vehicleById, sites)
+    ? driverSiteName(
+        {
+          ...driver,
+          assignedVehicle: assignedVehicle ?? null,
+        },
+        sites,
+      )
     : null;
 
   async function resolveVehicleAssignment(

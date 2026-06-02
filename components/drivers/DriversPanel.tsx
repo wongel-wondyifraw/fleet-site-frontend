@@ -44,7 +44,7 @@ import {
   type UpdateDriverRequest,
 } from "@/lib/api/drivers";
 import { useCursorPagedList } from "@/lib/api/useCursorPagedList";
-import { listSites } from "@/lib/api/sites";
+import { listMySites } from "@/lib/api/sites";
 import { createVehicle, listVehicles } from "@/lib/api/vehicles";
 import {
   DRIVER_STATUSES,
@@ -56,6 +56,8 @@ import {
   type DriverStatus,
 } from "@/lib/api/types";
 import { driverSiteName } from "@/lib/drivers/resolveDriverSite";
+import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
+import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
@@ -95,6 +97,7 @@ export function DriversPanel({
   const [loadError, setLoadError] = useState<string | null>(null);
   // Driver pending a delete confirmation. null keeps the dialog closed.
   const [pendingDelete, setPendingDelete] = useState<ApiDriver | null>(null);
+  const { hasAssignments } = useScopedSiteIds();
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -107,11 +110,12 @@ export function DriversPanel({
     fetchPage: (cursor, limit) =>
       listDriversPage({
         status: statusFilter === "ALL" ? undefined : statusFilter,
+        siteId: siteFilter === "ALL" ? undefined : siteFilter,
         search: debouncedSearch || undefined,
         cursor,
         limit,
       }),
-    deps: [statusFilter, debouncedSearch],
+    deps: [statusFilter, siteFilter, debouncedSearch],
   });
 
   const refreshAux = useCallback(async () => {
@@ -123,7 +127,7 @@ export function DriversPanel({
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),
-        listSites().catch((err) => {
+        listMySites().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
@@ -176,25 +180,7 @@ export function DriversPanel({
     return map;
   }, [allDrivers]);
 
-  // Site names for the filter — derived from each driver's assigned vehicle.
-  const siteOptions = useMemo(() => {
-    const names = new Set<string>();
-    for (const s of sites) names.add(s.name);
-    for (const d of driverList.items) {
-      const name = driverSiteName(d, vehicleById, sites);
-      if (name) names.add(name);
-    }
-    return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [sites, driverList.items, vehicleById]);
-
-  // Site filter is client-side on the current page (resolved site name).
-  const filteredDrivers = useMemo(() => {
-    return driverList.items.filter((d) => {
-      const siteName = driverSiteName(d, vehicleById, sites);
-      if (siteFilter !== "ALL" && (siteName ?? "") !== siteFilter) return false;
-      return true;
-    });
-  }, [driverList.items, vehicleById, sites, siteFilter]);
+  const filteredDrivers = driverList.items;
 
   const isLoading = auxLoading || driverList.isLoading;
 
@@ -280,6 +266,10 @@ export function DriversPanel({
   }
 
   // ---- List view ----------------------------------------------------------
+  if (!hasAssignments) {
+    return <SiteScopeEmptyState />;
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -330,9 +320,9 @@ export function DriversPanel({
                 aria-label="Filter by site"
                 options={[
                   { value: "ALL", label: "All sites" },
-                  ...siteOptions.map((name) => ({
-                    value: name,
-                    label: name,
+                  ...sites.map((s) => ({
+                    value: s.id,
+                    label: s.name,
                   })),
                 ]}
               />
@@ -397,7 +387,17 @@ export function DriversPanel({
                   ? (vehicleById.get(driver.assignedVehicleId) ?? null)
                   : null
               }
-              siteName={driverSiteName(driver, vehicleById, sites)}
+              siteName={driverSiteName(
+                {
+                  ...driver,
+                  assignedVehicle:
+                    driver.assignedVehicle ??
+                    (driver.assignedVehicleId
+                      ? (vehicleById.get(driver.assignedVehicleId) ?? null)
+                      : null),
+                },
+                sites,
+              )}
               density={density}
               onEdit={() => setMode({ kind: "edit", driver })}
               onDelete={() => setPendingDelete(driver)}

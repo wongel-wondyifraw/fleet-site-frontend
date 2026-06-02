@@ -37,8 +37,8 @@ export function TripVehiclePicker({
     return vehicles
       .filter((v) => {
         if (!q) return true;
-        const siteName = v.assignedSite
-          ? findSite(sites, v.assignedSite)?.name ?? ""
+        const siteName = v.siteId
+          ? findSite(sites, v.siteId)?.name ?? ""
           : "";
         const hay =
           `${v.assetNumber} ${v.plateNumber} ${prettyEnum(v.type)} ${siteName}`.toLowerCase();
@@ -67,10 +67,10 @@ export function TripVehiclePicker({
             </p>
             <p className="truncate text-[11px] text-muted-foreground">
               {prettyEnum(selected.type)}
-              {selected.assignedSite && (
+              {selected.siteId && (
                 <>
                   <span className="mx-1.5 text-slate-300">·</span>
-                  {findSite(sites, selected.assignedSite)?.name ??
+                  {findSite(sites, selected.siteId)?.name ??
                     "Assigned site"}
                 </>
               )}
@@ -118,8 +118,8 @@ export function TripVehiclePicker({
         <ul className="max-h-48 space-y-1.5 overflow-y-auto rounded-xl border border-slate-100 bg-white p-2">
           {filtered.map((v) => {
             const isSelected = v.id === selectedId;
-            const siteName = v.assignedSite
-              ? findSite(sites, v.assignedSite)?.name
+            const siteName = v.siteId
+              ? findSite(sites, v.siteId)?.name
               : null;
             return (
               <li key={v.id}>

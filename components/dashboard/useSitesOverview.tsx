@@ -11,9 +11,10 @@ import {
 } from "react";
 
 import { listSiteHealth, listSiteHealthHistory } from "@/lib/api/siteHealth";
-import { listSites } from "@/lib/api/sites";
+import { listMySites } from "@/lib/api/sites";
 import type { ApiSiteHealthScore } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { toLocalDateKey } from "@/lib/trips/tripFormatters";
 
 export type SiteOverviewRow = ApiSiteHealthScore & {
@@ -29,6 +30,7 @@ interface SitesOverviewState {
   error: string | null;
   today: string;
   lastUpdatedAt: Date | null;
+  hasAssignments: boolean;
   refresh: () => void;
 }
 
@@ -46,6 +48,7 @@ const SitesOverviewContext = createContext<SitesOverviewState | null>(null);
 
 export function SitesOverviewProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const { hasAssignments } = useScopedSiteIds();
   const [sites, setSites] = useState<SiteOverviewRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -75,14 +78,12 @@ export function SitesOverviewProvider({ children }: { children: ReactNode }) {
       else setIsRefreshing(true);
 
       try {
-        const allSites = await listSites();
-        const siteIds =
-          user?.role?.key === "ADMIN"
-            ? allSites.map((s) => s.id)
-            : (user?.sites ?? []).map((s) => s.id);
+        const scopedSites = await listMySites();
+        const siteIds = scopedSites.map((s) => s.id);
 
-        const nameById = new Map(allSites.map((s) => [s.id, s.name]));
-        const health = await listSiteHealth(today, siteIds);
+        const nameById = new Map(scopedSites.map((s) => [s.id, s.name]));
+        const health =
+          siteIds.length > 0 ? await listSiteHealth(today, siteIds) : [];
 
         const historyFrom = last7DayKeys(today)[0];
         const histories = await Promise.all(
@@ -154,9 +155,19 @@ export function SitesOverviewProvider({ children }: { children: ReactNode }) {
       error,
       today,
       lastUpdatedAt,
+      hasAssignments,
       refresh,
     }),
-    [sites, isLoading, isRefreshing, error, today, lastUpdatedAt, refresh],
+    [
+      sites,
+      isLoading,
+      isRefreshing,
+      error,
+      today,
+      lastUpdatedAt,
+      hasAssignments,
+      refresh,
+    ],
   );
 
   return (

@@ -3,6 +3,7 @@
 // Vehicle Registry list panel - search + filter + add-new flow. Clicking a
 // row routes to the dedicated detail page where edit and delete live.
 import {
+  Building2,
   ChevronRight,
   Filter,
   Gauge,
@@ -36,7 +37,7 @@ import { saveVehicleWithDriver } from "@/components/vehicles/saveVehicle";
 import { Pagination } from "@/components/ui/Pagination";
 import { ApiError } from "@/lib/api/client";
 import { listDrivers } from "@/lib/api/drivers";
-import { listSites } from "@/lib/api/sites";
+import { listMySites } from "@/lib/api/sites";
 import { useCursorPagedList } from "@/lib/api/useCursorPagedList";
 import {
   VEHICLE_TYPES,
@@ -52,6 +53,8 @@ import {
   listVehiclesPage,
   type CreateVehicleRequest,
 } from "@/lib/api/vehicles";
+import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
+import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 
@@ -79,20 +82,24 @@ export function VehiclesPanel({
   const [searchQuery, setSearchQuery] = useState("");
   // "ALL" means no filter; otherwise narrow the list to a single vehicle type.
   const [typeFilter, setTypeFilter] = useState<VehicleType | "ALL">("ALL");
+  // "ALL" means no filter; otherwise narrow to vehicles assigned to one site.
+  const [siteFilter, setSiteFilter] = useState<string>("ALL");
   const [auxLoading, setAuxLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Vehicle pending a delete confirmation. `null` keeps the dialog closed;
   // setting it opens the dialog and seeds its title/description.
   const [pendingDelete, setPendingDelete] = useState<ApiVehicle | null>(null);
+  const { hasAssignments } = useScopedSiteIds();
 
   const vehicleList = useCursorPagedList({
     fetchPage: (cursor, limit) =>
       listVehiclesPage({
         type: typeFilter === "ALL" ? undefined : typeFilter,
+        siteId: siteFilter === "ALL" ? undefined : siteFilter,
         cursor,
         limit,
       }),
-    deps: [typeFilter],
+    deps: [typeFilter, siteFilter],
   });
 
   const refreshAux = useCallback(async () => {
@@ -104,7 +111,7 @@ export function VehiclesPanel({
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),
-        listSites().catch((err) => {
+        listMySites().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
@@ -155,7 +162,7 @@ export function VehiclesPanel({
     if (!q) return vehicleList.items;
     return vehicleList.items.filter((v) => {
       const driver = driverByVehicleId.get(v.id);
-      const site = v.assignedSite ? siteById.get(v.assignedSite) : null;
+      const site = v.siteId ? siteById.get(v.siteId) : null;
       const hay = [
         v.assetNumber,
         v.plateNumber,
@@ -216,6 +223,10 @@ export function VehiclesPanel({
   }
 
   // ---- List view ----------------------------------------------------------
+  if (!hasAssignments) {
+    return <SiteScopeEmptyState />;
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -258,6 +269,21 @@ export function VehiclesPanel({
                 ]}
               />
             </div>
+            <div className="w-full sm:w-56">
+              <Select
+                value={siteFilter}
+                onValueChange={setSiteFilter}
+                leftIcon={Building2}
+                aria-label="Filter by site"
+                options={[
+                  { value: "ALL", label: "All sites" },
+                  ...sites.map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                  })),
+                ]}
+              />
+            </div>
           </div>
         </div>
         <Button
@@ -276,7 +302,10 @@ export function VehiclesPanel({
           <Loader2 className="size-5 animate-spin text-primary" />
         </div>
       ) : filteredVehicles.length === 0 ? (
-        vehicleList.items.length === 0 && !searchQuery.trim() ? (
+        vehicleList.items.length === 0 &&
+        !searchQuery.trim() &&
+        typeFilter === "ALL" &&
+        siteFilter === "ALL" ? (
           <EmptyState />
         ) : (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center">
@@ -285,19 +314,22 @@ export function VehiclesPanel({
               No vehicles match your filters.
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {typeFilter === "ALL"
-                ? "Try a different asset number, plate, driver, or site."
-                : `No ${prettyEnum(typeFilter)} vehicles match — try clearing the type filter.`}
+              {typeFilter !== "ALL" || siteFilter !== "ALL"
+                ? "Try clearing a filter or refining your search."
+                : "Try a different asset number, plate, driver, or site."}
             </p>
-            {typeFilter !== "ALL" && (
+            {(typeFilter !== "ALL" || siteFilter !== "ALL") && (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setTypeFilter("ALL")}
+                onClick={() => {
+                  setTypeFilter("ALL");
+                  setSiteFilter("ALL");
+                }}
                 className="mt-3 h-8 gap-1 rounded-lg border-slate-200 bg-white px-3 text-xs"
               >
-                Clear type filter
+                Clear filters
               </Button>
             )}
           </div>
@@ -314,8 +346,8 @@ export function VehiclesPanel({
               vehicle={vehicle}
               driver={driverByVehicleId.get(vehicle.id) ?? null}
               site={
-                vehicle.assignedSite
-                  ? (siteById.get(vehicle.assignedSite) ?? null)
+                vehicle.siteId
+                  ? (siteById.get(vehicle.siteId) ?? null)
                   : null
               }
               density={density}

@@ -12,20 +12,23 @@ import {
 } from "@/components/dashboard/DashboardShared";
 import { useDashboardStats } from "@/components/dashboard/useDashboardStats";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 
-// Builds the sub-greeting line under the dashboard heading. Non-admin
-// users see the count of sites they're assigned to (their actual scope),
-// admins see the total number of sites in the tenant.
-function buildSiteScopeLine(role: string | undefined, scopedCount: number | null, totalCount: number | null): string {
-  const count = role === "ADMIN" ? totalCount : scopedCount;
-  if (count == null) return "Loading your sites...";
-  if (count === 0) return "No sites assigned yet.";
-  if (count === 1) return "Here's what's happening across your 1 site.";
-  return `Here's what's happening across your ${count.toLocaleString()} sites.`;
+// Builds the sub-greeting line under the dashboard heading. The site
+// count we surface is the caller's scoped count (or the full tenant
+// count when they hold the bypass permission), provided by the
+// dashboard stats hook so admin and non-admin users see consistent
+// numbers.
+function buildSiteScopeLine(siteCount: number | null): string {
+  if (siteCount == null) return "Loading your sites...";
+  if (siteCount === 0) return "No sites assigned yet.";
+  if (siteCount === 1) return "Here's what's happening across your 1 site.";
+  return `Here's what's happening across your ${siteCount.toLocaleString()} sites.`;
 }
 
 export function DesktopDashboard() {
   const { user } = useAuth();
+  const { hasAssignments } = useScopedSiteIds();
   const { stats, siteCount } = useDashboardStats();
   const [greeting, setGreeting] = useState("Welcome back");
 
@@ -34,12 +37,7 @@ export function DesktopDashboard() {
   }, []);
 
   const firstName = user?.firstName ?? "there";
-  const scopedCount = user?.sites?.length ?? null;
-  const subheading = buildSiteScopeLine(
-    user?.role?.key,
-    scopedCount,
-    siteCount,
-  );
+  const subheading = buildSiteScopeLine(siteCount);
 
   return (
     <div className="hidden lg:block fs-panel-in">
@@ -52,24 +50,33 @@ export function DesktopDashboard() {
         </div>
       </header>
 
-      <section className="mb-5 grid grid-cols-5 gap-4">
-        {stats.map((stat, index) => (
-          <MetricCard
-            key={stat.label}
-            {...stat}
-            index={index}
-          />
-        ))}
-      </section>
-
-      <div className="space-y-5">
-        <SitesOverviewPanel />
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-          <FuelUsagePanel />
-          <TripStatusPanel />
-          <SitePerformancePanel />
+      {!hasAssignments ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-8 text-center">
+          <p className="text-sm font-semibold text-primary">
+            You have no site assignments.
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ask an admin to assign you to a site to see fleet activity here.
+          </p>
         </div>
-      </div>
+      ) : (
+        <>
+          <section className="mb-5 grid grid-cols-5 gap-4">
+            {stats.map((stat, index) => (
+              <MetricCard key={stat.label} {...stat} index={index} />
+            ))}
+          </section>
+
+          <div className="space-y-5">
+            <SitesOverviewPanel />
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+              <FuelUsagePanel />
+              <TripStatusPanel />
+              <SitePerformancePanel />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

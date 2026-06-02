@@ -173,7 +173,7 @@ export function VehicleForm({
           fuelCapacity:
             initial.fuelCapacity != null ? String(initial.fuelCapacity) : "",
           mileage: initial.mileage != null ? String(initial.mileage) : "",
-          assignedSite: initial.assignedSite ?? "",
+          assignedSite: initial.siteId ?? "",
         }
       : emptyVehicleForm(),
   );
@@ -269,7 +269,7 @@ export function VehicleForm({
           fuelType: form.fuelType,
           fuelCapacity,
           mileage,
-          assignedSite: form.assignedSite ? form.assignedSite : null,
+          siteId: form.assignedSite ? form.assignedSite : null,
         },
         status: isNew ? null : form.status,
         driverSelection: resolvedDriverSelection,

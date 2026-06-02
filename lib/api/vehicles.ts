@@ -16,7 +16,7 @@ export interface CreateVehicleRequest {
   fuelCapacity: number;
   mileage?: number;
   currentOdometer?: number;
-  assignedSite?: string | null;
+  siteId?: string | null;
 }
 
 export type UpdateVehicleRequest = Partial<CreateVehicleRequest> & {
@@ -26,21 +26,21 @@ export type UpdateVehicleRequest = Partial<CreateVehicleRequest> & {
 export interface ListVehiclesQuery {
   status?: VehicleStatus;
   type?: VehicleType;
-  site?: string;
+  siteId?: string;
   limit?: number;
   cursor?: string;
 }
 
 export type VehicleLookup = Pick<
   ApiVehicle,
-  "id" | "assetNumber" | "plateNumber" | "type" | "status" | "assignedSite"
+  "id" | "assetNumber" | "plateNumber" | "type" | "status" | "siteId"
 >;
 
 function buildVehiclesQuery(query: ListVehiclesQuery): string {
   const params = new URLSearchParams();
   if (query.status) params.set("status", query.status);
   if (query.type) params.set("type", query.type);
-  if (query.site) params.set("site", query.site);
+  if (query.siteId) params.set("siteId", query.siteId);
   if (query.limit) params.set("limit", String(query.limit));
   if (query.cursor) params.set("cursor", query.cursor);
   const qs = params.toString();

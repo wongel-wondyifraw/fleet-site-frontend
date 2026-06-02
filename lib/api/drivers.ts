@@ -14,14 +14,14 @@ export interface CreateDriverRequest {
   email?: string;
   hireDate: string;
   assignedVehicleId?: string;
-  homeSite?: string;
+  siteId?: string;
   notes?: string;
 }
 
 export interface ListDriversQuery {
   status?: DriverStatus;
   licenseClass?: LicenseClass;
-  site?: string;
+  siteId?: string;
   search?: string;
   limit?: number;
   cursor?: string;
@@ -35,14 +35,14 @@ export type DriverLookup = Pick<
   | "employeeId"
   | "assignedVehicleId"
   | "status"
-  | "homeSite"
+  | "siteId"
 >;
 
 function buildDriversQuery(query: ListDriversQuery): string {
   const params = new URLSearchParams();
   if (query.status) params.set("status", query.status);
   if (query.licenseClass) params.set("licenseClass", query.licenseClass);
-  if (query.site) params.set("site", query.site);
+  if (query.siteId) params.set("siteId", query.siteId);
   if (query.search) params.set("search", query.search);
   if (query.limit) params.set("limit", String(query.limit));
   if (query.cursor) params.set("cursor", query.cursor);
@@ -84,7 +84,7 @@ export interface UpdateDriverRequest {
   email?: string | null;
   status?: DriverStatus;
   assignedVehicleId?: string | null;
-  homeSite?: string | null;
+  siteId?: string | null;
   notes?: string | null;
 }
 
@@ -101,6 +101,14 @@ export async function updateDriver(
 
 export async function deleteDriver(id: string): Promise<void> {
   return apiRequest<void>(`/drivers/${id}`, { method: "DELETE" });
+}
+
+export async function listExpiringLicenses(
+  withinDays = 30,
+): Promise<ApiDriver[]> {
+  return apiRequest<ApiDriver[]>(
+    `/drivers/expiring-licenses?withinDays=${withinDays}`,
+  );
 }
 
 export async function assignDriverVehicle(

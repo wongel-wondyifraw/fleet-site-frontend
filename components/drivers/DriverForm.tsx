@@ -284,12 +284,12 @@ export function DriverForm({
           fuelType: newVehicleForm.fuelType,
           fuelCapacity,
           mileage,
-          assignedSite: newVehicleForm.assignedSite || undefined,
+          siteId: newVehicleForm.assignedSite || undefined,
         },
       };
     }
 
-    const derivedHomeSite = resolveHomeSiteFromVehicle(
+    const derivedSiteId = resolveSiteIdFromVehicle(
       resolvedVehicleSelection,
       vehicles,
       sortedSites,
@@ -304,7 +304,7 @@ export function DriverForm({
       hireDate,
       phoneNumber: phoneNumber.trim(),
       email: trimmedEmail || undefined,
-      homeSite: derivedHomeSite,
+      siteId: derivedSiteId,
       notes: trimmedNotes || undefined,
     };
 
@@ -317,7 +317,7 @@ export function DriverForm({
       phoneNumber: phoneNumber.trim(),
       email: trimmedEmail || null,
       status,
-      homeSite: derivedHomeSite ?? null,
+      siteId: derivedSiteId ?? null,
       notes: trimmedNotes || null,
     };
 
@@ -974,20 +974,17 @@ function IconInput({
   );
 }
 
-function resolveHomeSiteFromVehicle(
+function resolveSiteIdFromVehicle(
   selection: VehicleSelection,
   vehicles: ApiVehicle[],
   sites: ApiSite[],
 ): string | undefined {
   if (selection.kind === "existing") {
     const vehicle = vehicles.find((v) => v.id === selection.vehicleId);
-    return vehicleSiteName(vehicle, sites) ?? undefined;
+    return vehicle?.siteId ?? undefined;
   }
   if (selection.kind === "new") {
-    return vehicleSiteName(
-      { assignedSite: selection.payload.assignedSite ?? null } as ApiVehicle,
-      sites,
-    ) ?? undefined;
+    return selection.payload.siteId ?? undefined;
   }
   return undefined;
 }
