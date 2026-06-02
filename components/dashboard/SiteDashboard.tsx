@@ -21,12 +21,26 @@ import {
   Wrench,
 } from "@/lib/icons";
 
+import { ApiError } from "@/lib/api/client";
 import { listAttendanceRoster } from "@/lib/api/attendance";
 import { listFuelConsumptionRoster } from "@/lib/api/fuel";
 import { listSiteHealth, listSiteHealthHistory } from "@/lib/api/siteHealth";
 import { getSite } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
 import { listVehicles } from "@/lib/api/vehicles";
+import { hasPermission } from "@/lib/api/types";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { isScopedToSites } from "@/lib/auth/useScopedSiteIds";
+
+// Swallow only "missing permission" failures (HTTP 403) so the page can
+// gracefully degrade for users with reduced roles. Auth/expired-token
+// errors (401) and real network errors still surface to the caller.
+function ignoreForbidden<T>(fallback: T) {
+  return (err: unknown): T => {
+    if (err instanceof ApiError && err.status === 403) return fallback;
+    throw err;
+  };
+}
 import type {
   ApiAttendanceDay,
   ApiFuelConsumptionDay,
@@ -984,6 +998,23 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Hide the "Back to dashboard" breadcrumb for site-scoped users — they
+  // have no org-wide /dashboard to return to (and clicking it would just
+  // bounce them straight back here via the DashboardHomeGate redirect).
+  const { user } = useAuth();
+  const showBackToDashboard = !isScopedToSites(user);
+
+  // Per-resource RBAC checks. The site dashboard mixes data from many
+  // modules (vehicles, trips, fuel, …) and a reduced role such as
+  // TIME_KEEPER only has access to a subset. We gate each fetch on the
+  // relevant permission so a missing slug degrades that panel instead of
+  // failing the whole page with "Missing permission(s): …".
+  const canSiteHealth = hasPermission(user, "site-health.read");
+  const canVehicles = hasPermission(user, "vehicles.read");
+  const canTrips = hasPermission(user, "trips.read");
+  const canAttendance = hasPermission(user, "attendance.read");
+  const canFuel = hasPermission(user, "fuel.read");
+
   const today = useMemo(() => toLocalDateKey(new Date()), []);
   const historyFrom = useMemo(() => last7DayKeys(today)[0], [today]);
 
@@ -993,6 +1024,11 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
     async function load() {
       setIsLoading(true);
       try {
+        // getSite is the only fetch we treat as required — sites.read is
+        // enforced by the PermissionGate wrapping this page, so failing
+        // here is a genuine error worth surfacing. Every other fetch is
+        // gated on its own permission and safely degrades to a no-op
+        // fallback if the user lacks access (or the API returns 403).
         const [
           site,
           healthRows,
@@ -1003,16 +1039,40 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
           fuel,
         ] = await Promise.all([
           getSite(siteId),
-          listSiteHealth(today, [siteId]),
-          listSiteHealthHistory(siteId, historyFrom, today),
-          listVehicles(),
-          listTrips({ date: today }),
-          listAttendanceRoster({ date: today, siteId }).catch(
-            () => [] as ApiAttendanceDay[],
-          ),
-          listFuelConsumptionRoster({ date: today, siteId }).catch(
-            () => [] as ApiFuelConsumptionDay[],
-          ),
+          canSiteHealth
+            ? listSiteHealth(today, [siteId]).catch(
+                ignoreForbidden([] as Awaited<ReturnType<typeof listSiteHealth>>),
+              )
+            : Promise.resolve([] as Awaited<ReturnType<typeof listSiteHealth>>),
+          canSiteHealth
+            ? listSiteHealthHistory(siteId, historyFrom, today).catch(
+                ignoreForbidden(
+                  [] as Awaited<ReturnType<typeof listSiteHealthHistory>>,
+                ),
+              )
+            : Promise.resolve(
+                [] as Awaited<ReturnType<typeof listSiteHealthHistory>>,
+              ),
+          canVehicles
+            ? listVehicles().catch(
+                ignoreForbidden([] as Awaited<ReturnType<typeof listVehicles>>),
+              )
+            : Promise.resolve([] as Awaited<ReturnType<typeof listVehicles>>),
+          canTrips
+            ? listTrips({ date: today }).catch(
+                ignoreForbidden([] as Awaited<ReturnType<typeof listTrips>>),
+              )
+            : Promise.resolve([] as Awaited<ReturnType<typeof listTrips>>),
+          canAttendance
+            ? listAttendanceRoster({ date: today, siteId }).catch(
+                ignoreForbidden([] as ApiAttendanceDay[]),
+              )
+            : Promise.resolve([] as ApiAttendanceDay[]),
+          canFuel
+            ? listFuelConsumptionRoster({ date: today, siteId }).catch(
+                ignoreForbidden([] as ApiFuelConsumptionDay[]),
+              )
+            : Promise.resolve([] as ApiFuelConsumptionDay[]),
         ]);
 
         if (cancelled) return;
@@ -1052,17 +1112,28 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [siteId, today, historyFrom]);
+  }, [
+    siteId,
+    today,
+    historyFrom,
+    canSiteHealth,
+    canVehicles,
+    canTrips,
+    canAttendance,
+    canFuel,
+  ]);
 
   if (isLoading) {
     return (
       <div className="fs-panel-in space-y-5">
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-        >
-          <ArrowLeft className="size-3.5" /> Back to dashboard
-        </Link>
+        {showBackToDashboard && (
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+          >
+            <ArrowLeft className="size-3.5" /> Back to dashboard
+          </Link>
+        )}
         <div className="h-8 w-64 animate-pulse rounded-md bg-slate-100" />
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -1077,12 +1148,14 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
   if (error || !data) {
     return (
       <div className="fs-panel-in space-y-4">
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-        >
-          <ArrowLeft className="size-3.5" /> Back to dashboard
-        </Link>
+        {showBackToDashboard && (
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+          >
+            <ArrowLeft className="size-3.5" /> Back to dashboard
+          </Link>
+        )}
         <p className="text-sm text-destructive">{error ?? "Site not found."}</p>
       </div>
     );
@@ -1129,12 +1202,14 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
 
   return (
     <div className="fs-panel-in space-y-5">
-      <Link
-        href="/dashboard"
-        className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-      >
-        <ArrowLeft className="size-3.5" /> Back to dashboard
-      </Link>
+      {showBackToDashboard && (
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+        >
+          <ArrowLeft className="size-3.5" /> Back to dashboard
+        </Link>
+      )}
 
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>

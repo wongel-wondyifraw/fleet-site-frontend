@@ -20,15 +20,17 @@ import { NotificationsPopover } from "@/components/dashboard/NotificationsPopove
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useHomePath } from "@/lib/auth/useScopedSiteIds";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { formatDate, formatTimeOfDay } from "@/lib/time/format";
 import { formatRoleName, hasPermission, type ApiTimeSettings } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 // Primary nav items for the desktop sidebar. Each item is shown only when
-// the current user has the matching read permission. Dashboard is always
-// visible because it's the post-login landing page and acts as a fallback
-// for users with limited access.
+// the current user has the matching read permission. The Dashboard entry's
+// href is filled in per-user at render time (see `buildSidebarNav` below)
+// so site-scoped users link to their assigned site dashboard instead of
+// the org-wide /dashboard route they aren't allowed to see.
 const SIDEBAR_NAV = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard", permission: null },
   { label: "Vehicle Registry", icon: Warehouse, href: "/vehicles", permission: "vehicles.read" },
@@ -48,9 +50,24 @@ const SIDEBAR_NAV = [
   },
 ] as const;
 
+// Swap the Dashboard item's href for the user's effective home path
+// (e.g. /sites/{id} for site-scoped users).
+function buildSidebarNav(
+  homePath: string,
+): { label: string; icon: typeof LayoutDashboard; href: string; permission: string | null }[] {
+  return SIDEBAR_NAV.map((item) =>
+    item.label === "Dashboard" ? { ...item, href: homePath } : { ...item },
+  );
+}
+
 // Match exact dashboard root or any nested subpath under the nav href.
+// The Dashboard entry is matched dynamically against the user's home path
+// (which may be /sites/{id} for scoped users) — see `isHomeActive` below.
 function isActive(pathname: string, href: string): boolean {
   if (href === "/dashboard") return pathname === "/dashboard";
+  // For /sites/{id} (scoped user's home), highlight only on the exact site
+  // page so we don't keep "Dashboard" lit while they navigate elsewhere.
+  if (href.startsWith("/sites/")) return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -94,6 +111,10 @@ export function DashboardSidebar() {
   const pathname = usePathname() ?? "";
   // Pull current user + logout helper from auth context for the footer card.
   const { user, logout } = useAuth();
+  // Per-user landing path. For admins this is /dashboard; for site-scoped
+  // users it's /sites/{their-site-id}. Used to point the "Dashboard" nav
+  // item at the page they're actually allowed to see.
+  const homePath = useHomePath();
   const router = useRouter();
   // Drives the sign-out confirmation dialog so a misclick can't end the session.
   const [confirmSignOutOpen, setConfirmSignOutOpen] = useState(false);
@@ -162,26 +183,28 @@ export function DashboardSidebar() {
       </p>
 
       <nav className="flex-1 space-y-1">
-        {SIDEBAR_NAV.filter(
-          (item) => item.permission === null || hasPermission(user, item.permission),
-        ).map(({ label, icon: Icon, href }) => {
-          const active = isActive(pathname, href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
-                active
-                  ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
-                  : "text-muted-foreground hover:bg-slate-50 hover:text-primary",
-              )}
-            >
-              <Icon className="size-[18px]" />
-              {label}
-            </Link>
-          );
-        })}
+        {buildSidebarNav(homePath)
+          .filter(
+            (item) => item.permission === null || hasPermission(user, item.permission),
+          )
+          .map(({ label, icon: Icon, href }) => {
+            const active = isActive(pathname, href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
+                  active
+                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                    : "text-muted-foreground hover:bg-slate-50 hover:text-primary",
+                )}
+              >
+                <Icon className="size-[18px]" />
+                {label}
+              </Link>
+            );
+          })}
       </nav>
 
       <div className="mt-4 space-y-3">

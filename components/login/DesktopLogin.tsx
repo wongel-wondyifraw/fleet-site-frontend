@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { getHomePath } from "@/lib/auth/useScopedSiteIds";
 
 // Background image used as a hero on the left side of the desktop login.
 const CONSTRUCTION_IMAGE = "/construction-site.jpg";
@@ -60,9 +61,11 @@ export function DesktopLogin() {
     // Disable the button and show a spinner while the request is in flight.
     setIsSubmitting(true);
     try {
-      await login(trimmedEmail, password);
-      // Hard navigation to dashboard; the auth context now has the user.
-      router.push("/dashboard");
+      const signedInUser = await login(trimmedEmail, password);
+      // Route the user to the right "home" based on their access scope.
+      // Site-scoped users (no `sites.bypass-scope`) land directly on their
+      // assigned site dashboard so they never see the org-wide /dashboard.
+      router.push(getHomePath(signedInUser));
     } catch (err) {
       // ApiError carries the server's message (e.g. "Invalid email or password").
       if (err instanceof ApiError) {

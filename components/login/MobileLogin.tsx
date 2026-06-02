@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { getHomePath } from "@/lib/auth/useScopedSiteIds";
 import { cn } from "@/lib/utils";
 
 export function MobileLogin() {
@@ -54,8 +55,10 @@ export function MobileLogin() {
 
     setIsAuthenticating(true);
     try {
-      await login(trimmedEmail, password);
-      router.push("/dashboard");
+      const signedInUser = await login(trimmedEmail, password);
+      // Site-scoped users (no `sites.bypass-scope`) skip the org-wide
+      // /dashboard and go straight to their assigned site dashboard.
+      router.push(getHomePath(signedInUser));
     } catch (err) {
       if (err instanceof ApiError) {
         setErrorMessage(err.message);

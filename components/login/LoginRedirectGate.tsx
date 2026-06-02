@@ -5,21 +5,26 @@ import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
 import { useAuth } from "@/lib/auth/AuthContext";
+import { getHomePath } from "@/lib/auth/useScopedSiteIds";
 
 /**
  * Client gate for the login page: redirects authenticated users to the
  * dashboard and shows a spinner while auth hydrates from localStorage.
  * Children (mobile + desktop login forms) render only for guests.
+ *
+ * Site-scoped users (assigned to specific sites with no `sites.bypass-scope`)
+ * are sent directly to their first assigned site dashboard so they never see
+ * the org-wide /dashboard.
  */
 export function LoginRedirectGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace("/dashboard");
+      router.replace(getHomePath(user));
     }
-  }, [isLoading, isAuthenticated, router]);
+  }, [isLoading, isAuthenticated, user, router]);
 
   if (isLoading || isAuthenticated) {
     return (
