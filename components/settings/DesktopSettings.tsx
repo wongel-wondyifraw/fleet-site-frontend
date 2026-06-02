@@ -4,6 +4,7 @@ import {
   Building2,
   ClipboardCheck,
   Clock,
+  Gauge,
   Mail,
   Route,
   ShieldCheck,
@@ -21,6 +22,7 @@ import {
 } from "@/components/settings/SettingsShared";
 import { CustomTripRoutesPanel } from "@/components/settings/CustomTripRoutesPanel";
 import { AttendanceRulesPanel } from "@/components/settings/AttendanceRulesPanel";
+import { SiteScoringPanel } from "@/components/settings/SiteScoringPanel";
 import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
@@ -37,6 +39,7 @@ type SectionId =
   | "trips"
   | "time"
   | "attendance"
+  | "siteScoring"
   | "users";
 
 // Narrowing helper for the `?section=` query param. Keeping this here (next to
@@ -48,6 +51,7 @@ function isValidSection(value: string | null): value is SectionId {
     value === "trips" ||
     value === "time" ||
     value === "attendance" ||
+    value === "siteScoring" ||
     value === "users"
   );
 }
@@ -95,6 +99,13 @@ const SECTIONS: SectionMeta[] = [
     icon: ClipboardCheck,
   },
   {
+    id: "siteScoring",
+    label: "Site Scoring",
+    description: "Health score weights",
+    icon: Gauge,
+    adminOnly: true,
+  },
+  {
     id: "users",
     label: "Users",
     description: "Team & roles",
@@ -115,7 +126,7 @@ export function DesktopSettings() {
   );
 
   // Active sub-section is URL-driven so deep links like
-  // `/dashboard/settings?section=users` (used by the UserDetail back link)
+  // `/settings?section=users` (used by the UserDetail back link)
   // land the admin on the right tab. Falling back to the first visible
   // section also handles cases where the requested section is hidden
   // (e.g. a non-admin requesting "users").
@@ -251,6 +262,7 @@ function ActivePanel({
       {section === "trips" ? <CustomTripRoutesPanel /> : null}
       {section === "time" ? <TimeSettingsPanel /> : null}
       {section === "attendance" ? <AttendanceRulesPanel /> : null}
+      {section === "siteScoring" ? <SiteScoringPanel /> : null}
       {section === "users" ? <UserManagementPanel /> : null}
     </SettingsSection>
   );
@@ -269,6 +281,8 @@ function panelDescription(section: SectionId): string {
       return "Set the application timezone and 12 / 24-hour display format.";
     case "attendance":
       return "Set expected punch times and the daily working-hours target for attendance.";
+    case "siteScoring":
+      return "Adjust dimension weights, status bands, and data-quality thresholds for site health scores.";
     case "users":
       return "Invite teammates and assign their roles and sites.";
   }

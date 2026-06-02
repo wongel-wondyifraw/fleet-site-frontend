@@ -20,11 +20,11 @@ export function DashboardMobileTopBar() {
     ? `${user.firstName[0] ?? ""}${user.lastName[0] ?? ""}`.toUpperCase()
     : "?";
 
-  // Highlight the settings shortcut while the user is on any /dashboard/settings
+  // Highlight the settings shortcut while the user is on any /settings
   // route, matching the bottom-nav active state we used to render.
   const settingsActive =
-    pathname === "/dashboard/settings" ||
-    pathname.startsWith("/dashboard/settings/");
+    pathname === "/settings" ||
+    pathname.startsWith("/settings/");
 
   return (
     <header className="fixed top-0 z-50 w-full border-b border-slate-200/80 bg-white px-4 py-3 lg:hidden">
@@ -52,7 +52,7 @@ export function DashboardMobileTopBar() {
               between the bell and the avatar while keeping the same
               destination. */}
           <Link
-            href="/dashboard/settings"
+            href="/settings"
             aria-label="Settings"
             className={cn(
               "flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",

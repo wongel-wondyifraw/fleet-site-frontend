@@ -1,6 +1,6 @@
 "use client";
 
-// Single-user detail page rendered at /dashboard/users/[id]. Mirrors the
+// Single-user detail page rendered at /users/[id]. Mirrors the
 // shape of VehicleDetail: load -> read-only view by default -> flip into an
 // inline edit form. Admin-only; the parent route is gated by the auth guard
 // on /api/users/* and by the settings sub-section's adminOnly flag.
@@ -820,7 +820,7 @@ function PasswordResetCard({
 function BackLink() {
   return (
     <Link
-      href="/dashboard/settings?section=users"
+      href="/settings?section=users"
       className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary"
     >
       <ArrowLeft className="size-3.5" />

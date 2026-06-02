@@ -1,0 +1,655 @@
+"use client";
+
+import type { ComponentType } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+
+import { Clock } from "@/lib/icons";
+
+import {
+  useSitesOverview,
+  type SiteOverviewRow,
+} from "@/components/dashboard/useSitesOverview";
+import { staggerStyle } from "@/lib/animations";
+import { listFuelConsumptionRosterBulk } from "@/lib/api/fuel";
+import { listSites } from "@/lib/api/sites";
+import { listTrips } from "@/lib/api/trips";
+import type { ApiSiteHealthDimension, ApiTrip, SiteHealthStatusBand } from "@/lib/api/types";
+import {
+  formatCount,
+  formatFuelLiters,
+  formatSiteHealthPercent,
+  formatSiteHealthScore,
+} from "@/lib/site-health/format";
+import { siteHealthLabel } from "@/lib/site-health/labels";
+import { toLocalDateKey } from "@/lib/trips/tripFormatters";
+import { cn } from "@/lib/utils";
+
+type Tone = "blue" | "green" | "amber" | "red" | "purple";
+
+const TONE_STYLES: Record<
+  Tone,
+  { soft: string; text: string; bar: string; ring: string }
+> = {
+  blue: {
+    soft: "bg-primary/10 text-primary",
+    text: "text-primary",
+    bar: "bg-primary",
+    ring: "border-primary/15",
+  },
+  green: {
+    soft: "bg-success/15 text-success",
+    text: "text-success",
+    bar: "bg-success",
+    ring: "border-success/20",
+  },
+  amber: {
+    soft: "bg-amber-100 text-amber-700",
+    text: "text-amber-700",
+    bar: "bg-amber-500",
+    ring: "border-amber-200",
+  },
+  red: {
+    soft: "bg-destructive/10 text-destructive",
+    text: "text-destructive",
+    bar: "bg-destructive",
+    ring: "border-destructive/20",
+  },
+  purple: {
+    soft: "bg-violet-100 text-violet-700",
+    text: "text-violet-700",
+    bar: "bg-violet-500",
+    ring: "border-violet-200",
+  },
+};
+
+function cardClass(className?: string) {
+  return cn(
+    "fs-card-in rounded-2xl border border-slate-200/80 bg-white shadow-sm",
+    className,
+  );
+}
+
+function panelMessage(message: string, tone: "muted" | "error" = "muted") {
+  return (
+    <p className={cn("text-sm", tone === "error" ? "text-destructive" : "text-muted-foreground")}>
+      {message}
+    </p>
+  );
+}
+
+function percentLabel(count: number, total: number): string {
+  if (total <= 0) return "0%";
+  return new Intl.NumberFormat("en-US", {
+    style: "percent",
+    maximumFractionDigits: 1,
+  }).format(count / total);
+}
+
+function isDelayedTrip(trip: ApiTrip, now: number): boolean {
+  return (
+    trip.status === "PLANNED" &&
+    !!trip.scheduledAt &&
+    new Date(trip.scheduledAt).getTime() < now
+  );
+}
+
+function SectionHeader({
+  title,
+  action,
+}: {
+  title: string;
+  action?: string;
+}) {
+  return (
+    <div className="mb-3 flex items-center justify-between gap-3">
+      <h2 className="text-sm font-bold text-primary">{title}</h2>
+      {action ? (
+        <button
+          type="button"
+          className="text-[11px] font-semibold text-primary hover:underline"
+        >
+          {action}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+export function MetricCard({
+  label,
+  value,
+  suffix,
+  detail,
+  icon: Icon,
+  tone,
+  index,
+  compact = false,
+}: {
+  label: string;
+  value: string;
+  suffix?: string;
+  detail: string;
+  icon: ComponentType<{ className?: string }>;
+  tone: Tone;
+  index: number;
+  compact?: boolean;
+}) {
+  const styles = TONE_STYLES[tone];
+
+  return (
+    <div
+      className={cardClass(cn("p-4", compact ? "min-h-32" : "min-h-28"))}
+      style={staggerStyle(index)}
+    >
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <span className={cn("flex size-10 items-center justify-center rounded-xl", styles.soft)}>
+          <Icon className="size-4" />
+        </span>
+        <span className={cn("h-1.5 w-10 rounded-full", styles.bar)} />
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-2xl font-bold text-primary">{value}</span>
+        {suffix ? (
+          <span className="text-xs font-semibold text-muted-foreground">
+            {suffix}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-0.5 text-xs font-semibold text-primary">{label}</p>
+      <p className={cn("mt-2 text-[11px]", styles.text)}>{detail}</p>
+    </div>
+  );
+}
+
+function statusTone(status: SiteHealthStatusBand | null): Tone {
+  switch (status) {
+    case "GOOD":
+      return "green";
+    case "WATCH":
+      return "amber";
+    case "CRITICAL":
+      return "red";
+    default:
+      return "blue";
+  }
+}
+
+function statusLabel(
+  site: SiteOverviewRow,
+): string {
+  if (site.insufficientData) {
+    return siteHealthLabel("siteHealth.status.insufficient");
+  }
+  switch (site.status) {
+    case "GOOD":
+      return siteHealthLabel("siteHealth.status.good");
+    case "WATCH":
+      return siteHealthLabel("siteHealth.status.watch");
+    case "CRITICAL":
+      return siteHealthLabel("siteHealth.status.critical");
+    default:
+      return "—";
+  }
+}
+
+const DIMENSION_ROWS: Array<{
+  key: keyof SiteOverviewRow["dimensions"];
+  labelKey: Parameters<typeof siteHealthLabel>[0];
+}> = [
+  { key: "driverAttendance", labelKey: "siteHealth.dimension.attendance" },
+  { key: "vehicleAvailability", labelKey: "siteHealth.dimension.vehicles" },
+  { key: "tripTargetAchievement", labelKey: "siteHealth.dimension.trips" },
+  { key: "scheduleCompliance", labelKey: "siteHealth.dimension.schedule" },
+  { key: "fuelEfficiencyVariance", labelKey: "siteHealth.dimension.fuel" },
+  { key: "dataCompleteness", labelKey: "siteHealth.dimension.data" },
+];
+
+function DimensionRow({
+  label,
+  dim,
+}: {
+  label: string;
+  dim: ApiSiteHealthDimension;
+}) {
+  if (!dim.applicable) return null;
+  return (
+    <div className="flex items-center justify-between gap-2 text-[10px]">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-semibold text-primary">
+        {dim.normalized}
+        <span className="font-normal text-muted-foreground">
+          {" "}
+          ({formatSiteHealthPercent(dim.value)})
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function ScoreSparkline({ scores }: { scores: (number | null)[] }) {
+  const valid = scores.filter((s): s is number => s != null && Number.isFinite(s));
+  if (valid.length < 2) return null;
+
+  const w = 100;
+  const h = 24;
+  const min = Math.min(...valid, 0);
+  const max = Math.max(...valid, 100);
+  const range = max - min || 1;
+
+  const points = scores
+    .map((score, i) => {
+      if (score == null || !Number.isFinite(score)) return null;
+      const x = (i / (scores.length - 1)) * w;
+      const y = h - ((score - min) / range) * (h - 4) - 2;
+      return `${x},${y}`;
+    })
+    .filter(Boolean)
+    .join(" ");
+
+  if (!points) return null;
+
+  return (
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      className="mt-2 h-6 w-full text-primary"
+      preserveAspectRatio="none"
+      aria-hidden
+    >
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+      />
+    </svg>
+  );
+}
+
+export function SiteScoreCard({
+  site,
+  index,
+}: {
+  site: SiteOverviewRow;
+  index: number;
+}) {
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const tone = site.insufficientData ? "blue" : statusTone(site.status);
+  const statusStyles = TONE_STYLES[tone];
+  const displayScore = site.insufficientData ? null : site.score;
+  const ringPct = displayScore ?? 0;
+  const conic = `conic-gradient(currentColor ${ringPct * 3.6}deg, #eef2f7 0deg)`;
+
+  return (
+    <div
+      className="fs-row-in rounded-xl border border-primary/15 bg-white p-3"
+      style={staggerStyle(index)}
+    >
+      <button
+        type="button"
+        className="w-full text-left"
+        onClick={() => setShowBreakdown((v) => !v)}
+        aria-expanded={showBreakdown}
+      >
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+              {index + 1}
+            </span>
+            <p className="truncate text-lg font-bold tracking-tight text-primary">
+              {site.name}
+            </p>
+          </div>
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold",
+              site.insufficientData
+                ? "bg-slate-100 text-muted-foreground"
+                : statusStyles.soft,
+            )}
+          >
+            {statusLabel(site)}
+          </span>
+        </div>
+        <div className="flex items-center justify-center">
+          <div
+            className="grid size-20 place-items-center rounded-full p-2 text-primary"
+            style={{ background: conic }}
+          >
+            <div className="grid size-14 place-items-center rounded-full bg-white">
+              <span className="text-lg font-bold leading-none text-primary">
+                {displayScore != null
+                  ? `${formatSiteHealthScore(displayScore)}%`
+                  : "—"}
+              </span>
+            </div>
+          </div>
+        </div>
+        <ScoreSparkline scores={site.historyScores} />
+        <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[10px] text-muted-foreground">
+          <span>
+            <span className="block font-semibold text-primary">
+              {formatCount(site.trucks.onsite)}
+            </span>
+            {siteHealthLabel("siteHealth.trucksOnSite")}
+          </span>
+          <span>
+            <span className="block font-semibold text-primary">
+              {formatCount(site.trips.completed)}
+            </span>
+            {siteHealthLabel("siteHealth.tripsToday")}
+          </span>
+          <span>
+            <span className="block font-semibold text-primary">
+              {formatFuelLiters(site.fuel.liters)}
+            </span>
+            {siteHealthLabel("siteHealth.fuelToday")}
+          </span>
+        </div>
+      </button>
+      {showBreakdown ? (
+        <div className="mt-3 space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/80 p-2">
+          <p className="text-[10px] font-bold text-primary">
+            {siteHealthLabel("siteHealth.breakdown.title")}
+          </p>
+          {DIMENSION_ROWS.map(({ key, labelKey }) => (
+            <DimensionRow
+              key={key}
+              label={siteHealthLabel(labelKey)}
+              dim={site.dimensions[key]}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function SitesOverviewPanel({ compact = false }: { compact?: boolean }) {
+  const { sites, isLoading, error } = useSitesOverview();
+
+  return (
+    <section className={cardClass("p-4")}>
+      <SectionHeader
+        title={`Sites (${sites.length || "…"}) Overview`}
+        action="View all sites"
+      />
+      {error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : isLoading ? (
+        <div className={cn("grid gap-3", compact ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4" : "grid-cols-2 xl:grid-cols-5")}>
+          {Array.from({ length: compact ? 4 : 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-40 animate-pulse rounded-xl bg-slate-100"
+              style={staggerStyle(i)}
+            />
+          ))}
+        </div>
+      ) : sites.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No sites in scope.</p>
+      ) : (
+        <div
+          className={cn(
+            "grid gap-3",
+            compact
+              ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4"
+              : "grid-cols-2 xl:grid-cols-5",
+          )}
+        >
+          {sites.map((site, index) => (
+            <SiteScoreCard key={site.siteId} site={site} index={index} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function FuelUsagePanel() {
+  const [rows, setRows] = useState<Array<{ site: string; liters: number; pct: number }>>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setIsLoading(true);
+      try {
+        const today = toLocalDateKey(new Date());
+        const sites = await listSites();
+        const siteIds = sites.map((site) => site.id);
+        const nameById = new Map(sites.map((site) => [site.id, site.name]));
+
+        if (siteIds.length === 0) {
+          if (!cancelled) {
+            setRows([]);
+            setError(null);
+          }
+          return;
+        }
+
+        const roster = await listFuelConsumptionRosterBulk({ date: today, siteIds });
+        const bySite = Object.entries(roster.bySite).map(([siteId, days]) => ({
+          site: nameById.get(siteId) ?? days[0]?.site?.name ?? "Unknown site",
+          liters: days.reduce((sum, day) => {
+            const liters = day.estimatedLiters;
+            return typeof liters === "number" && Number.isFinite(liters)
+              ? sum + liters
+              : sum;
+          }, 0),
+        }));
+        const topRows = bySite
+          .sort((a, b) => b.liters - a.liters)
+          .slice(0, 5);
+        const maxLiters = Math.max(...topRows.map((row) => row.liters), 1);
+
+        if (!cancelled) {
+          setRows(
+            topRows.map((row) => ({
+              ...row,
+              pct: Math.max(3, (row.liters / maxLiters) * 100),
+            })),
+          );
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load fuel usage");
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section className={cardClass("p-4")}>
+      <SectionHeader title="Fuel Usage (Today)" action="By Site" />
+      {error
+        ? panelMessage(error, "error")
+        : isLoading
+          ? panelMessage("Loading fuel usage...")
+          : rows.length === 0
+            ? panelMessage("No fuel data recorded today.")
+            : (
+              <div className="space-y-2">
+                {rows.map((item) => (
+                  <div key={item.site} className="grid grid-cols-[82px_1fr_72px] items-center gap-2 text-xs">
+                    <span className="truncate font-medium text-primary">{item.site}</span>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-primary"
+                        style={{ width: `${item.pct}%` }}
+                      />
+                    </div>
+                    <span className="text-right text-[11px] text-muted-foreground">
+                      {formatFuelLiters(item.liters)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+    </section>
+  );
+}
+
+export function TripStatusPanel() {
+  const [trips, setTrips] = useState<ApiTrip[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setIsLoading(true);
+      try {
+        const today = toLocalDateKey(new Date());
+        const rows = await listTrips({ date: today });
+        if (!cancelled) {
+          setTrips(rows);
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load trip status");
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const statusRows = useMemo(() => {
+    const now = Date.now();
+    const total = trips.length;
+    const completed = trips.filter((trip) => trip.status === "COMPLETED").length;
+    const inProgress = trips.filter((trip) => trip.status === "IN_PROGRESS").length;
+    const delayed = trips.filter((trip) => isDelayedTrip(trip, now)).length;
+    const cancelled = trips.filter((trip) => trip.status === "CANCELLED").length;
+    return {
+      total,
+      rows: [
+        { label: "Completed", count: completed, swatch: "bg-primary" },
+        { label: "In Progress", count: inProgress, swatch: "bg-primary/40" },
+        { label: "Delayed", count: delayed, swatch: "bg-amber-500" },
+        { label: "Cancelled", count: cancelled, swatch: "bg-destructive" },
+      ],
+    };
+  }, [trips]);
+
+  const [completedRow, inProgressRow, delayedRow] = statusRows.rows;
+  const completedDeg = statusRows.total ? (completedRow.count / statusRows.total) * 360 : 0;
+  const progressDeg = statusRows.total ? (inProgressRow.count / statusRows.total) * 360 : 0;
+  const delayedDeg = statusRows.total ? (delayedRow.count / statusRows.total) * 360 : 0;
+  const conic = `conic-gradient(var(--palette-primary) 0 ${completedDeg}deg, color-mix(in_srgb,var(--palette-primary)_40%,white) ${completedDeg}deg ${completedDeg + progressDeg}deg, #f59e0b ${completedDeg + progressDeg}deg ${completedDeg + progressDeg + delayedDeg}deg, var(--palette-negative) ${completedDeg + progressDeg + delayedDeg}deg 360deg)`;
+
+  return (
+    <section className={cardClass("p-4")}>
+      <SectionHeader title="Trip Status (Today)" />
+      {error
+        ? panelMessage(error, "error")
+        : isLoading
+          ? panelMessage("Loading trip status...")
+          : (
+            <div className="grid grid-cols-[120px_1fr] items-center gap-4">
+              <div
+                className="grid size-28 place-items-center rounded-full p-4"
+                style={{ background: statusRows.total > 0 ? conic : "#f1f5f9" }}
+              >
+                <div className="grid size-20 place-items-center rounded-full bg-white text-center">
+                  <span className="text-xl font-bold text-primary">
+                    {formatCount(statusRows.total)}
+                  </span>
+                  <span className="-mt-3 text-[10px] text-muted-foreground">Total Trips</span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {statusRows.rows.map((status) => (
+                  <div key={status.label} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <span className={cn("size-2 rounded-full", status.swatch)} />
+                      {status.label}
+                    </span>
+                    <span className="font-semibold text-primary">
+                      {formatCount(status.count)}{" "}
+                      <span className="font-normal text-muted-foreground">
+                        ({percentLabel(status.count, statusRows.total)})
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+    </section>
+  );
+}
+
+export function SitePerformancePanel() {
+  const { sites, isLoading, error } = useSitesOverview();
+  const rows = useMemo(
+    () =>
+      [...sites]
+        .filter((site) => site.score != null && !site.insufficientData)
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+        .slice(0, 5),
+    [sites],
+  );
+
+  return (
+    <section className={cardClass("p-4")}>
+      <SectionHeader title="Site Performance" />
+      {error
+        ? panelMessage(error, "error")
+        : isLoading
+          ? panelMessage("Loading site performance...")
+          : rows.length === 0
+            ? panelMessage("No scored site performance available yet.")
+            : (
+              <div className="space-y-2">
+                {rows.map((site) => {
+                  const tone = statusTone(site.status);
+                  const styles = TONE_STYLES[tone];
+                  const score = site.score ?? 0;
+                  return (
+                    <div key={site.siteId} className="grid grid-cols-[92px_48px_1fr_52px] items-center gap-2 text-xs">
+                      <span className="truncate font-semibold text-primary">{site.name}</span>
+                      <span className="text-muted-foreground">{formatSiteHealthScore(score)}</span>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className={cn("h-full rounded-full", styles.bar)} style={{ width: `${score}%` }} />
+                      </div>
+                      <span className="text-right text-muted-foreground">
+                        {formatCount(site.trips.completed)} trips
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+      <Link href="/trips" className="mt-4 inline-flex text-xs font-semibold text-primary hover:underline">
+        View full performance
+      </Link>
+    </section>
+  );
+}
+
+export function greetingForHour(hour: number): string {
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}

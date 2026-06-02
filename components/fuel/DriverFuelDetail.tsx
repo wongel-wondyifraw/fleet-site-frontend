@@ -177,7 +177,7 @@ export function DriverFuelDetail({ driverId }: { driverId: string }) {
   return (
     <div className="space-y-5 fs-panel-in">
       <Link
-        href="/dashboard/fuel"
+        href="/fuel"
         className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary"
       >
         <ArrowLeft className="size-3.5" />

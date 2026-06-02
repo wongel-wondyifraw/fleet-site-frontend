@@ -4,6 +4,7 @@ import {
   Building2,
   ClipboardCheck,
   Clock,
+  Gauge,
   LogOut,
   Mail,
   Route,
@@ -20,6 +21,7 @@ import {
 } from "@/components/settings/SettingsShared";
 import { CustomTripRoutesPanel } from "@/components/settings/CustomTripRoutesPanel";
 import { AttendanceRulesPanel } from "@/components/settings/AttendanceRulesPanel";
+import { SiteScoringPanel } from "@/components/settings/SiteScoringPanel";
 import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
@@ -149,6 +151,16 @@ export function MobileSettings() {
       >
         <AttendanceRulesPanel density="compact" />
       </SettingsSection>
+
+      {isAdmin ? (
+        <SettingsSection
+          title="Site Scoring"
+          description="Weights and bands for dashboard site health scores."
+          icon={Gauge}
+        >
+          <SiteScoringPanel density="compact" />
+        </SettingsSection>
+      ) : null}
 
       {/* User management - only rendered for ADMIN accounts. */}
       {isAdmin ? (

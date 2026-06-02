@@ -147,7 +147,7 @@ export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
     setIsDeleting(true);
     try {
       await deleteVehicle(vehicle.id);
-      router.replace("/dashboard/vehicles");
+      router.replace("/vehicles");
     } catch (err) {
       setLoadError(
         err instanceof ApiError ? err.message : "Unable to delete vehicle.",
@@ -396,7 +396,7 @@ export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
 function BackLink() {
   return (
     <Link
-      href="/dashboard/vehicles"
+      href="/vehicles"
       className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary"
     >
       <ArrowLeft className="size-3.5" />

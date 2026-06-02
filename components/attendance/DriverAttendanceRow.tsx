@@ -139,7 +139,7 @@ export function DriverAttendanceRow({
             and a Link ancestor would swallow their clicks. The hover
             background gives a subtle "this is clickable" cue. */}
         <Link
-          href={`/dashboard/attendance/drivers/${day.driverId}`}
+          href={`/attendance/drivers/${day.driverId}`}
           className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg -mx-1 px-1 py-1 transition-colors hover:bg-primary/5"
           aria-label={`Open attendance detail for ${driverName(day)}`}
         >
@@ -285,7 +285,7 @@ export function DriverAttendanceRow({
             </span>
           </span>
           <Link
-            href={`/dashboard/attendance/drivers/${day.driverId}`}
+            href={`/attendance/drivers/${day.driverId}`}
             aria-label={`Open attendance detail for ${driverName(day)}`}
             className="group/chev flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
           >

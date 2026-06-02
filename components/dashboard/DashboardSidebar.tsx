@@ -26,18 +26,18 @@ import { cn } from "@/lib/utils";
 // Primary nav items for the desktop sidebar.
 const SIDEBAR_NAV = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-  { label: "Vehicle Registry", icon: Warehouse, href: "/dashboard/vehicles" },
-  { label: "Drivers", icon: Users, href: "/dashboard/drivers" },
-  { label: "Trip Management", icon: Route, href: "/dashboard/trips" },
+  { label: "Vehicle Registry", icon: Warehouse, href: "/vehicles" },
+  { label: "Drivers", icon: Users, href: "/drivers" },
+  { label: "Trip Management", icon: Route, href: "/trips" },
   {
     label: "Attendance Management",
     icon: Clock,
-    href: "/dashboard/attendance",
+    href: "/attendance",
   },
   {
     label: "Fuel Management",
     icon: Fuel,
-    href: "/dashboard/fuel",
+    href: "/fuel",
   },
 ] as const;
 
@@ -168,10 +168,10 @@ export function DashboardSidebar() {
 
       <div className="mt-4 space-y-3">
         <SidebarFooterLink
-          href="/dashboard/settings"
+          href="/settings"
           icon={Settings}
           label="Settings"
-          active={isActive(pathname, "/dashboard/settings")}
+          active={isActive(pathname, "/settings")}
         />
         {/* Logout: opens a confirmation dialog before clearing the JWT/user. */}
         <Button

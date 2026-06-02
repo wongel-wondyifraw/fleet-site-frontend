@@ -487,3 +487,57 @@ export interface ApiTimeSettings {
   timezone: string;
   timeFormat: "12" | "24";
 }
+
+// ---------------------------------------------------------------------------
+// Site health scoring — snapshots from GET /sites/health
+// ---------------------------------------------------------------------------
+
+export type SiteHealthStatusBand = "GOOD" | "WATCH" | "CRITICAL";
+
+export interface ApiSiteHealthDimension {
+  value: number;
+  normalized: number;
+  weight: number;
+  rescaledWeight: number;
+  applicable: boolean;
+}
+
+export interface ApiSiteHealthScore {
+  siteId: string;
+  date: string;
+  score: number | null;
+  status: SiteHealthStatusBand | null;
+  insufficientData: boolean;
+  dimensions: {
+    driverAttendance: ApiSiteHealthDimension;
+    vehicleAvailability: ApiSiteHealthDimension;
+    tripTargetAchievement: ApiSiteHealthDimension;
+    scheduleCompliance: ApiSiteHealthDimension;
+    fuelEfficiencyVariance: ApiSiteHealthDimension;
+    dataCompleteness: ApiSiteHealthDimension;
+  };
+  trucks: { total: number; onsite: number };
+  trips: { completed: number; total: number; target: number };
+  fuel: { liters: number };
+  computedAt: string;
+}
+
+export interface SiteScoringWeights {
+  driverAttendance: number;
+  vehicleAvailability: number;
+  tripTargetAchievement: number;
+  scheduleCompliance: number;
+  fuelEfficiencyVariance: number;
+  dataCompleteness: number;
+}
+
+export interface SiteScoringBands {
+  goodMin: number;
+  watchMin: number;
+}
+
+export interface ApiSiteScoringConfig {
+  weights: SiteScoringWeights;
+  bands: SiteScoringBands;
+  dataCompletenessFloor: number;
+}

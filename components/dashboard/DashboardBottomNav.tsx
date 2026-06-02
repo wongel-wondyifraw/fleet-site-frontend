@@ -17,26 +17,26 @@ const NAV_ITEMS = [
     id: "vehicles",
     label: "Vehicles",
     icon: Truck,
-    href: "/dashboard/vehicles",
+    href: "/vehicles",
   },
   {
     id: "drivers",
     label: "Drivers",
     icon: Users,
-    href: "/dashboard/drivers",
+    href: "/drivers",
   },
-  { id: "trips", label: "Trips", icon: Route, href: "/dashboard/trips" },
+  { id: "trips", label: "Trips", icon: Route, href: "/trips" },
   {
     id: "attendance",
     label: "Attendance",
     icon: Clock,
-    href: "/dashboard/attendance",
+    href: "/attendance",
   },
   {
     id: "fuel",
     label: "Fuel",
     icon: Fuel,
-    href: "/dashboard/fuel",
+    href: "/fuel",
   },
 ] as const;
 

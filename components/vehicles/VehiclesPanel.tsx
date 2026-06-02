@@ -387,7 +387,7 @@ function VehicleRow({
 
   return (
     <Link
-      href={`/dashboard/vehicles/${vehicle.id}`}
+      href={`/vehicles/${vehicle.id}`}
       className={cn(
         "group flex flex-wrap items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 transition-colors hover:border-primary/30 hover:bg-white focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
         density === "compact" ? "p-3" : "p-4",

@@ -214,7 +214,7 @@ export function DriverDetail({ driverId }: { driverId: string }) {
     setIsDeleting(true);
     try {
       await deleteDriver(driver.id);
-      router.replace("/dashboard/drivers");
+      router.replace("/drivers");
     } catch (err) {
       setLoadError(
         err instanceof ApiError ? err.message : "Unable to delete driver.",
@@ -311,7 +311,7 @@ export function DriverDetail({ driverId }: { driverId: string }) {
               Edit
             </Button>
             <Link
-              href={`/dashboard/attendance/drivers/${driver.id}`}
+              href={`/attendance/drivers/${driver.id}`}
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
             >
               <Clock className="size-4" />
@@ -372,7 +372,7 @@ export function DriverDetail({ driverId }: { driverId: string }) {
         <FormCard title="Assigned vehicle" description="Vehicle linked to this driver." icon={Truck}>
           {assignedVehicle ? (
             <Link
-              href={`/dashboard/vehicles/${assignedVehicle.id}`}
+              href={`/vehicles/${assignedVehicle.id}`}
               className="flex items-start gap-3 rounded-xl border border-slate-100 bg-white p-3 transition-colors hover:border-primary/30 hover:bg-primary/5"
             >
               <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -411,7 +411,7 @@ export function DriverDetail({ driverId }: { driverId: string }) {
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-primary">Recent trips</h3>
             <Link
-              href="/dashboard/trips"
+              href="/trips"
               className="text-[11px] font-semibold text-primary/70 hover:text-primary"
             >
               View all
@@ -426,7 +426,7 @@ export function DriverDetail({ driverId }: { driverId: string }) {
               {recentTrips.map((trip) => (
                 <li key={trip.id}>
                   <Link
-                    href={`/dashboard/trips/${trip.id}`}
+                    href={`/trips/${trip.id}`}
                     className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3 transition-colors hover:border-primary/30 hover:bg-white"
                   >
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -463,7 +463,7 @@ export function DriverDetail({ driverId }: { driverId: string }) {
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-primary">Recent attendance</h3>
             <Link
-              href={`/dashboard/attendance/drivers/${driver.id}`}
+              href={`/attendance/drivers/${driver.id}`}
               className="text-[11px] font-semibold text-primary/70 hover:text-primary"
             >
               Full history
@@ -529,7 +529,7 @@ export function DriverDetail({ driverId }: { driverId: string }) {
 function BackLink() {
   return (
     <Link
-      href="/dashboard/drivers"
+      href="/drivers"
       className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary"
     >
       <ArrowLeft className="size-3.5" />

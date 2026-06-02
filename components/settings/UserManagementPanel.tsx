@@ -279,7 +279,7 @@ function UserRow({
 
   return (
       <Link
-        href={`/dashboard/users/${user.id}`}
+        href={`/users/${user.id}`}
         aria-label={`Open ${user.firstName} ${user.lastName} details`}
         style={style}
         className={cn(

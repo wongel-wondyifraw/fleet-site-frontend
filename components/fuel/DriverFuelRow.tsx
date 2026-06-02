@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils";
 
 const fuelDetailHref = (driverId: string) =>
 
-  `/dashboard/fuel/drivers/${driverId}`;
+  `/fuel/drivers/${driverId}`;
 
 
 

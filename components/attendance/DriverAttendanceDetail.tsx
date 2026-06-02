@@ -518,7 +518,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
   return (
     <div className="space-y-5 fs-panel-in">
       <Link
-        href="/dashboard/attendance"
+        href="/attendance"
         className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary"
       >
         <ArrowLeft className="size-3.5" />
@@ -821,7 +821,7 @@ function DriverHeaderCard({
                 Driver
               </p>
               <Link
-                href={`/dashboard/drivers/${driver.id}`}
+                href={`/drivers/${driver.id}`}
                 className="group/name inline-flex max-w-full items-center gap-1"
               >
                 <h2 className="truncate text-xl font-semibold text-primary group-hover/name:underline">
@@ -830,7 +830,7 @@ function DriverHeaderCard({
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/name:opacity-100" />
               </Link>
               <Link
-                href={`/dashboard/drivers/${driver.id}`}
+                href={`/drivers/${driver.id}`}
                 className="mt-0.5 inline-flex text-[11px] font-semibold text-primary/70 hover:text-primary"
               >
                 View driver profile

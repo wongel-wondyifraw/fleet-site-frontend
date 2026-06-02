@@ -469,7 +469,7 @@ function DriverRow({
       )}
     >
       <Link
-        href={`/dashboard/drivers/${driver.id}`}
+        href={`/drivers/${driver.id}`}
         className="group/link flex min-w-0 flex-1 items-center gap-3"
         aria-label={`Open profile for ${driver.firstName} ${driver.lastName}`}
       >
@@ -554,7 +554,7 @@ function DriverRow({
           <Trash2 className="size-4" />
         </button>
         <Link
-          href={`/dashboard/drivers/${driver.id}`}
+          href={`/drivers/${driver.id}`}
           aria-label={`Open profile for ${driver.firstName} ${driver.lastName}`}
           className="group/chev flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
         >

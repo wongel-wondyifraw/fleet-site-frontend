@@ -1,5 +1,5 @@
 // Mobile-first skeleton screens rendered while route segments load.
-// Used by app/dashboard/**/loading.tsx, so every tab switch shows a layout
+// Used by app/**/loading.tsx, so every tab switch shows a layout
 // that matches the page about to render instead of a blank screen. Desktop
 // gets a simpler card grid (the desktop sidebar already shows full chrome).
 
@@ -122,11 +122,11 @@ export function ListSkeleton({ rows = 4 }: { rows?: number } = {}) {
 // Used by the dashboard error boundary and the offline gate so the fallback
 // always matches the screen the user was on.
 export function PageSkeletonForPath({ pathname }: { pathname: string }) {
-  if (pathname.startsWith("/dashboard/settings")) return <SettingsSkeleton />;
+  if (pathname.startsWith("/settings")) return <SettingsSkeleton />;
   if (
-    pathname.startsWith("/dashboard/vehicles") ||
-    pathname.startsWith("/dashboard/drivers") ||
-    pathname.startsWith("/dashboard/trips")
+    pathname.startsWith("/vehicles") ||
+    pathname.startsWith("/drivers") ||
+    pathname.startsWith("/trips")
   ) {
     return <ListSkeleton />;
   }

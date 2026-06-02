@@ -265,14 +265,14 @@ export function TripDetail({ tripId }: { tripId: string }) {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <LinkCard
-          href={driver ? `/dashboard/drivers/${driver.id}` : "#"}
+          href={driver ? `/drivers/${driver.id}` : "#"}
           disabled={!driver}
           icon={UserRound}
           title={driver ? `${driver.firstName} ${driver.lastName}` : "Unknown driver"}
           subtitle={driver?.employeeId ?? "No driver linked"}
         />
         <LinkCard
-          href={vehicle ? `/dashboard/vehicles/${vehicle.id}` : "#"}
+          href={vehicle ? `/vehicles/${vehicle.id}` : "#"}
           disabled={!vehicle}
           icon={Truck}
           title={
@@ -357,7 +357,7 @@ export function TripDetail({ tripId }: { tripId: string }) {
 function BackLink() {
   return (
     <Link
-      href="/dashboard/trips"
+      href="/trips"
       className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary"
     >
       <ArrowLeft className="size-3.5" />
