@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Bell,
   Clock,
   Fuel,
   LayoutDashboard,
@@ -16,6 +15,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
+import { NotificationsPopover } from "@/components/dashboard/NotificationsPopover";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -175,18 +175,10 @@ export function DashboardSidebar() {
             label="Settings"
             active={isActive(pathname, "/settings")}
           />
-          {/* Notifications inbox - moved from the page header so it lives next
-              to the other persistent affordances. Disabled (placeholder) until
-              the notifications surface ships. */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Notifications"
-            className="size-9 shrink-0 rounded-xl text-muted-foreground hover:bg-slate-50 hover:text-primary"
-          >
-            <Bell className="size-4" />
-          </Button>
+          {/* Notifications inbox - lives next to the other persistent
+              affordances. Opens the custom FleetSite-themed popover with
+              category-tinted rows and an unread badge on the bell. */}
+          <NotificationsPopover placement="sidebar" />
         </div>
         {/* Logout: opens a confirmation dialog before clearing the JWT/user. */}
         <Button

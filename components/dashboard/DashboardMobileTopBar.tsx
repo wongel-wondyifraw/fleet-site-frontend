@@ -1,12 +1,12 @@
 "use client";
 
-import { Bell, Settings } from "@/lib/icons";
+import { Settings } from "@/lib/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
+import { NotificationsPopover } from "@/components/dashboard/NotificationsPopover";
 import { InstallPWAButton } from "@/components/pwa/InstallPWAButton";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { cn } from "@/lib/utils";
 
@@ -40,14 +40,7 @@ export function DashboardMobileTopBar() {
               installed or the current browser doesn't expose an install
               prompt API (iOS Safari, etc.). */}
           <InstallPWAButton />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="size-9 shrink-0 rounded-xl"
-            aria-label="Notifications"
-          >
-            <Bell className="size-4 text-muted-foreground" />
-          </Button>
+          <NotificationsPopover placement="topbar" />
           {/* Settings shortcut. Moved up from the bottom nav so it sits
               between the bell and the avatar while keeping the same
               destination. */}
