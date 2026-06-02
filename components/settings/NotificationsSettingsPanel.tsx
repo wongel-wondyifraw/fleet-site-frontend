@@ -1,13 +1,36 @@
 "use client";
 
+import { useMemo, useState } from "react";
+
 import { Bell } from "@/lib/icons";
-import { KIND_META } from "@/lib/notifications/data";
+import {
+  SettingsSection,
+  ToggleRow,
+} from "@/components/settings/SettingsShared";
 import { ensurePermission } from "@/lib/notifications/browserToast";
-import { disablePush, enablePush, isPushEnabledLocally } from "@/lib/notifications/push";
+import {
+  disablePush,
+  enablePush,
+  isPushEnabledLocally,
+} from "@/lib/notifications/push";
 import { useNotificationPreferences } from "@/lib/notifications/usePreferences";
 import { useToast } from "@/lib/toast/ToastContext";
-import { SettingsSection, SettingsSwitch } from "@/components/settings/SettingsShared";
 
+// Single master switch for notifications.
+//
+// We keep the per-kind / per-channel preference shape on the server so we
+// don't have to migrate data, but the UI now collapses into one toggle:
+//   - ON  -> request browser permission, subscribe to push, and set every
+//            channel for every kind to true.
+//   - OFF -> unsubscribe push and flip every channel for every kind to
+//            false so the server stops creating notifications, the bell
+//            stops badging, and OS toasts stop firing.
+//
+// Browser permission / push subscription failures don't block the toggle:
+// the user's stated intent ("notifications on") is honoured for in-app
+// delivery even if the OS denies system toasts or the server doesn't have
+// VAPID keys configured yet. We just surface a discreet status line so the
+// user knows what actually went through.
 export function NotificationsSettingsPanel({
   wrapInSection = true,
 }: {
@@ -15,47 +38,59 @@ export function NotificationsSettingsPanel({
 }) {
   const { prefs, patch } = useNotificationPreferences();
   const { showToast } = useToast();
+  const [busy, setBusy] = useState(false);
 
-  async function setChannel(
-    channel: "inAppPerKind" | "osToastPerKind" | "webPushPerKind",
-    kind: string,
-    value: boolean,
-  ) {
-    if (!prefs) return;
-    await patch({
-      [channel]: { ...prefs[channel], [kind]: value },
-    });
-  }
+  // The single source of truth for "is the bell on?". We treat it as ON
+  // when ANY kind in ANY channel is currently true. This means a user
+  // who previously customised individual kinds still sees the switch as
+  // ON, and flipping it OFF then back ON is what resets to all-true.
+  const masterOn = useMemo(() => {
+    if (!prefs) return false;
+    const has = (m: Record<string, boolean>) =>
+      Object.values(m).some(Boolean);
+    return has(prefs.inAppPerKind) || has(prefs.osToastPerKind) || has(prefs.webPushPerKind);
+  }, [prefs]);
 
-  async function toggleBrowserToasts(next: boolean) {
-    if (next) {
-      const perm = await ensurePermission();
-      if (perm !== "granted") {
-        showToast({
-          variant: "error",
-          message: "Browser notification permission was not granted.",
-        });
-        return;
-      }
-    }
-    if (!prefs) return;
-    const nextMap = Object.fromEntries(
-      Object.keys(prefs.osToastPerKind).map((k) => [k, next]),
-    );
-    await patch({ osToastPerKind: nextMap });
-  }
-
-  async function togglePush(next: boolean) {
+  async function setAll(next: boolean) {
+    if (!prefs || busy) return;
+    setBusy(true);
     try {
-      if (next) await enablePush();
-      else await disablePush();
-      if (!prefs) return;
-      const nextMap = Object.fromEntries(
-        Object.keys(prefs.webPushPerKind).map((k) => [k, next]),
-      );
-      await patch({ webPushPerKind: nextMap });
+      if (next) {
+        // Side effects first: request OS permission + push subscription.
+        // Failures here are non-fatal; in-app delivery still works.
+        try {
+          await ensurePermission();
+        } catch {
+          /* permission flow rejected — keep going */
+        }
+        try {
+          await enablePush();
+        } catch {
+          /* push unavailable (no VAPID, no PushManager, etc.) */
+        }
+      } else {
+        try {
+          await disablePush();
+        } catch {
+          /* best effort */
+        }
+      }
+
+      const allTo = (map: Record<string, boolean>) =>
+        Object.fromEntries(Object.keys(map).map((k) => [k, next]));
+
+      await patch({
+        inAppPerKind: allTo(prefs.inAppPerKind),
+        osToastPerKind: allTo(prefs.osToastPerKind),
+        webPushPerKind: allTo(prefs.webPushPerKind),
+      });
     } catch {
-      showToast({ variant: "error", message: "Could not update push setting." });
+      showToast({
+        variant: "error",
+        message: "Could not update notification setting.",
+      });
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -69,7 +104,7 @@ export function NotificationsSettingsPanel({
     return (
       <SettingsSection
         title="Notifications"
-        description="Manage in-app alerts, browser toasts, and push delivery."
+        description="Turn notifications on or off for this account."
         icon={Bell}
       >
         {loading}
@@ -77,77 +112,23 @@ export function NotificationsSettingsPanel({
     );
   }
 
-  const kinds = Object.entries(KIND_META);
-  const inAppMaster = Object.values(prefs.inAppPerKind).some(Boolean);
-  const osToastMaster = Object.values(prefs.osToastPerKind).some(Boolean);
-  const webPushMaster = Object.values(prefs.webPushPerKind).some(Boolean);
-
   const content = (
     <>
-      <div className="space-y-2">
-        <SettingsSwitch
-          checked={inAppMaster}
-          onChange={(next) =>
-            patch({
-              inAppPerKind: Object.fromEntries(
-                Object.keys(prefs.inAppPerKind).map((k) => [k, next]),
-              ),
-            })
-          }
-          label="In-app notifications"
-        />
-        <SettingsSwitch
-          checked={osToastMaster}
-          onChange={toggleBrowserToasts}
-          label="Browser notifications (tab hidden)"
-        />
-        <SettingsSwitch
-          checked={webPushMaster || isPushEnabledLocally()}
-          onChange={togglePush}
-          label="PWA push notifications"
-        />
-      </div>
-
-      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-xs text-muted-foreground uppercase">
-            <tr>
-              <th className="px-3 py-2 text-left">Kind</th>
-              <th className="px-3 py-2 text-left">In-app</th>
-              <th className="px-3 py-2 text-left">Browser</th>
-              <th className="px-3 py-2 text-left">Push</th>
-            </tr>
-          </thead>
-          <tbody>
-            {kinds.map(([kind, meta]) => (
-              <tr key={kind} className="border-t border-slate-100">
-                <td className="px-3 py-2 font-medium text-primary">{meta.label}</td>
-                <td className="px-3 py-2">
-                  <SettingsSwitch
-                    checked={prefs.inAppPerKind[kind] !== false}
-                    onChange={(next) => setChannel("inAppPerKind", kind, next)}
-                    label={`${meta.label} in-app`}
-                  />
-                </td>
-                <td className="px-3 py-2">
-                  <SettingsSwitch
-                    checked={prefs.osToastPerKind[kind] !== false}
-                    onChange={(next) => setChannel("osToastPerKind", kind, next)}
-                    label={`${meta.label} browser`}
-                  />
-                </td>
-                <td className="px-3 py-2">
-                  <SettingsSwitch
-                    checked={prefs.webPushPerKind[kind] !== false}
-                    onChange={(next) => setChannel("webPushPerKind", kind, next)}
-                    label={`${meta.label} push`}
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ToggleRow
+        label="Notifications"
+        description="Receive alerts for trips, fuel, attendance, vehicles, drivers, and site health. Turn off to silence the bell, browser toasts, and PWA push on every device."
+        checked={masterOn}
+        onChange={setAll}
+      />
+      <p className="px-1 text-[11px] text-muted-foreground">
+        {busy
+          ? "Updating..."
+          : masterOn
+            ? isPushEnabledLocally()
+              ? "On - push is active on this device."
+              : "On - push is not active on this device yet."
+            : "Off - you will not receive any alerts."}
+      </p>
     </>
   );
 
@@ -155,7 +136,7 @@ export function NotificationsSettingsPanel({
   return (
     <SettingsSection
       title="Notifications"
-      description="Manage in-app alerts, browser toasts, and push delivery."
+      description="Turn notifications on or off for this account."
       icon={Bell}
     >
       {content}
