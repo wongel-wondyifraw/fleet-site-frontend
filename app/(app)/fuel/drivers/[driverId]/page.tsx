@@ -1,3 +1,4 @@
+import { PermissionGate } from "@/components/auth/PermissionGate";
 import { DriverFuelDetail } from "@/components/fuel/DriverFuelDetail";
 
 export const metadata = {
@@ -12,5 +13,9 @@ export default async function DriverFuelDetailPage({
   params: Promise<{ driverId: string }>;
 }) {
   const { driverId } = await params;
-  return <DriverFuelDetail driverId={driverId} />;
+  return (
+    <PermissionGate permission="fuel.read" pageLabel="Driver Fuel Usage">
+      <DriverFuelDetail driverId={driverId} />
+    </PermissionGate>
+  );
 }

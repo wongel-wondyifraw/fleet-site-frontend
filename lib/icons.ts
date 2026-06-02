@@ -64,6 +64,7 @@ export {
   Search,
   Settings,
   Shield as ShieldCheck,
+  Shield as ShieldAlert,
   Slash as Ban,
   Sliders as UserCog,
   Tool as Wrench,

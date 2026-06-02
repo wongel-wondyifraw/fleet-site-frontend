@@ -1,3 +1,4 @@
+import { PermissionGate } from "@/components/auth/PermissionGate";
 import { TripDetail } from "@/components/trips/TripDetail";
 
 export const metadata = {
@@ -11,5 +12,9 @@ export default async function TripDetailPage({
   params: Promise<{ tripId: string }>;
 }) {
   const { tripId } = await params;
-  return <TripDetail tripId={tripId} />;
+  return (
+    <PermissionGate permission="trips.read" pageLabel="Trip Details">
+      <TripDetail tripId={tripId} />
+    </PermissionGate>
+  );
 }

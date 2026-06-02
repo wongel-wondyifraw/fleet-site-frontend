@@ -1,3 +1,4 @@
+import { PermissionGate } from "@/components/auth/PermissionGate";
 import { DriversManagement } from "@/components/drivers/DriversManagement";
 
 export const metadata = {
@@ -6,5 +7,9 @@ export const metadata = {
 };
 
 export default function DriversPage() {
-  return <DriversManagement />;
+  return (
+    <PermissionGate permission="drivers.read" pageLabel="Drivers">
+      <DriversManagement />
+    </PermissionGate>
+  );
 }

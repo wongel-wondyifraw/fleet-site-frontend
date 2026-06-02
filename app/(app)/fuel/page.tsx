@@ -1,3 +1,4 @@
+import { PermissionGate } from "@/components/auth/PermissionGate";
 import { FuelManagement } from "@/components/fuel/FuelManagement";
 
 export const metadata = {
@@ -7,5 +8,9 @@ export const metadata = {
 };
 
 export default function FuelPage() {
-  return <FuelManagement />;
+  return (
+    <PermissionGate permission="fuel.read" pageLabel="Fuel Management">
+      <FuelManagement />
+    </PermissionGate>
+  );
 }

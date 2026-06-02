@@ -1,3 +1,4 @@
+import { PermissionGate } from "@/components/auth/PermissionGate";
 import { VehicleDetail } from "@/components/vehicles/VehicleDetail";
 
 export const metadata = {
@@ -13,5 +14,9 @@ export default async function VehicleDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <VehicleDetail vehicleId={id} />;
+  return (
+    <PermissionGate permission="vehicles.read" pageLabel="Vehicle Details">
+      <VehicleDetail vehicleId={id} />
+    </PermissionGate>
+  );
 }

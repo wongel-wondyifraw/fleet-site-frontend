@@ -1,3 +1,4 @@
+import { PermissionGate } from "@/components/auth/PermissionGate";
 import { SiteDashboard } from "@/components/dashboard/SiteDashboard";
 
 export const metadata = {
@@ -11,5 +12,9 @@ export default async function SitePage({
   params: Promise<{ siteId: string }>;
 }) {
   const { siteId } = await params;
-  return <SiteDashboard siteId={siteId} />;
+  return (
+    <PermissionGate permission="sites.read" pageLabel="Site Dashboard">
+      <SiteDashboard siteId={siteId} />
+    </PermissionGate>
+  );
 }

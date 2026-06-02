@@ -22,24 +22,29 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { formatDate, formatTimeOfDay } from "@/lib/time/format";
-import { formatRoleName, type ApiTimeSettings } from "@/lib/api/types";
+import { formatRoleName, hasPermission, type ApiTimeSettings } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
-// Primary nav items for the desktop sidebar.
+// Primary nav items for the desktop sidebar. Each item is shown only when
+// the current user has the matching read permission. Dashboard is always
+// visible because it's the post-login landing page and acts as a fallback
+// for users with limited access.
 const SIDEBAR_NAV = [
-  { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-  { label: "Vehicle Registry", icon: Warehouse, href: "/vehicles" },
-  { label: "Drivers", icon: Users, href: "/drivers" },
-  { label: "Trip Management", icon: Route, href: "/trips" },
+  { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard", permission: null },
+  { label: "Vehicle Registry", icon: Warehouse, href: "/vehicles", permission: "vehicles.read" },
+  { label: "Drivers", icon: Users, href: "/drivers", permission: "drivers.read" },
+  { label: "Trip Management", icon: Route, href: "/trips", permission: "trips.read" },
   {
     label: "Attendance Management",
     icon: Clock,
     href: "/attendance",
+    permission: "attendance.read",
   },
   {
     label: "Fuel Management",
     icon: Fuel,
     href: "/fuel",
+    permission: "fuel.read",
   },
 ] as const;
 
@@ -157,7 +162,9 @@ export function DashboardSidebar() {
       </p>
 
       <nav className="flex-1 space-y-1">
-        {SIDEBAR_NAV.map(({ label, icon: Icon, href }) => {
+        {SIDEBAR_NAV.filter(
+          (item) => item.permission === null || hasPermission(user, item.permission),
+        ).map(({ label, icon: Icon, href }) => {
           const active = isActive(pathname, href);
           return (
             <Link

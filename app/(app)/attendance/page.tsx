@@ -1,3 +1,4 @@
+import { PermissionGate } from "@/components/auth/PermissionGate";
 import { AttendanceManagement } from "@/components/attendance/AttendanceManagement";
 
 export const metadata = {
@@ -7,5 +8,9 @@ export const metadata = {
 };
 
 export default function AttendancePage() {
-  return <AttendanceManagement />;
+  return (
+    <PermissionGate permission="attendance.read" pageLabel="Attendance Management">
+      <AttendanceManagement />
+    </PermissionGate>
+  );
 }

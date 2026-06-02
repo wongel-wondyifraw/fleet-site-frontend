@@ -1,3 +1,4 @@
+import { PermissionGate } from "@/components/auth/PermissionGate";
 import { TripManagement } from "@/components/trips/TripManagement";
 
 export const metadata = {
@@ -7,5 +8,9 @@ export const metadata = {
 };
 
 export default function TripsPage() {
-  return <TripManagement />;
+  return (
+    <PermissionGate permission="trips.read" pageLabel="Trip Management">
+      <TripManagement />
+    </PermissionGate>
+  );
 }
