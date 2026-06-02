@@ -41,6 +41,11 @@ export function NotificationsPopover({ placement }: NotificationsPopoverProps) {
   // Read-state filter for the popover. The inbox page owns its own
   // independent filter state so the two surfaces can be tuned separately.
   const [filter, setFilter] = useState<NotificationReadFilter>("all");
+  // Controlled open state so we can dismiss the popover programmatically
+  // when the user follows the "View all" deep link (otherwise the
+  // client-side Next.js navigation leaves the popover floating over the
+  // newly-loaded inbox page).
+  const [open, setOpen] = useState(false);
 
   // Cached counts feeding the chip badges so the user can see how many
   // items live behind each filter without flipping through them.
@@ -70,7 +75,7 @@ export function NotificationsPopover({ placement }: NotificationsPopoverProps) {
   const isSidebar = placement === "sidebar";
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         type="button"
         aria-label={LABELS.triggerLabel}
@@ -163,7 +168,7 @@ export function NotificationsPopover({ placement }: NotificationsPopoverProps) {
           )}
         </div>
 
-        <NotificationsFooter />
+        <NotificationsFooter onNavigate={() => setOpen(false)} />
       </PopoverContent>
     </Popover>
   );
@@ -299,11 +304,12 @@ function ReadFilterChips({
 // Footer with the deep-link to the dedicated inbox page.
 // ---------------------------------------------------------------------------
 
-function NotificationsFooter() {
+function NotificationsFooter({ onNavigate }: { onNavigate: () => void }) {
   return (
     <footer className="border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 text-center">
       <Link
         href="/notifications"
+        onClick={onNavigate}
         className="inline-flex items-center justify-center text-[12px] font-semibold text-primary transition-colors hover:text-surface-tint"
       >
         {LABELS.viewAll}
