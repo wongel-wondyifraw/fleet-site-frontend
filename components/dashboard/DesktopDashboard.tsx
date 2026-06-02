@@ -1,6 +1,5 @@
 "use client";
 
-import { Bell, Calendar, Filter } from "@/lib/icons";
 import { useEffect, useState } from "react";
 
 import {
@@ -12,12 +11,22 @@ import {
   greetingForHour,
 } from "@/components/dashboard/DashboardShared";
 import { useDashboardStats } from "@/components/dashboard/useDashboardStats";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/AuthContext";
+
+// Builds the sub-greeting line under the dashboard heading. Non-admin
+// users see the count of sites they're assigned to (their actual scope),
+// admins see the total number of sites in the tenant.
+function buildSiteScopeLine(role: string | undefined, scopedCount: number | null, totalCount: number | null): string {
+  const count = role === "ADMIN" ? totalCount : scopedCount;
+  if (count == null) return "Loading your sites...";
+  if (count === 0) return "No sites assigned yet.";
+  if (count === 1) return "Here's what's happening across your 1 site.";
+  return `Here's what's happening across your ${count.toLocaleString()} sites.`;
+}
 
 export function DesktopDashboard() {
   const { user } = useAuth();
-  const { stats } = useDashboardStats();
+  const { stats, siteCount } = useDashboardStats();
   const [greeting, setGreeting] = useState("Welcome back");
 
   useEffect(() => {
@@ -25,6 +34,8 @@ export function DesktopDashboard() {
   }, []);
 
   const firstName = user?.firstName ?? "there";
+  const scopedCount = user?.sites?.length ?? null;
+  const subheading = buildSiteScopeLine(user?.role, scopedCount, siteCount);
 
   return (
     <div className="hidden lg:block fs-panel-in">
@@ -33,35 +44,7 @@ export function DesktopDashboard() {
           <h1 className="font-headline-md text-headline-md text-dashboard-on-background">
             {greeting}, {firstName}!
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Here&apos;s what&apos;s happening across your 10 sites.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="outline"
-            className="h-10 gap-2 rounded-xl border-slate-200 bg-white text-xs font-semibold text-primary shadow-sm"
-          >
-            <Calendar className="size-4 text-muted-foreground" />
-            May 20, 2025
-          </Button>
-          <Button
-            variant="outline"
-            className="h-10 gap-2 rounded-xl border-slate-200 bg-white text-xs font-semibold text-primary shadow-sm"
-          >
-            <Filter className="size-4 text-muted-foreground" />
-            Filters
-          </Button>
-          <div className="flex items-center rounded-xl bg-white p-1 shadow-sm ring-1 ring-black/5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 rounded-xl hover:bg-dashboard-surface-low"
-              aria-label="Notifications"
-            >
-              <Bell className="size-4 text-dashboard-on-surface-variant" />
-            </Button>
-          </div>
+          <p className="mt-1 text-sm text-muted-foreground">{subheading}</p>
         </div>
       </header>
 

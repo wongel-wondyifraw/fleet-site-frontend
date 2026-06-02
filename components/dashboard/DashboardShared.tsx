@@ -4,7 +4,9 @@ import type { ComponentType } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-import { Clock } from "@/lib/icons";
+import { Clock, Loader2, RotateCcw } from "@/lib/icons";
+
+import { Button } from "@/components/ui/button";
 
 import {
   useSitesOverview,
@@ -14,11 +16,10 @@ import { staggerStyle } from "@/lib/animations";
 import { listFuelConsumptionRosterBulk } from "@/lib/api/fuel";
 import { listSites } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
-import type { ApiSiteHealthDimension, ApiTrip, SiteHealthStatusBand } from "@/lib/api/types";
+import type { ApiTrip, SiteHealthStatusBand } from "@/lib/api/types";
 import {
   formatCount,
   formatFuelLiters,
-  formatSiteHealthPercent,
   formatSiteHealthScore,
 } from "@/lib/site-health/format";
 import { siteHealthLabel } from "@/lib/site-health/labels";
@@ -97,22 +98,54 @@ function isDelayedTrip(trip: ApiTrip, now: number): boolean {
 function SectionHeader({
   title,
   action,
+  extra,
 }: {
   title: string;
   action?: string;
+  /** Optional slot rendered to the right of the action (e.g. refresh button). */
+  extra?: React.ReactNode;
 }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-3">
       <h2 className="text-sm font-bold text-primary">{title}</h2>
-      {action ? (
-        <button
-          type="button"
-          className="text-[11px] font-semibold text-primary hover:underline"
-        >
-          {action}
-        </button>
-      ) : null}
+      <div className="flex items-center gap-3">
+        {action ? (
+          <button
+            type="button"
+            className="text-[11px] font-semibold text-primary hover:underline"
+          >
+            {action}
+          </button>
+        ) : null}
+        {extra}
+      </div>
     </div>
+  );
+}
+
+// Primary refresh button used by dashboard panels that need a manual
+// data-pull affordance.
+function RefreshAffordance({
+  onRefresh,
+  isRefreshing,
+}: {
+  onRefresh: () => void;
+  isRefreshing: boolean;
+}) {
+  return (
+    <Button
+      type="button"
+      onClick={onRefresh}
+      disabled={isRefreshing}
+      className="h-9 shrink-0 gap-2 rounded-xl bg-primary px-3 text-xs font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
+    >
+      {isRefreshing ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <RotateCcw className="size-3.5" />
+      )}
+      Refresh
+    </Button>
   );
 }
 
@@ -193,40 +226,6 @@ function statusLabel(
   }
 }
 
-const DIMENSION_ROWS: Array<{
-  key: keyof SiteOverviewRow["dimensions"];
-  labelKey: Parameters<typeof siteHealthLabel>[0];
-}> = [
-  { key: "driverAttendance", labelKey: "siteHealth.dimension.attendance" },
-  { key: "vehicleAvailability", labelKey: "siteHealth.dimension.vehicles" },
-  { key: "tripTargetAchievement", labelKey: "siteHealth.dimension.trips" },
-  { key: "scheduleCompliance", labelKey: "siteHealth.dimension.schedule" },
-  { key: "fuelEfficiencyVariance", labelKey: "siteHealth.dimension.fuel" },
-  { key: "dataCompleteness", labelKey: "siteHealth.dimension.data" },
-];
-
-function DimensionRow({
-  label,
-  dim,
-}: {
-  label: string;
-  dim: ApiSiteHealthDimension;
-}) {
-  if (!dim.applicable) return null;
-  return (
-    <div className="flex items-center justify-between gap-2 text-[10px]">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold text-primary">
-        {dim.normalized}
-        <span className="font-normal text-muted-foreground">
-          {" "}
-          ({formatSiteHealthPercent(dim.value)})
-        </span>
-      </span>
-    </div>
-  );
-}
-
 function ScoreSparkline({ scores }: { scores: (number | null)[] }) {
   const valid = scores.filter((s): s is number => s != null && Number.isFinite(s));
   if (valid.length < 2) return null;
@@ -275,7 +274,6 @@ export function SiteScoreCard({
   site: SiteOverviewRow;
   index: number;
 }) {
-  const [showBreakdown, setShowBreakdown] = useState(false);
   const tone = site.insufficientData ? "blue" : statusTone(site.status);
   const statusStyles = TONE_STYLES[tone];
   const displayScore = site.insufficientData ? null : site.score;
@@ -283,98 +281,82 @@ export function SiteScoreCard({
   const conic = `conic-gradient(currentColor ${ringPct * 3.6}deg, #eef2f7 0deg)`;
 
   return (
-    <div
-      className="fs-row-in rounded-xl border border-primary/15 bg-white p-3"
+    <Link
+      href={`/sites/${site.siteId}`}
+      className="fs-row-in block rounded-xl border border-primary/15 bg-white p-3 transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
       style={staggerStyle(index)}
+      aria-label={`Open ${site.name} site dashboard`}
     >
-      <button
-        type="button"
-        className="w-full text-left"
-        onClick={() => setShowBreakdown((v) => !v)}
-        aria-expanded={showBreakdown}
-      >
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-              {index + 1}
-            </span>
-            <p className="truncate text-lg font-bold tracking-tight text-primary">
-              {site.name}
-            </p>
-          </div>
-          <span
-            className={cn(
-              "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold",
-              site.insufficientData
-                ? "bg-slate-100 text-muted-foreground"
-                : statusStyles.soft,
-            )}
-          >
-            {statusLabel(site)}
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+            {index + 1}
           </span>
-        </div>
-        <div className="flex items-center justify-center">
-          <div
-            className="grid size-20 place-items-center rounded-full p-2 text-primary"
-            style={{ background: conic }}
-          >
-            <div className="grid size-14 place-items-center rounded-full bg-white">
-              <span className="text-lg font-bold leading-none text-primary">
-                {displayScore != null
-                  ? `${formatSiteHealthScore(displayScore)}%`
-                  : "—"}
-              </span>
-            </div>
-          </div>
-        </div>
-        <ScoreSparkline scores={site.historyScores} />
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[10px] text-muted-foreground">
-          <span>
-            <span className="block font-semibold text-primary">
-              {formatCount(site.trucks.onsite)}
-            </span>
-            {siteHealthLabel("siteHealth.trucksOnSite")}
-          </span>
-          <span>
-            <span className="block font-semibold text-primary">
-              {formatCount(site.trips.completed)}
-            </span>
-            {siteHealthLabel("siteHealth.tripsToday")}
-          </span>
-          <span>
-            <span className="block font-semibold text-primary">
-              {formatFuelLiters(site.fuel.liters)}
-            </span>
-            {siteHealthLabel("siteHealth.fuelToday")}
-          </span>
-        </div>
-      </button>
-      {showBreakdown ? (
-        <div className="mt-3 space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/80 p-2">
-          <p className="text-[10px] font-bold text-primary">
-            {siteHealthLabel("siteHealth.breakdown.title")}
+          <p className="truncate text-lg font-bold tracking-tight text-primary">
+            {site.name}
           </p>
-          {DIMENSION_ROWS.map(({ key, labelKey }) => (
-            <DimensionRow
-              key={key}
-              label={siteHealthLabel(labelKey)}
-              dim={site.dimensions[key]}
-            />
-          ))}
         </div>
-      ) : null}
-    </div>
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold",
+            site.insufficientData
+              ? "bg-slate-100 text-muted-foreground"
+              : statusStyles.soft,
+          )}
+        >
+          {statusLabel(site)}
+        </span>
+      </div>
+      <div className="flex items-center justify-center">
+        <div
+          className="grid size-20 place-items-center rounded-full p-2 text-primary"
+          style={{ background: conic }}
+        >
+          <div className="grid size-14 place-items-center rounded-full bg-white">
+            <span className="text-lg font-bold leading-none text-primary">
+              {displayScore != null
+                ? `${formatSiteHealthScore(displayScore)}%`
+                : "—"}
+            </span>
+          </div>
+        </div>
+      </div>
+      <ScoreSparkline scores={site.historyScores} />
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[10px] text-muted-foreground">
+        <span>
+          <span className="block font-semibold text-primary">
+            {formatCount(site.trucks.onsite)}
+          </span>
+          {siteHealthLabel("siteHealth.trucksOnSite")}
+        </span>
+        <span>
+          <span className="block font-semibold text-primary">
+            {formatCount(site.trips.completed)}
+          </span>
+          {siteHealthLabel("siteHealth.tripsToday")}
+        </span>
+        <span>
+          <span className="block font-semibold text-primary">
+            {formatFuelLiters(site.fuel.liters)}
+          </span>
+          {siteHealthLabel("siteHealth.fuelToday")}
+        </span>
+      </div>
+    </Link>
   );
 }
 
 export function SitesOverviewPanel({ compact = false }: { compact?: boolean }) {
-  const { sites, isLoading, error } = useSitesOverview();
+  const { sites, isLoading, isRefreshing, error, refresh } = useSitesOverview();
 
   return (
     <section className={cardClass("p-4")}>
       <SectionHeader
         title={`Sites (${sites.length || "…"}) Overview`}
         action="View all sites"
+        extra={
+          <RefreshAffordance onRefresh={refresh} isRefreshing={isRefreshing} />
+        }
       />
       {error ? (
         <p className="text-sm text-destructive">{error}</p>

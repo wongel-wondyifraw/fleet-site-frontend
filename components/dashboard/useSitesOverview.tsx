@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { listSiteHealth, listSiteHealthHistory } from "@/lib/api/siteHealth";
 import { listSites } from "@/lib/api/sites";
@@ -14,6 +22,16 @@ export type SiteOverviewRow = ApiSiteHealthScore & {
   historyScores: (number | null)[];
 };
 
+interface SitesOverviewState {
+  sites: SiteOverviewRow[];
+  isLoading: boolean;
+  isRefreshing: boolean;
+  error: string | null;
+  today: string;
+  lastUpdatedAt: Date | null;
+  refresh: () => void;
+}
+
 function last7DayKeys(endDate: string): string[] {
   const [y, m, d] = endDate.split("-").map(Number);
   const keys: string[] = [];
@@ -24,19 +42,38 @@ function last7DayKeys(endDate: string): string[] {
   return keys;
 }
 
-export function useSitesOverview() {
+const SitesOverviewContext = createContext<SitesOverviewState | null>(null);
+
+export function SitesOverviewProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [sites, setSites] = useState<SiteOverviewRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  // Bumped each time `refresh()` is called to retrigger the loader. We
+  // explicitly avoid auto-polling so the dashboard doesn't hammer the
+  // health endpoints — the user pulls fresh data via the refresh button.
+  const [refreshToken, setRefreshToken] = useState(0);
 
   const today = useMemo(() => toLocalDateKey(new Date()), []);
 
+  const refresh = useCallback(() => {
+    setRefreshToken((token) => token + 1);
+  }, []);
+
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
 
     async function load() {
-      setIsLoading(true);
+      // First-load vs subsequent refresh: keep the full-card skeleton only
+      // for the initial paint; subsequent refreshes show the inline spinner
+      // on the refresh button so the cards don't flash empty.
+      const isInitialLoad = lastUpdatedAt == null;
+      if (isInitialLoad) setIsLoading(true);
+      else setIsRefreshing(true);
+
       try {
         const allSites = await listSites();
         const siteIds =
@@ -84,6 +121,7 @@ export function useSitesOverview() {
         if (!cancelled) {
           setSites(merged);
           setError(null);
+          setLastUpdatedAt(new Date());
         }
       } catch (err) {
         if (!cancelled) {
@@ -92,15 +130,48 @@ export function useSitesOverview() {
           );
         }
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     }
 
-    if (user) load();
+    load();
     return () => {
       cancelled = true;
     };
-  }, [user, today]);
+    // lastUpdatedAt is intentionally not in the dep array — including it
+    // would cause an immediate re-fetch right after each successful load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, today, refreshToken]);
 
-  return { sites, isLoading, error, today };
+  const value = useMemo<SitesOverviewState>(
+    () => ({
+      sites,
+      isLoading,
+      isRefreshing,
+      error,
+      today,
+      lastUpdatedAt,
+      refresh,
+    }),
+    [sites, isLoading, isRefreshing, error, today, lastUpdatedAt, refresh],
+  );
+
+  return (
+    <SitesOverviewContext.Provider value={value}>
+      {children}
+    </SitesOverviewContext.Provider>
+  );
+}
+
+export function useSitesOverview(): SitesOverviewState {
+  const ctx = useContext(SitesOverviewContext);
+  if (!ctx) {
+    throw new Error(
+      "useSitesOverview must be used inside a <SitesOverviewProvider>",
+    );
+  }
+  return ctx;
 }

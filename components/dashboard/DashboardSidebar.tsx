@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bell,
   Clock,
   Fuel,
   LayoutDashboard,
@@ -167,12 +168,26 @@ export function DashboardSidebar() {
       </nav>
 
       <div className="mt-4 space-y-3">
-        <SidebarFooterLink
-          href="/settings"
-          icon={Settings}
-          label="Settings"
-          active={isActive(pathname, "/settings")}
-        />
+        <div className="flex items-center gap-2">
+          <SidebarFooterLink
+            href="/settings"
+            icon={Settings}
+            label="Settings"
+            active={isActive(pathname, "/settings")}
+          />
+          {/* Notifications inbox - moved from the page header so it lives next
+              to the other persistent affordances. Disabled (placeholder) until
+              the notifications surface ships. */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Notifications"
+            className="size-9 shrink-0 rounded-xl text-muted-foreground hover:bg-slate-50 hover:text-primary"
+          >
+            <Bell className="size-4" />
+          </Button>
+        </div>
         {/* Logout: opens a confirmation dialog before clearing the JWT/user. */}
         <Button
           type="button"

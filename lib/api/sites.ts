@@ -29,6 +29,11 @@ export async function listSites(): Promise<ApiSite[]> {
   return apiRequest<ApiSite[]>("/sites");
 }
 
+// GET /sites/:id - returns a single site with assignees.
+export async function getSite(id: string): Promise<ApiSite> {
+  return apiRequest<ApiSite>(`/sites/${id}`);
+}
+
 // POST /sites - admin creates a new site.
 export async function createSite(body: CreateSiteRequest): Promise<ApiSite> {
   return apiRequest<ApiSite>("/sites", { method: "POST", body });

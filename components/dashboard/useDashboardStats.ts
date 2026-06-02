@@ -107,6 +107,7 @@ const CHECKED_IN_STATUSES = new Set(["PRESENT", "ON_BREAK", "DONE"]);
 
 export function useDashboardStats(): {
   stats: DashboardKpi[];
+  siteCount: number | null;
   isLoading: boolean;
   error: string | null;
 } {
@@ -285,5 +286,7 @@ export function useDashboardStats(): {
     ];
   }, [data]);
 
-  return { stats, isLoading, error };
+  const siteCount = data ? data.sites.length : null;
+
+  return { stats, siteCount, isLoading, error };
 }
