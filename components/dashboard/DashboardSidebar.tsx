@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ChevronRight,
   Clock,
   Fuel,
   LayoutDashboard,
@@ -120,10 +121,23 @@ export function DashboardSidebar() {
         </span>
       </div>
 
-      {/* User identity strip - shows who is signed in and their role. */}
+      {/* User identity strip - shows who is signed in and their role.
+          Doubles as the desktop entry point to /account so the user can
+          edit their profile or change their password from any page,
+          mirroring the mobile avatar popover. The chevron + hover ring
+          telegraph that the row is interactive. */}
       {user && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-          {/* Initials avatar generated client-side from the user's name. */}
+        <Link
+          href="/account"
+          aria-label="Open account settings"
+          className={cn(
+            "group mb-4 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 transition-all",
+            "hover:border-primary/30 hover:bg-primary/[0.04]",
+            "focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+            isActive(pathname, "/account") &&
+              "border-primary/30 bg-primary/[0.06]",
+          )}
+        >
           <div className="flex size-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
             {user.firstName[0]}
             {user.lastName[0]}
@@ -136,7 +150,11 @@ export function DashboardSidebar() {
               {formatRole(user.role)}
             </p>
           </div>
-        </div>
+          <ChevronRight
+            className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary"
+            aria-hidden
+          />
+        </Link>
       )}
 
       <p

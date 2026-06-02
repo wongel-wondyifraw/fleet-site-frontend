@@ -6,19 +6,15 @@ import { usePathname } from "next/navigation";
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
 import { NotificationsPopover } from "@/components/dashboard/NotificationsPopover";
+import { ProfilePopover } from "@/components/dashboard/ProfilePopover";
 import { InstallPWAButton } from "@/components/pwa/InstallPWAButton";
-import { useAuth } from "@/lib/auth/AuthContext";
 import { cn } from "@/lib/utils";
 
 // Top bar shown only on mobile (lg:hidden). Hosts the brand mark, the
-// notification bell, and a compact initials avatar for the signed-in user.
+// notification bell, the settings shortcut, and the profile popover
+// (avatar trigger that surfaces account info + sign out).
 export function DashboardMobileTopBar() {
-  const { user } = useAuth();
   const pathname = usePathname() ?? "";
-
-  const initials = user
-    ? `${user.firstName[0] ?? ""}${user.lastName[0] ?? ""}`.toUpperCase()
-    : "?";
 
   // Highlight the settings shortcut while the user is on any /settings
   // route, matching the bottom-nav active state we used to render.
@@ -56,14 +52,10 @@ export function DashboardMobileTopBar() {
           >
             <Settings className="size-4" />
           </Link>
-          {user ? (
-            <div
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
-              aria-label={`Signed in as ${user.firstName} ${user.lastName}`}
-            >
-              {initials}
-            </div>
-          ) : null}
+          {/* Avatar that opens the profile popover. Renders nothing
+              while auth is bootstrapping (handled inside ProfilePopover)
+              so the top bar doesn't briefly show a "?" placeholder. */}
+          <ProfilePopover />
         </div>
       </div>
     </header>

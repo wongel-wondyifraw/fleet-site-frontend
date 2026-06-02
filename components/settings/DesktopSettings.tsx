@@ -5,36 +5,27 @@ import {
   ClipboardCheck,
   Clock,
   Gauge,
-  Mail,
   Route,
-  ShieldCheck,
-  User,
   Users,
 } from "@/lib/icons";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, type ComponentType } from "react";
 
-import {
-  FieldGrid,
-  SettingsField,
-  SettingsSection,
-  fieldClass,
-} from "@/components/settings/SettingsShared";
+import { SettingsSection } from "@/components/settings/SettingsShared";
 import { CustomTripRoutesPanel } from "@/components/settings/CustomTripRoutesPanel";
 import { AttendanceRulesPanel } from "@/components/settings/AttendanceRulesPanel";
 import { SiteScoringPanel } from "@/components/settings/SiteScoringPanel";
 import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
-import { formatRole } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatDateTime } from "@/lib/time/format";
-import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { cn } from "@/lib/utils";
 
 // Each settings section is identified by a stable string id.
+// Profile lives on its own /account page (see AccountPage.tsx) and is
+// reached via the user identity strip in the sidebar, so it no longer
+// appears in the Settings sub-sidebar.
 type SectionId =
-  | "profile"
   | "sites"
   | "trips"
   | "time"
@@ -46,7 +37,6 @@ type SectionId =
 // the SectionId definition) means the union and the runtime guard can't drift.
 function isValidSection(value: string | null): value is SectionId {
   return (
-    value === "profile" ||
     value === "sites" ||
     value === "trips" ||
     value === "time" ||
@@ -68,12 +58,6 @@ type SectionMeta = {
 
 // Full list of sections; admin-only ones are filtered out for non-admins.
 const SECTIONS: SectionMeta[] = [
-  {
-    id: "profile",
-    label: "Profile",
-    description: "Account details",
-    icon: User,
-  },
   {
     id: "sites",
     label: "Sites",
@@ -169,7 +153,9 @@ export function DesktopSettings() {
           Settings
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Manage your profile, sites, and team members.
+          Manage sites, schedules, scoring, and team members. Profile and
+          password changes live in the avatar menu at the top of the
+          sidebar.
         </p>
       </header>
 
@@ -257,7 +243,6 @@ function ActivePanel({
       description={panelDescription(section)}
       icon={meta.icon}
     >
-      {section === "profile" ? <ProfilePanel /> : null}
       {section === "sites" ? <SitesPanel /> : null}
       {section === "trips" ? <CustomTripRoutesPanel /> : null}
       {section === "time" ? <TimeSettingsPanel /> : null}
@@ -271,8 +256,6 @@ function ActivePanel({
 // One-liner description shown under the section title in the card header.
 function panelDescription(section: SectionId): string {
   switch (section) {
-    case "profile":
-      return "Your account details and contact information.";
     case "sites":
       return "Add new construction sites and edit existing ones.";
     case "trips":
@@ -287,112 +270,3 @@ function panelDescription(section: SectionId): string {
       return "Invite teammates and assign their roles and sites.";
   }
 }
-
-// Profile panel - now driven entirely by the authenticated user from context.
-function ProfilePanel() {
-  const { user } = useAuth();
-  const { settings: timeSettings } = useTimeSettings();
-
-  // If for some reason we render without a user (shouldn't happen behind the
-  // dashboard gate), bail out gracefully.
-  if (!user) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Sign in to view your profile.
-      </p>
-    );
-  }
-
-  // Initials power the avatar - safe even for one-character names.
-  const initials = `${user.firstName[0] ?? ""}${user.lastName[0] ?? ""}`.toUpperCase();
-
-  return (
-    <>
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-        <div className="flex size-20 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-2xl font-semibold text-primary">
-          {initials}
-        </div>
-        <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-lg font-semibold text-primary">
-              {user.firstName} {user.lastName}
-            </p>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-bold text-primary uppercase">
-              {formatRole(user.role)}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <FieldGrid>
-        <SettingsField label="First name">
-          {/* readOnly until we wire profile updates; prevents misleading edits. */}
-          <input
-            type="text"
-            value={user.firstName}
-            readOnly
-            className={`${fieldClass} bg-slate-50`}
-          />
-        </SettingsField>
-        <SettingsField label="Last name">
-          <input
-            type="text"
-            value={user.lastName}
-            readOnly
-            className={`${fieldClass} bg-slate-50`}
-          />
-        </SettingsField>
-        <SettingsField label="Email">
-          <div className="relative">
-            <Mail className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="email"
-              value={user.email}
-              readOnly
-              className={`${fieldClass} bg-slate-50 pl-9`}
-            />
-          </div>
-        </SettingsField>
-        <SettingsField label="Role">
-          <div className="relative">
-            <ShieldCheck className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={formatRole(user.role)}
-              readOnly
-              className={`${fieldClass} bg-slate-50 pl-9`}
-            />
-          </div>
-        </SettingsField>
-        <SettingsField label="Assigned sites">
-          <input
-            type="text"
-            value={
-              user.sites.length > 0
-                ? user.sites.map((s) => s.name).join(", ")
-                : "None"
-            }
-            readOnly
-            className={`${fieldClass} bg-slate-50`}
-          />
-        </SettingsField>
-        <SettingsField label="Last signed in">
-          <div className="relative">
-            <Clock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={
-                user.lastLoginAt
-                  ? formatDateTime(user.lastLoginAt, timeSettings)
-                  : "First sign-in"
-              }
-              readOnly
-              className={`${fieldClass} bg-slate-50 pl-9`}
-            />
-          </div>
-        </SettingsField>
-      </FieldGrid>
-    </>
-  );
-}
-
