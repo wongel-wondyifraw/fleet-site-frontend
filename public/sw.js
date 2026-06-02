@@ -18,7 +18,7 @@
  * old caches get cleaned up on activate.
  */
 
-const CACHE_VERSION = "fleetsite-v2";
+const CACHE_VERSION = "fleetsite-v3";
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const PRECACHE = `${CACHE_VERSION}-precache`;
 
@@ -132,4 +132,53 @@ self.addEventListener("message", (event) => {
   if (event.data === "SKIP_WAITING") {
     self.skipWaiting();
   }
+});
+
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  event.waitUntil(
+    (async () => {
+      try {
+        const payload = event.data.json();
+        const title = payload?.title || "FleetSite notification";
+        const body = payload?.body || "";
+        const href = payload?.href || "/notifications";
+        const tag = payload?.tag || payload?.notificationId || undefined;
+        await self.registration.showNotification(title, {
+          body,
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          tag,
+          renotify: false,
+          data: { href },
+        });
+      } catch {
+        // Best-effort.
+      }
+    })(),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const href = event.notification?.data?.href || "/notifications";
+  event.waitUntil(
+    (async () => {
+      const allClients = await clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of allClients) {
+        const url = new URL(client.url);
+        if (url.origin === self.location.origin) {
+          await client.focus();
+          if ("navigate" in client) {
+            await client.navigate(href);
+          }
+          return;
+        }
+      }
+      await clients.openWindow(href);
+    })(),
+  );
 });

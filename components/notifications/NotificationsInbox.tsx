@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   Check,
   CheckCircle as MarkReadIcon,
+  Bell,
   Eye as MarkUnreadIcon,
   Trash2,
 } from "@/lib/icons";
@@ -37,6 +38,8 @@ import {
   type NotificationReadFilter,
 } from "@/lib/notifications/data";
 import { useNotifications } from "@/lib/notifications/NotificationsContext";
+import { enablePush, isPushEnabledLocally } from "@/lib/notifications/push";
+import { useToast } from "@/lib/toast/ToastContext";
 import { cn } from "@/lib/utils";
 
 // All kinds the category strip exposes. Locked to the order the
@@ -62,6 +65,7 @@ export function NotificationsInbox() {
     remove,
     clearAll,
   } = useNotifications();
+  const { showToast } = useToast();
 
   const [readFilter, setReadFilter] = useState<NotificationReadFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
@@ -102,10 +106,58 @@ export function NotificationsInbox() {
 
   const inboxEmpty = items.length === 0;
   const filterMatchEmpty = !inboxEmpty && filtered.length === 0;
+  const [pushBusy, setPushBusy] = useState(false);
+  const showPushPrompt = !isPushEnabledLocally();
+
+  async function handleEnablePush() {
+    try {
+      setPushBusy(true);
+      const ok = await enablePush();
+      if (ok) {
+        showToast({
+          variant: "success",
+          message: "Push notifications enabled on this device.",
+        });
+      } else {
+        showToast({
+          variant: "error",
+          message: "Push notifications are not supported on this device.",
+        });
+      }
+    } catch {
+      showToast({
+        variant: "error",
+        message: "Could not enable push notifications.",
+      });
+    } finally {
+      setPushBusy(false);
+    }
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 lg:gap-6">
       <PageHeader unreadCount={unreadCount} totalCount={items.length} />
+      {showPushPrompt ? (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-primary">
+              Get alerts on this device
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Enable push notifications to receive important updates even when the app is closed.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleEnablePush}
+            disabled={pushBusy}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity disabled:opacity-60"
+          >
+            <Bell className="size-3.5" />
+            {pushBusy ? "Enabling..." : "Enable"}
+          </button>
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         <Toolbar
