@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bell,
   Building2,
   ClipboardCheck,
   Clock,
@@ -25,6 +26,7 @@ import { SiteScoringPanel } from "@/components/settings/SiteScoringPanel";
 import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
+import { NotificationsSettingsPanel } from "@/components/settings/NotificationsSettingsPanel";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatRole } from "@/lib/api/types";
@@ -134,6 +136,14 @@ export function MobileSettings() {
         icon={Route}
       >
         <CustomTripRoutesPanel density="compact" />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Notifications"
+        description="Manage in-app, browser, and PWA push alerts."
+        icon={Bell}
+      >
+        <NotificationsSettingsPanel wrapInSection={false} />
       </SettingsSection>
 
       <SettingsSection

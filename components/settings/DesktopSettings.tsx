@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bell,
   Building2,
   ClipboardCheck,
   Clock,
@@ -26,6 +27,7 @@ import { SiteScoringPanel } from "@/components/settings/SiteScoringPanel";
 import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
+import { NotificationsSettingsPanel } from "@/components/settings/NotificationsSettingsPanel";
 import { formatRole } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDateTime } from "@/lib/time/format";
@@ -37,6 +39,7 @@ type SectionId =
   | "profile"
   | "sites"
   | "trips"
+  | "notifications"
   | "time"
   | "attendance"
   | "siteScoring"
@@ -49,6 +52,7 @@ function isValidSection(value: string | null): value is SectionId {
     value === "profile" ||
     value === "sites" ||
     value === "trips" ||
+    value === "notifications" ||
     value === "time" ||
     value === "attendance" ||
     value === "siteScoring" ||
@@ -85,6 +89,12 @@ const SECTIONS: SectionMeta[] = [
     label: "Trip Settings",
     description: "Custom start & end points",
     icon: Route,
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    description: "In-app, browser, and push",
+    icon: Bell,
   },
   {
     id: "time",
@@ -260,6 +270,7 @@ function ActivePanel({
       {section === "profile" ? <ProfilePanel /> : null}
       {section === "sites" ? <SitesPanel /> : null}
       {section === "trips" ? <CustomTripRoutesPanel /> : null}
+      {section === "notifications" ? <NotificationsSettingsPanel /> : null}
       {section === "time" ? <TimeSettingsPanel /> : null}
       {section === "attendance" ? <AttendanceRulesPanel /> : null}
       {section === "siteScoring" ? <SiteScoringPanel /> : null}
@@ -277,6 +288,8 @@ function panelDescription(section: SectionId): string {
       return "Add new construction sites and edit existing ones.";
     case "trips":
       return "Save reusable start and end points to surface as Custom presets on the trip form.";
+    case "notifications":
+      return "Control where each notification kind is delivered: in-app, browser toast, and push.";
     case "time":
       return "Set the application timezone and 12 / 24-hour display format.";
     case "attendance":

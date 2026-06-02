@@ -29,7 +29,8 @@ export type NotificationKind =
   | "fuel"
   | "vehicle"
   | "driver"
-  | "attendance";
+  | "attendance"
+  | "site_health";
 
 // Severity drives the dot / badge color and ARIA assertiveness. Kept
 // orthogonal to `kind` so an "attendance" warning is still painted in
@@ -114,6 +115,7 @@ export const KIND_META: Record<NotificationKind, KindMeta> = {
   vehicle: { icon: Truck, label: "Vehicles", defaultTone: "info" },
   driver: { icon: Users, label: "Drivers", defaultTone: "success" },
   attendance: { icon: Clock, label: "Attendance", defaultTone: "warning" },
+  site_health: { icon: AlertTriangle, label: "Site health", defaultTone: "danger" },
 };
 
 // Severity -> token-driven classes. Each tone uses a quintet:
@@ -206,95 +208,6 @@ export function isToday(iso: string, now: Date = new Date()): boolean {
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate()
   );
-}
-
-// ---------------------------------------------------------------------------
-// Sample feed
-//
-// Stand-in until the real notifications API ships. Both the popover and
-// the inbox page seed from this — and once a real backend lands, swap
-// the body of `createSampleFeed` for a fetch call without touching any
-// rendering code.
-// ---------------------------------------------------------------------------
-export function createSampleFeed(): NotificationItem[] {
-  const now = Date.now();
-  const ago = (mins: number) => new Date(now - mins * 60_000).toISOString();
-  return [
-    {
-      id: "n1",
-      kind: "trip",
-      severity: "info",
-      title: "Trip TRP-1042 dispatched",
-      message: "Almaz Bekele departed Addis Ababa Site A heading to Adama.",
-      createdAt: ago(3),
-      read: false,
-      href: "/trips",
-    },
-    {
-      id: "n2",
-      kind: "fuel",
-      severity: "warning",
-      title: "Fuel variance flagged",
-      message:
-        "Truck FS-204 reported 12% higher consumption than the route average.",
-      createdAt: ago(28),
-      read: false,
-      href: "/fuel",
-    },
-    {
-      id: "n3",
-      kind: "attendance",
-      severity: "danger",
-      title: "2 drivers marked absent",
-      message:
-        "Site B morning roll-call closed with 2 drivers unaccounted for.",
-      createdAt: ago(95),
-      read: false,
-      href: "/attendance",
-    },
-    {
-      id: "n4",
-      kind: "driver",
-      severity: "success",
-      title: "New driver onboarded",
-      message: "Hanna Tesfaye completed the FleetSite intake checklist.",
-      createdAt: ago(60 * 6),
-      read: true,
-      href: "/drivers",
-    },
-    {
-      id: "n5",
-      kind: "vehicle",
-      severity: "info",
-      title: "Maintenance reminder",
-      message: "FS-117 is due for a 10,000km service check this week.",
-      createdAt: ago(60 * 26),
-      read: true,
-      href: "/vehicles",
-    },
-    {
-      id: "n6",
-      kind: "system",
-      severity: "success",
-      title: "Settings synced",
-      message:
-        "Site scoring weights updated for all managers in the organization.",
-      createdAt: ago(60 * 48),
-      read: true,
-      href: "/settings",
-    },
-    {
-      id: "n7",
-      kind: "trip",
-      severity: "success",
-      title: "Trip TRP-1039 completed",
-      message:
-        "Yonas Alemu wrapped up the Hawassa run, 8 minutes ahead of schedule.",
-      createdAt: ago(60 * 54),
-      read: true,
-      href: "/trips",
-    },
-  ];
 }
 
 // Filter helper kept here (instead of in the context) so the inbox page
