@@ -50,7 +50,15 @@ interface NotificationsContextValue {
   clearAll: () => void;
   preferences: NotificationPreferences | null;
   updatePreferences: (
-    patch: Partial<Pick<NotificationPreferences, "inAppPerKind" | "osToastPerKind" | "webPushPerKind">>,
+    patch: Partial<
+      Pick<
+        NotificationPreferences,
+        | "notificationsEnabled"
+        | "inAppPerKind"
+        | "osToastPerKind"
+        | "webPushPerKind"
+      >
+    >,
   ) => Promise<void>;
 }
 
@@ -167,7 +175,10 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       patch: Partial<
         Pick<
           NotificationPreferences,
-          "inAppPerKind" | "osToastPerKind" | "webPushPerKind"
+          | "notificationsEnabled"
+          | "inAppPerKind"
+          | "osToastPerKind"
+          | "webPushPerKind"
         >
       >,
     ) => {

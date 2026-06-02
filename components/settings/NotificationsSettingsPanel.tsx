@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Bell } from "@/lib/icons";
 import {
@@ -13,25 +13,26 @@ import {
   disablePush,
   enablePush,
   isPushEnabledLocally,
+  isPushSupportedHere,
 } from "@/lib/notifications/push";
 import { useNotificationPreferences } from "@/lib/notifications/usePreferences";
 import { useToast } from "@/lib/toast/ToastContext";
 
 // Single master switch for notifications.
 //
-// We keep the per-kind / per-channel preference shape on the server so we
-// don't have to migrate data, but the UI now collapses into one toggle:
-//   - ON  -> request browser permission, subscribe to push, and set every
-//            channel for every kind to true.
-//   - OFF -> unsubscribe push and flip every channel for every kind to
-//            false so the server stops creating notifications, the bell
-//            stops badging, and OS toasts stop firing.
+// The toggle's source of truth is `prefs.notificationsEnabled` (a boolean
+// the server persists explicitly). New users start with this flag false so
+// the very first click on the panel is unambiguously "turn ON".
 //
-// Browser permission / push subscription failures don't block the toggle:
-// the user's stated intent ("notifications on") is honoured for in-app
-// delivery even if the OS denies system toasts or the server doesn't have
-// VAPID keys configured yet. We just surface a discreet status line so the
-// user knows what actually went through.
+// Side-effect order matters for cross-browser correctness:
+//   1. `ensurePermission()` is initiated SYNCHRONOUSLY inside the click
+//      handler so the OS permission prompt stays inside the user-gesture
+//      chain (iOS Safari + some Android browsers silently suppress the
+//      prompt otherwise).
+//   2. `patch()` flips the server flag immediately so the UI reflects the
+//      user's intent even when push setup fails.
+//   3. `enablePush()` / `disablePush()` run as background promises that
+//      are time-bounded internally — they can never freeze the toggle.
 export function NotificationsSettingsPanel({
   wrapInSection = true,
 }: {
@@ -41,11 +42,27 @@ export function NotificationsSettingsPanel({
   const { showToast } = useToast();
   const [busy, setBusy] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
+  const [pushSupported, setPushSupported] = useState(true);
+  const [isIosNonPwa, setIsIosNonPwa] = useState(false);
 
-  // Diagnostic action wired to POST /notifications/test-push. The button is
-  // intentionally placed below the master switch so it reads as a "verify
-  // it works" affordance, not a primary action. Remove with the backend
-  // endpoint before broad rollout.
+  // Capability detection has to wait for mount so SSR doesn't crash. We
+  // surface two distinct conditions:
+  //   - pushSupported: the Web Push / Notification APIs are present.
+  //   - isIosNonPwa: iPhone/iPad in regular Safari — push is technically
+  //     unavailable here until the user installs the PWA to the home
+  //     screen, so we show a separate hint.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setPushSupported(isPushSupportedHere());
+    const ua = navigator.userAgent || "";
+    const isIos = /iPad|iPhone|iPod/.test(ua);
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as Navigator & { standalone?: boolean }).standalone ===
+        true;
+    setIsIosNonPwa(isIos && !isStandalone);
+  }, []);
+
   async function handleTestPush() {
     if (testBusy) return;
     setTestBusy(true);
@@ -66,58 +83,60 @@ export function NotificationsSettingsPanel({
     }
   }
 
-  // The single source of truth for "is the bell on?". We treat it as ON
-  // when ANY kind in ANY channel is currently true. This means a user
-  // who previously customised individual kinds still sees the switch as
-  // ON, and flipping it OFF then back ON is what resets to all-true.
-  const masterOn = useMemo(() => {
-    if (!prefs) return false;
-    const has = (m: Record<string, boolean>) =>
-      Object.values(m).some(Boolean);
-    return has(prefs.inAppPerKind) || has(prefs.osToastPerKind) || has(prefs.webPushPerKind);
-  }, [prefs]);
-
-  async function setAll(next: boolean) {
+  function setAll(next: boolean): void {
     if (!prefs || busy) return;
-    setBusy(true);
-    try {
-      if (next) {
-        // Side effects first: request OS permission + push subscription.
-        // Failures here are non-fatal; in-app delivery still works.
-        try {
-          await ensurePermission();
-        } catch {
-          /* permission flow rejected — keep going */
-        }
-        try {
-          await enablePush();
-        } catch {
-          /* push unavailable (no VAPID, no PushManager, etc.) */
-        }
-      } else {
-        try {
-          await disablePush();
-        } catch {
-          /* best effort */
-        }
+
+    // Capture the user gesture for the OS permission prompt BEFORE any
+    // awaits. iOS Safari + some Android browsers only surface the prompt
+    // when requestPermission() is initiated inside the same gesture as
+    // the click — awaiting an HTTP call first invalidates that.
+    let pendingPermission: Promise<NotificationPermission> | null = null;
+    if (next && typeof window !== "undefined" && "Notification" in window) {
+      try {
+        pendingPermission = ensurePermission();
+      } catch {
+        pendingPermission = null;
       }
-
-      const allTo = (map: Record<string, boolean>) =>
-        Object.fromEntries(Object.keys(map).map((k) => [k, next]));
-
-      await patch({
-        inAppPerKind: allTo(prefs.inAppPerKind),
-        osToastPerKind: allTo(prefs.osToastPerKind),
-        webPushPerKind: allTo(prefs.webPushPerKind),
-      });
-    } catch {
-      showToast({
-        variant: "error",
-        message: "Could not update notification setting.",
-      });
-    } finally {
-      setBusy(false);
     }
+
+    setBusy(true);
+    void (async () => {
+      try {
+        const allTo = (map: Record<string, boolean>) =>
+          Object.fromEntries(Object.keys(map).map((k) => [k, next]));
+
+        // Flip the master switch + every per-kind map in one round-trip.
+        // This is what makes the UI reflect intent immediately — push
+        // subscription happens afterwards as a fire-and-forget side
+        // effect and can never block the toggle from updating.
+        await patch({
+          notificationsEnabled: next,
+          inAppPerKind: allTo(prefs.inAppPerKind),
+          osToastPerKind: allTo(prefs.osToastPerKind),
+          webPushPerKind: allTo(prefs.webPushPerKind),
+        });
+
+        if (next) {
+          // Let the permission promise resolve in the background; we
+          // don't care about the outcome here — enablePush() will check
+          // permission state on its own when it tries to subscribe.
+          pendingPermission?.catch(() => null);
+          // Fire-and-forget. enablePush internally bounds itself with a
+          // serviceWorker.ready timeout, so even on dev / iOS-Safari it
+          // resolves quickly with false rather than hanging.
+          enablePush().catch(() => undefined);
+        } else {
+          disablePush().catch(() => undefined);
+        }
+      } catch {
+        showToast({
+          variant: "error",
+          message: "Could not update notification setting.",
+        });
+      } finally {
+        setBusy(false);
+      }
+    })();
   }
 
   if (!prefs) {
@@ -138,6 +157,17 @@ export function NotificationsSettingsPanel({
     );
   }
 
+  const masterOn = prefs.notificationsEnabled;
+  const statusLine = busy
+    ? "Updating..."
+    : !masterOn
+      ? "Off - you will not receive any alerts."
+      : isPushEnabledLocally()
+        ? "On - push is active on this device."
+        : pushSupported
+          ? "On - push is not active on this device yet."
+          : "On - in-app only on this device.";
+
   const content = (
     <>
       <ToggleRow
@@ -146,15 +176,32 @@ export function NotificationsSettingsPanel({
         checked={masterOn}
         onChange={setAll}
       />
-      <p className="px-1 text-[11px] text-muted-foreground">
-        {busy
-          ? "Updating..."
-          : masterOn
-            ? isPushEnabledLocally()
-              ? "On - push is active on this device."
-              : "On - push is not active on this device yet."
-            : "Off - you will not receive any alerts."}
-      </p>
+      <p className="px-1 text-[11px] text-muted-foreground">{statusLine}</p>
+
+      {isIosNonPwa ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+          <p className="text-xs font-semibold text-amber-900">
+            Install FleetSite to your home screen for push on iPhone
+          </p>
+          <p className="mt-0.5 text-[11px] leading-snug text-amber-900/80">
+            iOS only delivers push notifications to apps installed from the
+            home screen. Tap the Share button in Safari, then "Add to Home
+            Screen" - open FleetSite from that icon and turn this switch on
+            again to receive push alerts.
+          </p>
+        </div>
+      ) : !pushSupported ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-semibold text-primary">
+            Push not available on this browser
+          </p>
+          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+            In-app notifications and the bell badge still work here. For
+            browser toasts and PWA push, open FleetSite in Chrome, Edge, or
+            Safari on a supported device.
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-3">
         <div className="min-w-0">

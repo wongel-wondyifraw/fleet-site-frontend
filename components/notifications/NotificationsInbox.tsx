@@ -64,6 +64,7 @@ export function NotificationsInbox() {
     markAllRead,
     remove,
     clearAll,
+    preferences,
   } = useNotifications();
   const { showToast } = useToast();
 
@@ -107,7 +108,13 @@ export function NotificationsInbox() {
   const inboxEmpty = items.length === 0;
   const filterMatchEmpty = !inboxEmpty && filtered.length === 0;
   const [pushBusy, setPushBusy] = useState(false);
-  const showPushPrompt = !isPushEnabledLocally();
+  // Only nudge for push when the user has actually opted into notifications.
+  // Showing this banner with master-off would let users "enable push" on
+  // this device but they'd still receive nothing because the server is
+  // gated on `notificationsEnabled`. Settings is the single point where
+  // the master switch lives.
+  const showPushPrompt =
+    !isPushEnabledLocally() && preferences?.notificationsEnabled === true;
 
   async function handleEnablePush() {
     try {

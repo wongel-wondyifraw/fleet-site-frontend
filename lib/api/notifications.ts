@@ -12,6 +12,10 @@ export interface NotificationsPageResponse {
 
 export interface NotificationPreferences {
   userId: string;
+  // Master switch the settings UI drives. Until this is true the server
+  // creates no in-app entries, fires no SSE pushes, and sends no web push
+  // for this user, regardless of the per-kind maps below.
+  notificationsEnabled: boolean;
   inAppPerKind: Record<string, boolean>;
   osToastPerKind: Record<string, boolean>;
   webPushPerKind: Record<string, boolean>;
