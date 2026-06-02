@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { useCan } from "@/components/auth/Can";
 import { Button } from "@/components/ui/button";
 import { WorkedHoursDonut } from "@/components/attendance/WorkedHoursDonut";
 import type {
@@ -339,6 +340,10 @@ function PunchPairControl({
   isMutating: boolean;
   timeSettings: ApiTimeSettings;
 }) {
+  const canCreatePunch = useCan("attendance.create");
+  const canUpdatePunch = useCan("attendance.update");
+  const canDeletePunch = useCan("attendance.delete");
+
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
     null,
@@ -402,7 +407,7 @@ function PunchPairControl({
             Driver is on an active trip. Complete the trip before recording a{" "}
             {pair.label.toLowerCase()} punch.
           </p>
-        ) : next ? (
+        ) : next && canCreatePunch ? (
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -451,6 +456,10 @@ function PunchPairControl({
               {next.label}
             </Button>
           </form>
+        ) : next && !canCreatePunch ? (
+          <p className="rounded-lg bg-slate-100 px-2 py-1.5 text-center text-[11px] text-slate-600">
+            View only — you cannot record punches
+          </p>
         ) : (
           <p className="rounded-lg bg-slate-100 px-2 py-1.5 text-center text-[11px] text-slate-600">
             No action available
@@ -486,24 +495,30 @@ function PunchPairControl({
                       {formatPunchTime(p.at, timeSettings)}
                     </span>
                   </span>
-                  <div className="flex items-center gap-0.5">
-                    <button
-                      type="button"
-                      className="rounded p-1 text-slate-500 transition-colors hover:bg-slate-200 hover:text-primary"
-                      onClick={() => onEditPunch(p)}
-                      aria-label="Edit punch"
-                    >
-                      <Pencil className="size-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded p-1 text-slate-500 transition-colors hover:bg-rose-100 hover:text-rose-600"
-                      onClick={() => onDeletePunch(p)}
-                      aria-label="Void punch"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
+                  {(canUpdatePunch || canDeletePunch) && (
+                    <div className="flex items-center gap-0.5">
+                      {canUpdatePunch && (
+                        <button
+                          type="button"
+                          className="rounded p-1 text-slate-500 transition-colors hover:bg-slate-200 hover:text-primary"
+                          onClick={() => onEditPunch(p)}
+                          aria-label="Edit punch"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                      )}
+                      {canDeletePunch && (
+                        <button
+                          type="button"
+                          className="rounded p-1 text-slate-500 transition-colors hover:bg-rose-100 hover:text-rose-600"
+                          onClick={() => onDeletePunch(p)}
+                          aria-label="Void punch"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })

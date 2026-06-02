@@ -27,6 +27,7 @@ import {
   SettingsField,
   fieldClass,
 } from "@/components/settings/SettingsShared";
+import { Can } from "@/components/auth/Can";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api/client";
 import { listPermissions } from "@/lib/api/permissions";
@@ -101,14 +102,16 @@ export function RoleManagementPanel({
             className={`${fieldClass} pl-9`}
           />
         </div>
-        <Button
-          type="button"
-          onClick={() => setMode({ kind: "form" })}
-          className="h-10 gap-2 rounded-xl bg-primary px-4 font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
-        >
-          <Plus className="size-4" />
-          Add Role
-        </Button>
+        <Can permission="roles.create">
+          <Button
+            type="button"
+            onClick={() => setMode({ kind: "form" })}
+            className="h-10 gap-2 rounded-xl bg-primary px-4 font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
+          >
+            <Plus className="size-4" />
+            Add Role
+          </Button>
+        </Can>
       </div>
 
       {loadError && <PanelError message={loadError} />}

@@ -57,6 +57,7 @@ import {
 } from "@/lib/api/types";
 import { driverSiteName } from "@/lib/drivers/resolveDriverSite";
 import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
+import { Can, useCan } from "@/components/auth/Can";
 import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
@@ -98,6 +99,12 @@ export function DriversPanel({
   // Driver pending a delete confirmation. null keeps the dialog closed.
   const [pendingDelete, setPendingDelete] = useState<ApiDriver | null>(null);
   const { hasAssignments } = useScopedSiteIds();
+
+  // RBAC for the action surfaces. Rows pass these down so each driver
+  // card hides its own pencil/trash when the user lacks the slug. The
+  // top-bar "Add Driver" button is gated by <Can> directly.
+  const canUpdateDriver = useCan("drivers.update");
+  const canDeleteDriver = useCan("drivers.delete");
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -329,13 +336,15 @@ export function DriversPanel({
             </div>
           </div>
         </div>
-        <Button
-          onClick={() => setMode({ kind: "create" })}
-          className="h-10 gap-2 self-start rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint sm:self-auto"
-        >
-          <Plus className="size-4" />
-          Add Driver
-        </Button>
+        <Can permission="drivers.create">
+          <Button
+            onClick={() => setMode({ kind: "create" })}
+            className="h-10 gap-2 self-start rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint sm:self-auto"
+          >
+            <Plus className="size-4" />
+            Add Driver
+          </Button>
+        </Can>
       </div>
 
       {loadError && <PanelError message={loadError} />}
@@ -399,6 +408,8 @@ export function DriversPanel({
                 sites,
               )}
               density={density}
+              canEdit={canUpdateDriver}
+              canDelete={canDeleteDriver}
               onEdit={() => setMode({ kind: "edit", driver })}
               onDelete={() => setPendingDelete(driver)}
             />
@@ -451,6 +462,8 @@ function DriverRow({
   vehicle,
   siteName,
   density,
+  canEdit,
+  canDelete,
   onEdit,
   onDelete,
 }: {
@@ -458,6 +471,8 @@ function DriverRow({
   vehicle: ApiVehicle | null;
   siteName: string | null;
   density: "comfortable" | "compact";
+  canEdit: boolean;
+  canDelete: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -537,22 +552,26 @@ function DriverRow({
       </div>
       </Link>
       <div className="flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label={`Edit ${driver.firstName} ${driver.lastName}`}
-          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-        >
-          <Pencil className="size-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label={`Delete ${driver.firstName} ${driver.lastName}`}
-          className="flex size-8 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10"
-        >
-          <Trash2 className="size-4" />
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            aria-label={`Edit ${driver.firstName} ${driver.lastName}`}
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+          >
+            <Pencil className="size-4" />
+          </button>
+        )}
+        {canDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={`Delete ${driver.firstName} ${driver.lastName}`}
+            className="flex size-8 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        )}
         <Link
           href={`/drivers/${driver.id}`}
           aria-label={`Open profile for ${driver.firstName} ${driver.lastName}`}

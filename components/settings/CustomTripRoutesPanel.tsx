@@ -32,6 +32,7 @@ import {
   SettingsField,
   fieldClass,
 } from "@/components/settings/SettingsShared";
+import { Can, useCan } from "@/components/auth/Can";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ApiError } from "@/lib/api/client";
@@ -146,13 +147,15 @@ export function CustomTripRoutesPanel({
           <span className="font-semibold text-primary">{routes.length}</span>{" "}
           {routes.length === 1 ? "custom route" : "custom routes"} saved
         </p>
-        <Button
-          onClick={() => setMode({ kind: "form", editing: null })}
-          className="h-9 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
-        >
-          <Plus className="size-4" />
-          Add Route
-        </Button>
+        <Can permission="custom-routes.create">
+          <Button
+            onClick={() => setMode({ kind: "form", editing: null })}
+            className="h-9 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
+          >
+            <Plus className="size-4" />
+            Add Route
+          </Button>
+        </Can>
       </div>
 
       {loadError && <PanelError message={loadError} />}
@@ -220,6 +223,9 @@ function RouteRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const canUpdateRoute = useCan("custom-routes.update");
+  const canDeleteRoute = useCan("custom-routes.delete");
+
   return (
     <div
       className={cn(
@@ -250,26 +256,32 @@ function RouteRow({
           </span>
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-8 rounded-lg hover:bg-primary/10 hover:text-primary"
-          aria-label={`Edit ${route.startName} to ${route.endName}`}
-          onClick={onEdit}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-8 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
-          aria-label={`Delete ${route.startName} to ${route.endName}`}
-          onClick={onDelete}
-        >
-          <Trash2 className="size-4" />
-        </Button>
-      </div>
+      {(canUpdateRoute || canDeleteRoute) && (
+        <div className="flex shrink-0 items-center gap-1">
+          {canUpdateRoute && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-8 rounded-lg hover:bg-primary/10 hover:text-primary"
+              aria-label={`Edit ${route.startName} to ${route.endName}`}
+              onClick={onEdit}
+            >
+              <Pencil className="size-4" />
+            </Button>
+          )}
+          {canDeleteRoute && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-8 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
+              aria-label={`Delete ${route.startName} to ${route.endName}`}
+              onClick={onDelete}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

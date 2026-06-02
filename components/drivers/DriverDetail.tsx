@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { Can, useCan } from "@/components/auth/Can";
 import { DriverForm, type VehicleSelection } from "@/components/drivers/DriverForm";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -94,6 +95,11 @@ export function DriverDetail({ driverId }: { driverId: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mode, setMode] = useState<"view" | "edit">("view");
+
+  // Hide Edit / Delete header buttons for users without write access.
+  // The view itself only needs `drivers.read` which the route guard handles.
+  const canUpdateDriver = useCan("drivers.update");
+  const canDeleteDriver = useCan("drivers.delete");
   const [isDeleting, setIsDeleting] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
@@ -307,36 +313,42 @@ export function DriverDetail({ driverId }: { driverId: string }) {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              onClick={() => setMode("edit")}
-              disabled={isDeleting}
-              className="h-10 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
-            >
-              <Pencil className="size-4" />
-              Edit
-            </Button>
-            <Link
-              href={`/attendance/drivers/${driver.id}`}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
-            >
-              <Clock className="size-4" />
-              Attendance
-            </Link>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setConfirmDeleteOpen(true)}
-              disabled={isDeleting}
-              className="h-10 gap-2 rounded-xl border-destructive/30 bg-white px-4 text-sm font-semibold text-destructive hover:bg-destructive/10"
-            >
-              {isDeleting ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Trash2 className="size-4" />
-              )}
-              Delete
-            </Button>
+            {canUpdateDriver && (
+              <Button
+                type="button"
+                onClick={() => setMode("edit")}
+                disabled={isDeleting}
+                className="h-10 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
+              >
+                <Pencil className="size-4" />
+                Edit
+              </Button>
+            )}
+            <Can permission="attendance.read">
+              <Link
+                href={`/attendance/drivers/${driver.id}`}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
+              >
+                <Clock className="size-4" />
+                Attendance
+              </Link>
+            </Can>
+            {canDeleteDriver && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setConfirmDeleteOpen(true)}
+                disabled={isDeleting}
+                className="h-10 gap-2 rounded-xl border-destructive/30 bg-white px-4 text-sm font-semibold text-destructive hover:bg-destructive/10"
+              >
+                {isDeleting ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Trash2 className="size-4" />
+                )}
+                Delete
+              </Button>
+            )}
           </div>
         </div>
       </div>

@@ -40,6 +40,7 @@ import {
   SettingsField,
   fieldClass,
 } from "@/components/settings/SettingsShared";
+import { useCan } from "@/components/auth/Can";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -73,6 +74,7 @@ export function UserDetail({ userId }: { userId: string }) {
   // self (admins can't deactivate their own account from this UI).
   const { user: currentUser } = useAuth();
   const { settings: timeSettings } = useTimeSettings();
+  const canUpdateUser = useCan("users.update");
 
   const [user, setUser] = useState<ApiUser | null>(null);
   const [sites, setSites] = useState<ListedSite[]>([]);
@@ -273,17 +275,19 @@ export function UserDetail({ userId }: { userId: string }) {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              onClick={() => setMode("edit")}
-              disabled={isMutating}
-              className="h-10 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
-            >
-              <Pencil className="size-4" />
-              Edit
-            </Button>
+            {canUpdateUser && (
+              <Button
+                type="button"
+                onClick={() => setMode("edit")}
+                disabled={isMutating}
+                className="h-10 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
+              >
+                <Pencil className="size-4" />
+                Edit
+              </Button>
+            )}
             {/* Deactivate hidden for self and already-inactive users. */}
-            {user.isActive && !isSelf && (
+            {canUpdateUser && user.isActive && !isSelf && (
               <Button
                 type="button"
                 variant="outline"
@@ -300,7 +304,7 @@ export function UserDetail({ userId }: { userId: string }) {
               </Button>
             )}
             {/* Reactivate appears only on inactive users. */}
-            {!user.isActive && (
+            {canUpdateUser && !user.isActive && (
               <Button
                 type="button"
                 variant="outline"

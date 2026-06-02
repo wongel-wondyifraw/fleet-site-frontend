@@ -31,6 +31,7 @@ import {
   type MouseEvent,
 } from "react";
 
+import { Can, useCan } from "@/components/auth/Can";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -178,14 +179,16 @@ export function UserManagementPanel({
             className={`${fieldClass} pl-9`}
           />
         </div>
-        <Button
-          type="button"
-          onClick={() => setMode({ kind: "form" })}
-          className="h-10 gap-2 rounded-xl bg-primary px-4 font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
-        >
-          <UserPlus className="size-4" />
-          Add User
-        </Button>
+        <Can permission="users.create">
+          <Button
+            type="button"
+            onClick={() => setMode({ kind: "form" })}
+            className="h-10 gap-2 rounded-xl bg-primary px-4 font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
+          >
+            <UserPlus className="size-4" />
+            Add User
+          </Button>
+        </Can>
       </div>
 
       {/* Inline error banner for load/deactivate failures. */}
@@ -273,6 +276,8 @@ function UserRow({
   className?: string;
   style?: CSSProperties;
 }) {
+  const canDeactivate = useCan("users.update");
+
   function handleDeactivateClick(e: MouseEvent<HTMLButtonElement>) {
     // Prevent the parent Link from intercepting the click.
     e.preventDefault();
@@ -335,7 +340,7 @@ function UserRow({
             {formatRoleName(user.role)}
           </span>
           {/* Deactivate button hidden for the currently logged-in admin. */}
-          {!isSelf && user.isActive && (
+          {canDeactivate && !isSelf && user.isActive && (
             <Button
               type="button"
               variant="ghost"

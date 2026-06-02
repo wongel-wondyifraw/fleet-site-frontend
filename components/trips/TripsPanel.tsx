@@ -66,6 +66,7 @@ import {
   clearTripTargetOverride,
   setTripTargetOverride,
 } from "@/lib/api/tripTargets";
+import { Can, useCan } from "@/components/auth/Can";
 import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
 import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { formatDateTime } from "@/lib/time/format";
@@ -595,22 +596,26 @@ export function TripsPanel({
             direct child of the header row with its desktop alignment
             intact. */}
         <div className="flex items-center justify-between gap-2 sm:contents">
-          <div className="min-w-0 flex-1 sm:hidden">
-            <DailyTargetEditor
-              target={targetState}
-              isSaving={isSavingTarget}
-              onSave={handleSaveTarget}
-              onReset={handleResetTarget}
-            />
-          </div>
-          <Button
-            onClick={() => setMode({ kind: "create" })}
-            disabled={vehicles.length === 0}
-            className="h-10 shrink-0 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint sm:self-auto"
-          >
-            <Plus className="size-4" />
-            Create Trip
-          </Button>
+          <Can permission="trip-targets.update">
+            <div className="min-w-0 flex-1 sm:hidden">
+              <DailyTargetEditor
+                target={targetState}
+                isSaving={isSavingTarget}
+                onSave={handleSaveTarget}
+                onReset={handleResetTarget}
+              />
+            </div>
+          </Can>
+          <Can permission="trips.create">
+            <Button
+              onClick={() => setMode({ kind: "create" })}
+              disabled={vehicles.length === 0}
+              className="h-10 shrink-0 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint sm:self-auto"
+            >
+              <Plus className="size-4" />
+              Create Trip
+            </Button>
+          </Can>
         </div>
       </div>
 
@@ -675,12 +680,14 @@ export function TripsPanel({
             ]}
           />
         </div>
-        <DailyTargetEditor
-          target={targetState}
-          isSaving={isSavingTarget}
-          onSave={handleSaveTarget}
-          onReset={handleResetTarget}
-        />
+        <Can permission="trip-targets.update">
+          <DailyTargetEditor
+            target={targetState}
+            isSaving={isSavingTarget}
+            onSave={handleSaveTarget}
+            onReset={handleResetTarget}
+          />
+        </Can>
       </div>
 
       {vehicles.length === 0 && !isLoading && (
@@ -1142,6 +1149,8 @@ function TripRow({
   const [pendingAction, setPendingAction] = useState<TripStatus | null>(null);
   const isBusy = pendingAction !== null;
   const { settings: timeSettings } = useTimeSettings();
+  const canUpdateTrip = useCan("trips.update");
+  const canDeleteTripPerm = useCan("trips.delete");
 
   // Local "checked out at" timestamp captured the moment the user taps the
   // button. We use this for the live elapsed counter instead of the server's
@@ -1272,19 +1281,28 @@ function TripRow({
   // Stale planned trips swap their checkout / cancel buttons for a
   // single "Move to Today" + "Delete" pair, so the regular workflow
   // controls hide. Otherwise the usual rules apply.
-  const canCheckout = trip.status === "PLANNED" && !isPlannedFromPast;
-  const canCheckin = trip.status === "IN_PROGRESS";
+  const canCheckout =
+    canUpdateTrip && trip.status === "PLANNED" && !isPlannedFromPast;
+  const canCheckin = canUpdateTrip && trip.status === "IN_PROGRESS";
   const canCancel =
+    canUpdateTrip &&
     (trip.status === "PLANNED" || trip.status === "IN_PROGRESS") &&
     !isPlannedFromPast;
-  // Editing is restricted to PLANNED trips â€” once a trip has moved on
+  // Editing is restricted to PLANNED trips — once a trip has moved on
   // it becomes historical and can only change via the dedicated status
   // transition. Delete is hidden while IN_PROGRESS so a mid-flight trip
   // can't be wiped out without going through Check-in or Cancel first.
   // For stale planned trips the tiny edit / delete cluster is hidden
   // because "Move to Today" + "Delete" already covers the actions.
-  const canEdit = trip.status === "PLANNED" && !isPlannedFromPast;
-  const canDelete = trip.status !== "IN_PROGRESS" && !isPlannedFromPast;
+  const canEdit =
+    canUpdateTrip && trip.status === "PLANNED" && !isPlannedFromPast;
+  const canDelete =
+    canDeleteTripPerm &&
+    trip.status !== "IN_PROGRESS" &&
+    !isPlannedFromPast;
+  const canMoveStale =
+    canUpdateTrip && isPlannedFromPast;
+  const canDeleteStale = canDeleteTripPerm && isPlannedFromPast;
 
   return (
     <div
@@ -1377,24 +1395,28 @@ function TripRow({
             completedAt={trip.completedAt}
           />
         )}
-        {isPlannedFromPast && (
+        {isPlannedFromPast && (canMoveStale || canDeleteStale) && (
           <>
-            <TripActionButton
-              tone="primary"
-              onClick={onMoveToToday}
-              disabled={isBusy}
-              icon={Calendar}
-            >
-              Move to Today
-            </TripActionButton>
-            <TripActionButton
-              tone="destructive"
-              onClick={onDelete}
-              disabled={isBusy}
-              icon={Trash2}
-            >
-              Delete
-            </TripActionButton>
+            {canMoveStale && (
+              <TripActionButton
+                tone="primary"
+                onClick={onMoveToToday}
+                disabled={isBusy}
+                icon={Calendar}
+              >
+                Move to Today
+              </TripActionButton>
+            )}
+            {canDeleteStale && (
+              <TripActionButton
+                tone="destructive"
+                onClick={onDelete}
+                disabled={isBusy}
+                icon={Trash2}
+              >
+                Delete
+              </TripActionButton>
+            )}
           </>
         )}
         {canCheckout && (

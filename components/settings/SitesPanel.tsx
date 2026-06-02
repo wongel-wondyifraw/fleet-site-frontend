@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { Can, useCan } from "@/components/auth/Can";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -230,13 +231,15 @@ export function SitesPanel({
           <span className="font-semibold text-primary">{sites.length}</span>{" "}
           {sites.length === 1 ? "site" : "sites"} registered
         </p>
-        <Button
-          onClick={() => setMode({ kind: "form", editing: null })}
-          className="h-9 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
-        >
-          <Plus className="size-4" />
-          Add Site
-        </Button>
+        <Can permission="sites.create">
+          <Button
+            onClick={() => setMode({ kind: "form", editing: null })}
+            className="h-9 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint"
+          >
+            <Plus className="size-4" />
+            Add Site
+          </Button>
+        </Can>
       </div>
 
       {loadError && <PanelError message={loadError} />}
@@ -307,6 +310,9 @@ function SiteRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const canUpdateSite = useCan("sites.update");
+  const canDeleteSite = useCan("sites.delete");
+
   const assignees = allUsers.filter((u) =>
     u.sites?.some((s) => s.id === site.id),
   );
@@ -351,26 +357,32 @@ function SiteRow({
           </p>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-8 rounded-lg hover:bg-primary/10 hover:text-primary"
-          aria-label={`Edit ${site.name}`}
-          onClick={onEdit}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-8 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
-          aria-label={`Delete ${site.name}`}
-          onClick={onDelete}
-        >
-          <Trash2 className="size-4" />
-        </Button>
-      </div>
+      {(canUpdateSite || canDeleteSite) && (
+        <div className="flex shrink-0 items-center gap-1">
+          {canUpdateSite && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-8 rounded-lg hover:bg-primary/10 hover:text-primary"
+              aria-label={`Edit ${site.name}`}
+              onClick={onEdit}
+            >
+              <Pencil className="size-4" />
+            </Button>
+          )}
+          {canDeleteSite && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-8 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
+              aria-label={`Delete ${site.name}`}
+              onClick={onDelete}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

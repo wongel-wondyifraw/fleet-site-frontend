@@ -53,6 +53,7 @@ import {
   listVehiclesPage,
   type CreateVehicleRequest,
 } from "@/lib/api/vehicles";
+import { Can, useCan } from "@/components/auth/Can";
 import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
 import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { staggerStyle } from "@/lib/animations";
@@ -90,6 +91,7 @@ export function VehiclesPanel({
   // setting it opens the dialog and seeds its title/description.
   const [pendingDelete, setPendingDelete] = useState<ApiVehicle | null>(null);
   const { hasAssignments } = useScopedSiteIds();
+  const canDeleteVehicle = useCan("vehicles.delete");
 
   const vehicleList = useCursorPagedList({
     fetchPage: (cursor, limit) =>
@@ -286,13 +288,15 @@ export function VehiclesPanel({
             </div>
           </div>
         </div>
-        <Button
-          onClick={() => setMode({ kind: "form" })}
-          className="h-10 gap-2 self-start rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint sm:self-auto"
-        >
-          <Plus className="size-4" />
-          Add Vehicle
-        </Button>
+        <Can permission="vehicles.create">
+          <Button
+            onClick={() => setMode({ kind: "form" })}
+            className="h-10 gap-2 self-start rounded-xl bg-primary px-4 text-sm font-semibold shadow-md shadow-primary/20 hover:bg-surface-tint sm:self-auto"
+          >
+            <Plus className="size-4" />
+            Add Vehicle
+          </Button>
+        </Can>
       </div>
 
       {loadError && <PanelError message={loadError} />}
@@ -351,6 +355,7 @@ export function VehiclesPanel({
                   : null
               }
               density={density}
+              canDelete={canDeleteVehicle}
               onDelete={() => setPendingDelete(vehicle)}
             />
             </div>
@@ -402,12 +407,14 @@ function VehicleRow({
   driver,
   site,
   density,
+  canDelete,
   onDelete,
 }: {
   vehicle: ApiVehicle;
   driver: ApiDriver | null;
   site: ApiSite | null;
   density: "comfortable" | "compact";
+  canDelete: boolean;
   onDelete: () => void;
 }) {
   function handleDeleteClick(e: MouseEvent<HTMLButtonElement>) {
@@ -473,14 +480,16 @@ function VehicleRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          onClick={handleDeleteClick}
-          aria-label={`Delete ${vehicle.assetNumber}`}
-          className="flex size-8 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10"
-        >
-          <Trash2 className="size-4" />
-        </button>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={handleDeleteClick}
+            aria-label={`Delete ${vehicle.assetNumber}`}
+            className="flex size-8 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        )}
         <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
       </div>
     </Link>

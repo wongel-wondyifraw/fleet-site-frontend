@@ -25,6 +25,7 @@ import {
   SettingsField,
   fieldClass,
 } from "@/components/settings/SettingsShared";
+import { useCan } from "@/components/auth/Can";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ApiError } from "@/lib/api/client";
@@ -42,6 +43,8 @@ export function RoleDetail({ roleId }: { roleId: string }) {
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
+  const canUpdateRole = useCan("roles.update");
+  const canDeleteRole = useCan("roles.delete");
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -150,16 +153,18 @@ export function RoleDetail({ roleId }: { roleId: string }) {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              onClick={() => setMode("edit")}
-              disabled={isMutating}
-              className="h-10 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold"
-            >
-              <Pencil className="size-4" />
-              Edit
-            </Button>
-            {!role.isSystem && (
+            {canUpdateRole && (
+              <Button
+                type="button"
+                onClick={() => setMode("edit")}
+                disabled={isMutating}
+                className="h-10 gap-2 rounded-xl bg-primary px-4 text-sm font-semibold"
+              >
+                <Pencil className="size-4" />
+                Edit
+              </Button>
+            )}
+            {canDeleteRole && !role.isSystem && (
               <Button
                 type="button"
                 variant="outline"
