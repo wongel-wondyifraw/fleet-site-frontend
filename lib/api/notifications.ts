@@ -79,6 +79,15 @@ export function getVapidPublicKey(): Promise<{ publicKey: string }> {
   return apiRequest<{ publicKey: string }>("/notifications/vapid-public-key");
 }
 
+// Fires a self-test notification at the current user so they can confirm
+// in-app, browser, and push delivery end-to-end. Diagnostic only — remove
+// the corresponding settings button before broad rollout.
+export function sendTestNotification(): Promise<NotificationItem> {
+  return apiRequest<NotificationItem>("/notifications/test-push", {
+    method: "POST",
+  });
+}
+
 export function registerPushSubscription(
   sub: PushSubscriptionPayload,
 ): Promise<void> {

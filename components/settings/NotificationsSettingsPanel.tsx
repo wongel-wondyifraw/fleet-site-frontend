@@ -7,6 +7,7 @@ import {
   SettingsSection,
   ToggleRow,
 } from "@/components/settings/SettingsShared";
+import { sendTestNotification } from "@/lib/api/notifications";
 import { ensurePermission } from "@/lib/notifications/browserToast";
 import {
   disablePush,
@@ -39,6 +40,31 @@ export function NotificationsSettingsPanel({
   const { prefs, patch } = useNotificationPreferences();
   const { showToast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
+
+  // Diagnostic action wired to POST /notifications/test-push. The button is
+  // intentionally placed below the master switch so it reads as a "verify
+  // it works" affordance, not a primary action. Remove with the backend
+  // endpoint before broad rollout.
+  async function handleTestPush() {
+    if (testBusy) return;
+    setTestBusy(true);
+    try {
+      await sendTestNotification();
+      showToast({
+        variant: "success",
+        message:
+          "Test notification sent. Check the bell, your OS notifications, and any subscribed devices.",
+      });
+    } catch {
+      showToast({
+        variant: "error",
+        message: "Could not send the test notification.",
+      });
+    } finally {
+      setTestBusy(false);
+    }
+  }
 
   // The single source of truth for "is the bell on?". We treat it as ON
   // when ANY kind in ANY channel is currently true. This means a user
@@ -129,6 +155,24 @@ export function NotificationsSettingsPanel({
               : "On - push is not active on this device yet."
             : "Off - you will not receive any alerts."}
       </p>
+
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-primary">Send a test notification</p>
+          <p className="text-[11px] text-muted-foreground">
+            Fires a sample alert at your own account so you can verify the bell, browser toasts, and push delivery.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleTestPush}
+          disabled={testBusy}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/30 bg-white px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+        >
+          <Bell className="size-3.5" />
+          {testBusy ? "Sending..." : "Send test"}
+        </button>
+      </div>
     </>
   );
 
