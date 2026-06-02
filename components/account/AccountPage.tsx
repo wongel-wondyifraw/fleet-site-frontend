@@ -50,7 +50,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api/client";
 import { changeOwnPasswordRequest } from "@/lib/api/auth";
-import { formatRole } from "@/lib/api/types";
+import { formatRoleName } from "@/lib/api/types";
 import { updateUser } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDateTime } from "@/lib/time/format";
@@ -239,7 +239,7 @@ function ProfileCard() {
             </p>
             <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-[2px] text-[10px] font-bold tracking-wide text-primary uppercase">
               <ShieldCheck className="size-3" aria-hidden />
-              {formatRole(user.role)}
+              {formatRoleName(user.role)}
             </span>
           </div>
         </div>

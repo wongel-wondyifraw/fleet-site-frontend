@@ -51,7 +51,7 @@ import { listUsers } from "@/lib/api/users";
 import {
   SITE_STATUSES,
   SITE_TYPES,
-  formatRole,
+  formatRoleName,
   type ApiSite,
   type ApiUser,
   type SiteStatus,
@@ -730,7 +730,7 @@ function AssigneePicker({
       .filter((u) => {
         if (!q) return true;
         const hay =
-          `${u.firstName} ${u.lastName} ${u.email} ${formatRole(u.role)}`.toLowerCase();
+          `${u.firstName} ${u.lastName} ${u.email} ${formatRoleName(u.role)}`.toLowerCase();
         return hay.includes(q);
       })
       .sort((a, b) =>
@@ -794,7 +794,7 @@ function AssigneePicker({
                   <p className="truncate text-[11px] text-muted-foreground">
                     {u.email}
                     <span className="mx-1.5 text-slate-300">·</span>
-                    {formatRole(u.role)}
+                    {formatRoleName(u.role)}
                   </p>
                 </div>
                 <Button
@@ -872,7 +872,7 @@ function AssigneePicker({
                   <p className="truncate text-[11px] text-muted-foreground">
                     {u.email}
                     <span className="mx-1.5 text-slate-300">·</span>
-                    {formatRole(u.role)}
+                    {formatRoleName(u.role)}
                   </p>
                 </div>
                 <Button

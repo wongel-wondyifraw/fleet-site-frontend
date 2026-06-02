@@ -7,6 +7,7 @@ import {
   Clock,
   Gauge,
   Route,
+  ShieldCheck,
   Users,
 } from "@/lib/icons";
 
@@ -17,8 +18,10 @@ import { SiteScoringPanel } from "@/components/settings/SiteScoringPanel";
 import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
+import { RoleManagementPanel } from "@/components/settings/RoleManagementPanel";
 import { NotificationsSettingsPanel } from "@/components/settings/NotificationsSettingsPanel";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { hasPermission } from "@/lib/api/types";
 
 export function MobileSettings() {
   // Auth context is still needed to gate the admin-only sections below.
@@ -26,7 +29,9 @@ export function MobileSettings() {
   // ProfilePopover (avatar in the top bar) so they're one tap from any
   // page instead of buried under /settings.
   const { user } = useAuth();
-  const isAdmin = user?.role === "ADMIN";
+  const canSiteScoring = hasPermission(user, "site-health.read");
+  const canUsers = hasPermission(user, "users.read");
+  const canRoles = hasPermission(user, "roles.read");
 
   return (
     <div className="space-y-5 lg:hidden fs-panel-in">
@@ -81,7 +86,7 @@ export function MobileSettings() {
         <AttendanceRulesPanel density="compact" />
       </SettingsSection>
 
-      {isAdmin ? (
+      {canSiteScoring ? (
         <SettingsSection
           title="Site Scoring"
           description="Weights and bands for dashboard site health scores."
@@ -92,13 +97,23 @@ export function MobileSettings() {
       ) : null}
 
       {/* User management - only rendered for ADMIN accounts. */}
-      {isAdmin ? (
+      {canUsers ? (
         <SettingsSection
           title="Users"
           description="Invite teammates and assign roles."
           icon={Users}
         >
           <UserManagementPanel density="compact" />
+        </SettingsSection>
+      ) : null}
+
+      {canRoles ? (
+        <SettingsSection
+          title="Roles & Permissions"
+          description="Create roles and assign permissions."
+          icon={ShieldCheck}
+        >
+          <RoleManagementPanel density="compact" />
         </SettingsSection>
       ) : null}
     </div>

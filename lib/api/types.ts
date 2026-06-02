@@ -1,15 +1,51 @@
-// Mirrors backend src/common/enums.ts UserRole - kept in sync manually.
-export type UserRole = "ADMIN" | "SITE_MANAGER" | "TIME_KEEPER";
+export interface ApiPermission {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+  description?: string | null;
+}
 
-// Ordered list of roles used by select inputs and filter dropdowns.
-export const USER_ROLES: UserRole[] = ["ADMIN", "SITE_MANAGER", "TIME_KEEPER"];
+export interface ApiRole {
+  id: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  isSystem: boolean;
+  permissions: ApiPermission[];
+  createdAt?: string;
+  updatedAt?: string;
+}
 
-// Pretty-print a role code for display (e.g. "SITE_MANAGER" -> "Site Manager").
-export function formatRole(role: UserRole | string): string {
-  return role
+/** Pretty-print a role key when only the key is available. */
+export function formatRoleKey(key: string): string {
+  return key
     .split("_")
     .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
     .join(" ");
+}
+
+export function formatRoleName(role: ApiRole | { name: string; key?: string }): string {
+  return role.name || (role.key ? formatRoleKey(role.key) : "Unknown");
+}
+
+export function hasPermission(
+  user: ApiUser | null | undefined,
+  slug: string,
+): boolean {
+  return (
+    user?.role?.permissions?.some((p) => p.slug === slug) ?? false
+  );
+}
+
+const ROLE_PILL_BY_KEY: Record<string, string> = {
+  ADMIN: "bg-destructive/15 text-destructive",
+  SITE_MANAGER: "bg-primary/10 text-primary",
+  TIME_KEEPER: "bg-amber-50 text-amber-700",
+};
+
+export function getRolePillClass(roleKey: string): string {
+  return ROLE_PILL_BY_KEY[roleKey] ?? "bg-slate-100 text-muted-foreground";
 }
 
 // Mirrors backend Site entity - the trimmed set of fields the API now exposes.
@@ -42,7 +78,8 @@ export interface SiteAssignee {
   firstName: string;
   lastName: string;
   email: string;
-  role: UserRole;
+  role: ApiRole;
+  roleId?: string;
 }
 
 export interface ApiSite {
@@ -66,7 +103,8 @@ export interface ApiUser {
   email: string;
   firstName: string;
   lastName: string;
-  role: UserRole;
+  role: ApiRole;
+  roleId: string;
   isActive: boolean;
   lastLoginAt: string | null;
   sites: ApiSite[];

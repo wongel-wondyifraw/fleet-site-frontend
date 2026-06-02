@@ -41,7 +41,13 @@ import {
 } from "@/components/settings/SettingsShared";
 import { ApiError } from "@/lib/api/client";
 import { listSites, type ListedSite } from "@/lib/api/sites";
-import { USER_ROLES, formatRole, type ApiUser, type UserRole } from "@/lib/api/types";
+import {
+  formatRoleName,
+  getRolePillClass,
+  type ApiRole,
+  type ApiUser,
+} from "@/lib/api/types";
+import { listRoles } from "@/lib/api/roles";
 import {
   createUser,
   deactivateUser,
@@ -51,13 +57,6 @@ import {
 import { useAuth } from "@/lib/auth/AuthContext";
 import { staggerStyle } from "@/lib/animations";
 import { cn } from "@/lib/utils";
-
-// Color tokens for the role pill - kept in one place so the UI stays consistent.
-const ROLE_PILL: Record<UserRole, string> = {
-  ADMIN: "bg-destructive/15 text-destructive",
-  SITE_MANAGER: "bg-primary/10 text-primary",
-  TIME_KEEPER: "bg-amber-50 text-amber-700",
-};
 
 // View modes: list view (default) or form view (add new user).
 type Mode = { kind: "list" } | { kind: "form" };
@@ -75,6 +74,7 @@ export function UserManagementPanel({
   // Server-side data + filters.
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [sites, setSites] = useState<ListedSite[]>([]);
+  const [roles, setRoles] = useState<ApiRole[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   // UI flags.
   const [isLoading, setIsLoading] = useState(true);
@@ -89,12 +89,14 @@ export function UserManagementPanel({
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [u, s] = await Promise.all([
+      const [u, s, r] = await Promise.all([
         listUsers({ expand: "sites" }),
         listSites(),
+        listRoles(),
       ]);
       setUsers(u);
       setSites(s);
+      setRoles(r);
     } catch (err) {
       setLoadError(
         err instanceof ApiError ? err.message : "Unable to load users.",
@@ -114,7 +116,7 @@ export function UserManagementPanel({
     const q = searchQuery.trim().toLowerCase();
     if (!q) return users;
     return users.filter((u) => {
-      const haystack = `${u.firstName} ${u.lastName} ${u.email} ${formatRole(u.role)}`.toLowerCase();
+      const haystack = `${u.firstName} ${u.lastName} ${u.email} ${formatRoleName(u.role)}`.toLowerCase();
       return haystack.includes(q);
     });
   }, [users, searchQuery]);
@@ -152,6 +154,7 @@ export function UserManagementPanel({
     return (
       <UserForm
         sites={sites}
+        roles={roles}
         onCancel={() => setMode({ kind: "list" })}
         onSubmit={handleCreate}
       />
@@ -326,10 +329,10 @@ function UserRow({
           <span
             className={cn(
               "rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase",
-              ROLE_PILL[user.role],
+              getRolePillClass(user.role.key),
             )}
           >
-            {formatRole(user.role)}
+            {formatRoleName(user.role)}
           </span>
           {/* Deactivate button hidden for the currently logged-in admin. */}
           {!isSelf && user.isActive && (
@@ -353,10 +356,12 @@ function UserRow({
 // Add User form - controlled inputs + role select + multi-site checkboxes.
 function UserForm({
   sites,
+  roles,
   onCancel,
   onSubmit,
 }: {
   sites: ListedSite[];
+  roles: ApiRole[];
   onCancel: () => void;
   onSubmit: (payload: CreateUserRequest) => Promise<void>;
 }) {
@@ -365,7 +370,9 @@ function UserForm({
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<UserRole>("TIME_KEEPER");
+  const defaultRoleId =
+    roles.find((r) => r.key === "TIME_KEEPER")?.id ?? roles[0]?.id ?? "";
+  const [roleId, setRoleId] = useState(defaultRoleId);
   const [siteIds, setSiteIds] = useState<string[]>([]);
   // UI flags for password visibility, submit-in-flight, and validation error.
   const [showPassword, setShowPassword] = useState(false);
@@ -403,7 +410,7 @@ function UserForm({
         lastName: trimmedLast,
         email: trimmedEmail,
         password,
-        role,
+        roleId,
         siteIds: siteIds.length > 0 ? siteIds : undefined,
       });
     } catch (err) {
@@ -503,13 +510,13 @@ function UserForm({
         </SettingsField>
         <SettingsField label="Role">
           <Select
-            value={role}
-            onValueChange={(v) => setRole(v as UserRole)}
-            disabled={isSubmitting}
+            value={roleId}
+            onValueChange={setRoleId}
+            disabled={isSubmitting || roles.length === 0}
             searchable={false}
-            options={USER_ROLES.map((r) => ({
-              value: r,
-              label: formatRole(r),
+            options={roles.map((r) => ({
+              value: r.id,
+              label: r.name,
             }))}
           />
         </SettingsField>

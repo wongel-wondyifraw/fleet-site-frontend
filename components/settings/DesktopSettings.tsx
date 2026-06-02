@@ -7,6 +7,7 @@ import {
   Clock,
   Gauge,
   Route,
+  ShieldCheck,
   Users,
 } from "@/lib/icons";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -19,8 +20,10 @@ import { SiteScoringPanel } from "@/components/settings/SiteScoringPanel";
 import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
 import { SitesPanel } from "@/components/settings/SitesPanel";
 import { UserManagementPanel } from "@/components/settings/UserManagementPanel";
+import { RoleManagementPanel } from "@/components/settings/RoleManagementPanel";
 import { NotificationsSettingsPanel } from "@/components/settings/NotificationsSettingsPanel";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { hasPermission } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 // Each settings section is identified by a stable string id.
@@ -34,7 +37,8 @@ type SectionId =
   | "time"
   | "attendance"
   | "siteScoring"
-  | "users";
+  | "users"
+  | "roles";
 
 // Narrowing helper for the `?section=` query param. Keeping this here (next to
 // the SectionId definition) means the union and the runtime guard can't drift.
@@ -46,7 +50,8 @@ function isValidSection(value: string | null): value is SectionId {
     value === "time" ||
     value === "attendance" ||
     value === "siteScoring" ||
-    value === "users"
+    value === "users" ||
+    value === "roles"
   );
 }
 
@@ -56,8 +61,8 @@ type SectionMeta = {
   label: string;
   description: string;
   icon: ComponentType<{ className?: string }>;
-  // When true, the section is only visible to ADMIN users.
-  adminOnly?: boolean;
+  /** When set, section is visible only if the user has this permission slug. */
+  permission?: string;
 };
 
 // Full list of sections; admin-only ones are filtered out for non-admins.
@@ -97,26 +102,33 @@ const SECTIONS: SectionMeta[] = [
     label: "Site Scoring",
     description: "Health score weights",
     icon: Gauge,
-    adminOnly: true,
+    permission: "site-health.read",
   },
   {
     id: "users",
     label: "Users",
-    description: "Team & roles",
+    description: "Team members",
     icon: Users,
-    adminOnly: true,
+    permission: "users.read",
+  },
+  {
+    id: "roles",
+    label: "Roles & Permissions",
+    description: "Create roles and assign permissions",
+    icon: ShieldCheck,
+    permission: "roles.read",
   },
 ];
 
 export function DesktopSettings() {
   // Pull the signed-in user for role-aware section filtering.
   const { user } = useAuth();
-  const isAdmin = user?.role === "ADMIN";
-
-  // Filter out admin-only sections for non-admins.
   const visibleSections = useMemo(
-    () => SECTIONS.filter((s) => !s.adminOnly || isAdmin),
-    [isAdmin],
+    () =>
+      SECTIONS.filter(
+        (s) => !s.permission || hasPermission(user, s.permission),
+      ),
+    [user],
   );
 
   // Active sub-section is URL-driven so deep links like
@@ -260,6 +272,7 @@ function ActivePanel({
       {section === "attendance" ? <AttendanceRulesPanel /> : null}
       {section === "siteScoring" ? <SiteScoringPanel /> : null}
       {section === "users" ? <UserManagementPanel /> : null}
+      {section === "roles" ? <RoleManagementPanel /> : null}
     </SettingsSection>
   );
 }
@@ -281,5 +294,7 @@ function panelDescription(section: SectionId): string {
       return "Adjust dimension weights, status bands, and data-quality thresholds for site health scores.";
     case "users":
       return "Invite teammates and assign their roles and sites.";
+    case "roles":
+      return "Create custom roles and choose which permissions each role grants.";
   }
 }

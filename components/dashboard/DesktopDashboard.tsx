@@ -35,7 +35,11 @@ export function DesktopDashboard() {
 
   const firstName = user?.firstName ?? "there";
   const scopedCount = user?.sites?.length ?? null;
-  const subheading = buildSiteScopeLine(user?.role, scopedCount, siteCount);
+  const subheading = buildSiteScopeLine(
+    user?.role?.key,
+    scopedCount,
+    siteCount,
+  );
 
   return (
     <div className="hidden lg:block fs-panel-in">

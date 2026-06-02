@@ -46,11 +46,12 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ApiError } from "@/lib/api/client";
 import { listSites, type ListedSite } from "@/lib/api/sites";
 import {
-  USER_ROLES,
-  formatRole,
+  formatRoleName,
+  getRolePillClass,
+  type ApiRole,
   type ApiUser,
-  type UserRole,
 } from "@/lib/api/types";
+import { listRoles } from "@/lib/api/roles";
 import {
   assignUserSites,
   deactivateUser,
@@ -67,12 +68,6 @@ import { cn } from "@/lib/utils";
 
 // Role pill palette - duplicated from UserManagementPanel to keep this page
 // renderable on its own without cross-importing internal helpers.
-const ROLE_PILL: Record<UserRole, string> = {
-  ADMIN: "bg-destructive/15 text-destructive",
-  SITE_MANAGER: "bg-primary/10 text-primary",
-  TIME_KEEPER: "bg-amber-50 text-amber-700",
-};
-
 export function UserDetail({ userId }: { userId: string }) {
   // The currently signed-in user; used to gate destructive actions against
   // self (admins can't deactivate their own account from this UI).
@@ -81,6 +76,7 @@ export function UserDetail({ userId }: { userId: string }) {
 
   const [user, setUser] = useState<ApiUser | null>(null);
   const [sites, setSites] = useState<ListedSite[]>([]);
+  const [roles, setRoles] = useState<ApiRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mode, setMode] = useState<"view" | "edit">("view");
@@ -95,17 +91,20 @@ export function UserDetail({ userId }: { userId: string }) {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [u, s] = await Promise.all([
+      const [u, s, r] = await Promise.all([
         getUser(userId),
-        // Sites are needed by the edit form's multi-select. If the user lacks
-        // permission to list them we tolerate that and just disable the picker.
         listSites().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ListedSite[];
+          throw err;
+        }),
+        listRoles().catch((err) => {
+          if (err instanceof ApiError && err.isAuth) return [] as ApiRole[];
           throw err;
         }),
       ]);
       setUser(u);
       setSites(s);
+      setRoles(r);
     } catch (err) {
       setLoadError(
         err instanceof ApiError ? err.message : "Unable to load user.",
@@ -137,8 +136,8 @@ export function UserDetail({ userId }: { userId: string }) {
       await updateUser(user.id, profilePatch);
     }
     // 2. Role - dedicated endpoint for auditability on the backend.
-    if (payload.role !== user.role) {
-      await setUserRole(user.id, payload.role);
+    if (payload.roleId !== user.roleId) {
+      await setUserRole(user.id, payload.roleId);
     }
     // 3. Sites - PUT replaces the full set; we always send so clearing works.
     const prevSiteIds = (user.sites ?? []).map((s) => s.id).sort();
@@ -209,6 +208,7 @@ export function UserDetail({ userId }: { userId: string }) {
         <UserEditForm
           initial={user}
           sites={sites}
+          roles={roles}
           onCancel={() => setMode("view")}
           onSubmit={handleEditSave}
         />
@@ -250,10 +250,10 @@ export function UserDetail({ userId }: { userId: string }) {
                 <span
                   className={cn(
                     "rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase",
-                    ROLE_PILL[user.role],
+                    getRolePillClass(user.role.key),
                   )}
                 >
-                  {formatRole(user.role)}
+                  {formatRoleName(user.role)}
                 </span>
                 <span
                   className={cn(
@@ -333,7 +333,7 @@ export function UserDetail({ userId }: { userId: string }) {
               {user.email}
             </DetailField>
             <DetailField icon={UserCog} label="Role">
-              {formatRole(user.role)}
+              {formatRoleName(user.role)}
             </DetailField>
           </dl>
         </FormCard>
@@ -442,7 +442,7 @@ interface UserEditPayload {
   firstName: string;
   lastName: string;
   email: string;
-  role: UserRole;
+  roleId: string;
   siteIds: string[];
 }
 
@@ -452,18 +452,20 @@ interface UserEditPayload {
 function UserEditForm({
   initial,
   sites,
+  roles,
   onCancel,
   onSubmit,
 }: {
   initial: ApiUser;
   sites: ListedSite[];
+  roles: ApiRole[];
   onCancel: () => void;
   onSubmit: (payload: UserEditPayload) => Promise<void>;
 }) {
   const [firstName, setFirstName] = useState(initial.firstName);
   const [lastName, setLastName] = useState(initial.lastName);
   const [email, setEmail] = useState(initial.email);
-  const [role, setRole] = useState<UserRole>(initial.role);
+  const [roleId, setRoleId] = useState(initial.roleId);
   const [siteIds, setSiteIds] = useState<string[]>(
     initial.sites.map((s) => s.id),
   );
@@ -495,7 +497,7 @@ function UserEditForm({
         firstName: trimmedFirst,
         lastName: trimmedLast,
         email: trimmedEmail,
-        role,
+        roleId,
         siteIds,
       });
     } catch (err) {
@@ -566,13 +568,13 @@ function UserEditForm({
         </SettingsField>
         <SettingsField label="Role">
           <Select
-            value={role}
-            onValueChange={(v) => setRole(v as UserRole)}
-            disabled={isSubmitting}
+            value={roleId}
+            onValueChange={setRoleId}
+            disabled={isSubmitting || roles.length === 0}
             searchable={false}
-            options={USER_ROLES.map((r) => ({
-              value: r,
-              label: formatRole(r),
+            options={roles.map((r) => ({
+              value: r.id,
+              label: r.name,
             }))}
           />
         </SettingsField>

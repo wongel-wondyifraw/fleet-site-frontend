@@ -22,7 +22,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { formatDate, formatTimeOfDay } from "@/lib/time/format";
-import type { ApiTimeSettings } from "@/lib/api/types";
+import { formatRoleName, type ApiTimeSettings } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 // Primary nav items for the desktop sidebar.
@@ -47,14 +47,6 @@ const SIDEBAR_NAV = [
 function isActive(pathname: string, href: string): boolean {
   if (href === "/dashboard") return pathname === "/dashboard";
   return pathname === href || pathname.startsWith(`${href}/`);
-}
-
-// Pretty-print a UserRole code (e.g. "SITE_MANAGER" -> "Site Manager").
-function formatRole(role: string): string {
-  return role
-    .split("_")
-    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
-    .join(" ");
 }
 
 // Formats a Date as e.g. "Oct 24, 2023 · 08:42 AM" using the global
@@ -147,7 +139,7 @@ export function DashboardSidebar() {
               {user.firstName} {user.lastName}
             </p>
             <p className="truncate text-[11px] text-muted-foreground">
-              {formatRole(user.role)}
+              {formatRoleName(user.role)}
             </p>
           </div>
           <ChevronRight

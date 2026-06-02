@@ -77,7 +77,7 @@ export function SitesOverviewProvider({ children }: { children: ReactNode }) {
       try {
         const allSites = await listSites();
         const siteIds =
-          user?.role === "ADMIN"
+          user?.role?.key === "ADMIN"
             ? allSites.map((s) => s.id)
             : (user?.sites ?? []).map((s) => s.id);
 

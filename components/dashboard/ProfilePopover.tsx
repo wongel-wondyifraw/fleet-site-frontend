@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/popover";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatRole } from "@/lib/api/types";
+import { formatRoleName } from "@/lib/api/types";
 import { formatDateTime } from "@/lib/time/format";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { cn } from "@/lib/utils";
@@ -91,7 +91,7 @@ export function ProfilePopover() {
           <ProfileHeader
             initials={initials}
             fullName={fullName}
-            role={user.role}
+            roleName={formatRoleName(user.role)}
             email={user.email}
           />
 
@@ -167,12 +167,12 @@ export function ProfilePopover() {
 function ProfileHeader({
   initials,
   fullName,
-  role,
+  roleName,
   email,
 }: {
   initials: string;
   fullName: string;
-  role: string;
+  roleName: string;
   email: string;
 }) {
   return (
@@ -190,7 +190,7 @@ function ProfileHeader({
           </p>
           <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-[2px] text-[10px] font-bold tracking-wide text-primary uppercase">
             <User className="size-3" aria-hidden />
-            {formatRole(role)}
+            {roleName}
           </span>
         </div>
       </div>
