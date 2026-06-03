@@ -283,7 +283,18 @@ function RoleForm({
         </SettingsField>
       </FieldGrid>
 
-      <SettingsField label="Permissions">
+      <div>
+        <div className="mb-3 flex items-center gap-2">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <ShieldCheck className="size-4" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-primary">Permissions</p>
+            <p className="text-[11px] text-muted-foreground">
+              Choose what this role can access, grouped by area.
+            </p>
+          </div>
+        </div>
         {isLoadingCatalog ? (
           <div className="flex justify-center py-6">
             <Loader2 className="size-5 animate-spin text-primary" />
@@ -296,7 +307,7 @@ function RoleForm({
             disabled={isSubmitting}
           />
         )}
-      </SettingsField>
+      </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
         <Button

@@ -53,6 +53,7 @@ import { changeOwnPasswordRequest } from "@/lib/api/auth";
 import { formatRoleName } from "@/lib/api/types";
 import { updateUser } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useHomePath } from "@/lib/auth/useScopedSiteIds";
 import { formatDateTime } from "@/lib/time/format";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
 import { useToast } from "@/lib/toast/ToastContext";
@@ -104,10 +105,12 @@ export function AccountPage() {
 // ---------------------------------------------------------------------------
 
 function PageHeader() {
+  // Scoped users land back on their own site dashboard, not the org-wide one.
+  const homePath = useHomePath();
   return (
     <header className="flex flex-col gap-3">
       <Link
-        href="/dashboard"
+        href={homePath}
         className="inline-flex w-fit items-center gap-1.5 text-[12px] font-semibold text-muted-foreground transition-colors hover:text-primary"
       >
         <ArrowLeft className="size-3.5" />

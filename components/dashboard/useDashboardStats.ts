@@ -13,10 +13,12 @@ import {
 
 import { listAttendanceRosterBulk } from "@/lib/api/attendance";
 import { listFuelConsumptionRosterBulk } from "@/lib/api/fuel";
+import { ignoreForbidden } from "@/lib/api/ignoreForbidden";
 import { listMySites } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
 import { listVehicles } from "@/lib/api/vehicles";
-import type { ApiSite, ApiTrip, ApiVehicle } from "@/lib/api/types";
+import { hasPermission, type ApiSite, type ApiTrip, type ApiVehicle } from "@/lib/api/types";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { toLocalDateKey } from "@/lib/trips/tripFormatters";
 
@@ -37,6 +39,7 @@ type RawStats = {
   trips: ApiTrip[];
   fuelLitersToday: number;
   fuelLitersYesterday: number;
+  loadedAtMs: number;
   // Count of drivers who have actually checked in today (PRESENT / ON_BREAK
   // / DONE on their AttendanceDay), aggregated across every site the user
   // can see. Used as the "X onsite" suffix on the Total Trucks tile so the
@@ -106,6 +109,13 @@ function sumEstimatedLiters(
 // those count as "on site").
 const CHECKED_IN_STATUSES = new Set(["PRESENT", "ON_BREAK", "DONE"]);
 
+const EMPTY_FUEL_BULK = {
+  bySite: {} as Record<string, Array<{ estimatedLiters?: number | null }>>,
+};
+const EMPTY_ATTENDANCE_BULK = {
+  bySite: {} as Record<string, Array<{ status: string; driverId: string }>>,
+};
+
 export function useDashboardStats(): {
   stats: DashboardKpi[];
   siteCount: number | null;
@@ -113,12 +123,14 @@ export function useDashboardStats(): {
   isLoading: boolean;
   error: string | null;
 } {
+  const { user } = useAuth();
   const { hasAssignments } = useScopedSiteIds();
   const [data, setData] = useState<RawStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
 
     async function load() {
@@ -129,49 +141,69 @@ export function useDashboardStats(): {
           new Date(Date.now() - 24 * 60 * 60 * 1000),
         );
 
-        // Phase 1: vehicles + sites + today's trips run in parallel.
-        // `listMySites` returns only the sites in the caller's scope (or
-        // the full list when they hold the bypass permission), so the KPI
-        // tiles automatically respect site-scoping.
+        const canVehicles = hasPermission(user, "vehicles.read");
+        const canSites = hasPermission(user, "sites.read");
+        const canTrips = hasPermission(user, "trips.read");
+        const canFuel = hasPermission(user, "fuel.read");
+        const canAttendance = hasPermission(user, "attendance.read");
+
+        // Phase 1: each fetch is gated on its own permission so a reduced
+        // role (e.g. Time Keeper with bypass but no trips.read) degrades
+        // individual tiles instead of failing the whole dashboard.
         const [vehicles, sites, trips] = await Promise.all([
-          listVehicles(),
-          listMySites(),
-          listTrips({ date: today }),
+          canVehicles
+            ? listVehicles().catch(ignoreForbidden([] as ApiVehicle[]))
+            : Promise.resolve([] as ApiVehicle[]),
+          canSites
+            ? listMySites().catch(ignoreForbidden([] as ApiSite[]))
+            : Promise.resolve([] as ApiSite[]),
+          canTrips
+            ? listTrips({ date: today }).catch(ignoreForbidden([] as ApiTrip[]))
+            : Promise.resolve([] as ApiTrip[]),
         ]);
 
-        // Phase 2: fuel rosters AND today's attendance roster all depend on
-        // site IDs — fetch them together so the KPI tiles land at once.
         const siteIds = sites.map((s) => s.id);
         let fuelLitersToday = 0;
         let fuelLitersYesterday = 0;
         let checkedInDrivers = 0;
+
         if (siteIds.length > 0) {
-          const [fuelRes, attendanceRes] = await Promise.allSettled([
-            Promise.all([
-              listFuelConsumptionRosterBulk({ date: today, siteIds }),
-              listFuelConsumptionRosterBulk({ date: yesterday, siteIds }),
-            ]),
-            listAttendanceRosterBulk({ date: today, siteIds }),
+          const fuelPromise =
+            canFuel
+              ? Promise.all([
+                  listFuelConsumptionRosterBulk({ date: today, siteIds }).catch(
+                    ignoreForbidden(EMPTY_FUEL_BULK),
+                  ),
+                  listFuelConsumptionRosterBulk({ date: yesterday, siteIds }).catch(
+                    ignoreForbidden(EMPTY_FUEL_BULK),
+                  ),
+                ])
+              : Promise.resolve([EMPTY_FUEL_BULK, EMPTY_FUEL_BULK] as const);
+
+          const attendancePromise = canAttendance
+            ? listAttendanceRosterBulk({ date: today, siteIds }).catch(
+                ignoreForbidden(EMPTY_ATTENDANCE_BULK),
+              )
+            : Promise.resolve(EMPTY_ATTENDANCE_BULK);
+
+          const [fuelPair, attendanceBulk] = await Promise.all([
+            fuelPromise,
+            attendancePromise,
           ]);
 
-          if (fuelRes.status === "fulfilled") {
-            const [todayRoster, yRoster] = fuelRes.value;
-            fuelLitersToday = sumEstimatedLiters(todayRoster.bySite);
-            fuelLitersYesterday = sumEstimatedLiters(yRoster.bySite);
-          }
-          if (attendanceRes.status === "fulfilled") {
-            // Dedupe by driverId so a driver assigned to multiple sites in
-            // the roster only counts once.
-            const checkedInIds = new Set<string>();
-            for (const days of Object.values(attendanceRes.value.bySite)) {
-              for (const day of days) {
-                if (CHECKED_IN_STATUSES.has(day.status)) {
-                  checkedInIds.add(day.driverId);
-                }
+          const [todayRoster, yRoster] = fuelPair;
+          fuelLitersToday = sumEstimatedLiters(todayRoster.bySite);
+          fuelLitersYesterday = sumEstimatedLiters(yRoster.bySite);
+
+          const checkedInIds = new Set<string>();
+          for (const days of Object.values(attendanceBulk.bySite)) {
+            for (const day of days) {
+              if (CHECKED_IN_STATUSES.has(day.status)) {
+                checkedInIds.add(day.driverId);
               }
             }
-            checkedInDrivers = checkedInIds.size;
           }
+          checkedInDrivers = checkedInIds.size;
         }
 
         if (!cancelled) {
@@ -181,6 +213,7 @@ export function useDashboardStats(): {
             trips,
             fuelLitersToday,
             fuelLitersYesterday,
+            loadedAtMs: Date.now(),
             checkedInDrivers,
           });
           setError(null);
@@ -198,7 +231,7 @@ export function useDashboardStats(): {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   const stats = useMemo<DashboardKpi[]>(() => {
     if (!data) return LOADING_STATS;
@@ -209,6 +242,7 @@ export function useDashboardStats(): {
       trips,
       fuelLitersToday,
       fuelLitersYesterday,
+      loadedAtMs,
       checkedInDrivers,
     } = data;
 
@@ -221,13 +255,12 @@ export function useDashboardStats(): {
     const activeSites = sites.filter((s) => s.status === "ACTIVE").length;
 
     // Trips today
-    const now = Date.now();
     const activeTrips = trips.filter((t) => t.status === "IN_PROGRESS").length;
     const completedToday = trips.filter((t) => t.status === "COMPLETED").length;
     const delayedTrips = trips.filter((t) => {
       if (t.status !== "PLANNED") return false;
       if (!t.scheduledAt) return false;
-      return new Date(t.scheduledAt).getTime() < now;
+      return new Date(t.scheduledAt).getTime() < loadedAtMs;
     }).length;
 
     // Fuel delta vs yesterday

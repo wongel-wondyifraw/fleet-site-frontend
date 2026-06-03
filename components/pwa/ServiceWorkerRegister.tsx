@@ -30,12 +30,41 @@ export function ServiceWorkerRegister() {
       return;
     }
 
+    // How often to poll for a newer service worker while the app stays open.
+    // Without this, an installed PWA (or a tab left open for hours) only
+    // discovers a deploy on a full page load, so it can keep running stale
+    // JavaScript against a newer backend — exactly the skew that produced
+    // the "property X should not exist" 400s. One minute is frequent enough
+    // to reach open sessions quickly and cheap enough to be network noise.
+    const UPDATE_INTERVAL_MS = 60_000;
+
+    let registration: ServiceWorkerRegistration | null = null;
+    let intervalId: number | undefined;
+    let disposed = false;
+
+    // Ask the browser to re-fetch /sw.js and compare bytes. If it changed,
+    // `updatefound` fires below and we activate the new worker immediately.
+    const checkForUpdate = () => {
+      // Skip while offline so we don't spam failed requests.
+      if (!registration || navigator.onLine === false) return;
+      registration.update().catch(() => {
+        /* transient / offline — the next tick will retry */
+      });
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") checkForUpdate();
+    };
+
     // Production registration. We wait for the `load` event so the SW
     // install never competes with the initial page render for bandwidth.
     const onLoad = () => {
       navigator.serviceWorker
         .register("/sw.js", { scope: "/" })
-        .then((registration) => {
+        .then((reg) => {
+          if (disposed) return;
+          registration = reg;
+
           // When a new SW takes control mid-session (e.g. after a deploy),
           // reload once so the user gets the fresh assets immediately.
           let refreshing = false;
@@ -47,12 +76,12 @@ export function ServiceWorkerRegister() {
 
           // If there's already a waiting worker (i.e. the user kept the tab
           // open while a deploy happened), prompt it to activate.
-          if (registration.waiting) {
-            registration.waiting.postMessage("SKIP_WAITING");
+          if (reg.waiting) {
+            reg.waiting.postMessage("SKIP_WAITING");
           }
 
-          registration.addEventListener("updatefound", () => {
-            const installing = registration.installing;
+          reg.addEventListener("updatefound", () => {
+            const installing = reg.installing;
             if (!installing) return;
             installing.addEventListener("statechange", () => {
               if (
@@ -64,6 +93,13 @@ export function ServiceWorkerRegister() {
               }
             });
           });
+
+          // Proactively poll for new deploys, and check again whenever the
+          // user returns to the tab, so long-lived sessions stay current
+          // without needing a manual hard refresh.
+          intervalId = window.setInterval(checkForUpdate, UPDATE_INTERVAL_MS);
+          document.addEventListener("visibilitychange", onVisibilityChange);
+          window.addEventListener("focus", checkForUpdate);
         })
         .catch((err) => {
           // Don't crash the app if SW registration fails - the site still
@@ -76,8 +112,15 @@ export function ServiceWorkerRegister() {
       onLoad();
     } else {
       window.addEventListener("load", onLoad, { once: true });
-      return () => window.removeEventListener("load", onLoad);
     }
+
+    return () => {
+      disposed = true;
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", checkForUpdate);
+      window.removeEventListener("load", onLoad);
+    };
   }, []);
 
   return null;

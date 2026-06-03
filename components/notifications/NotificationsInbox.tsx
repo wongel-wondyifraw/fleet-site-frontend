@@ -37,6 +37,7 @@ import {
   type NotificationKind,
   type NotificationReadFilter,
 } from "@/lib/notifications/data";
+import { useHomePath } from "@/lib/auth/useScopedSiteIds";
 import { useNotifications } from "@/lib/notifications/NotificationsContext";
 import { enablePush, isPushEnabledLocally } from "@/lib/notifications/push";
 import { useToast } from "@/lib/toast/ToastContext";
@@ -252,10 +253,12 @@ function PageHeader({
   unreadCount: number;
   totalCount: number;
 }) {
+  // Scoped users have no org-wide /dashboard; route back to their site.
+  const homePath = useHomePath();
   return (
     <header className="flex flex-col gap-3">
       <Link
-        href="/dashboard"
+        href={homePath}
         className="inline-flex w-fit items-center gap-1.5 text-[12px] font-semibold text-muted-foreground transition-colors hover:text-primary"
       >
         <ArrowLeft className="size-3.5" />

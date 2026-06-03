@@ -4,7 +4,7 @@ import type { ComponentType } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-import { Clock, Loader2, RotateCcw } from "@/lib/icons";
+import { Loader2, RotateCcw } from "@/lib/icons";
 
 import { Button } from "@/components/ui/button";
 
@@ -14,9 +14,11 @@ import {
 } from "@/components/dashboard/useSitesOverview";
 import { staggerStyle } from "@/lib/animations";
 import { listFuelConsumptionRosterBulk } from "@/lib/api/fuel";
+import { ignoreForbidden } from "@/lib/api/ignoreForbidden";
 import { listMySites } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
-import type { ApiTrip, SiteHealthStatusBand } from "@/lib/api/types";
+import { hasPermission, type ApiTrip, SiteHealthStatusBand } from "@/lib/api/types";
+import { useAuth } from "@/lib/auth/AuthContext";
 import {
   formatCount,
   formatFuelLiters,
@@ -396,18 +398,30 @@ export function SitesOverviewPanel({ compact = false }: { compact?: boolean }) {
 }
 
 export function FuelUsagePanel() {
+  const { user } = useAuth();
   const [rows, setRows] = useState<Array<{ site: string; liters: number; pct: number }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
 
     async function load() {
       setIsLoading(true);
       try {
+        if (!hasPermission(user, "fuel.read")) {
+          if (!cancelled) {
+            setRows([]);
+            setError(null);
+          }
+          return;
+        }
+
         const today = toLocalDateKey(new Date());
-        const sites = await listMySites();
+        const sites = hasPermission(user, "sites.read")
+          ? await listMySites().catch(ignoreForbidden([]))
+          : [];
         const siteIds = sites.map((site) => site.id);
         const nameById = new Map(sites.map((site) => [site.id, site.name]));
 
@@ -419,7 +433,10 @@ export function FuelUsagePanel() {
           return;
         }
 
-        const roster = await listFuelConsumptionRosterBulk({ date: today, siteIds });
+        const roster = await listFuelConsumptionRosterBulk({
+          date: today,
+          siteIds,
+        }).catch(ignoreForbidden({ bySite: {} }));
         const bySite = Object.entries(roster.bySite).map(([siteId, days]) => ({
           site: nameById.get(siteId) ?? days[0]?.site?.name ?? "Unknown site",
           liters: days.reduce((sum, day) => {
@@ -456,7 +473,7 @@ export function FuelUsagePanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   return (
     <section className={cardClass("p-4")}>
@@ -490,20 +507,26 @@ export function FuelUsagePanel() {
 }
 
 export function TripStatusPanel() {
+  const { user } = useAuth();
   const [trips, setTrips] = useState<ApiTrip[]>([]);
+  const [loadedAtMs, setLoadedAtMs] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
 
     async function load() {
       setIsLoading(true);
       try {
         const today = toLocalDateKey(new Date());
-        const rows = await listTrips({ date: today });
+        const rows = hasPermission(user, "trips.read")
+          ? await listTrips({ date: today }).catch(ignoreForbidden([] as ApiTrip[]))
+          : [];
         if (!cancelled) {
           setTrips(rows);
+          setLoadedAtMs(Date.now());
           setError(null);
         }
       } catch (err) {
@@ -519,14 +542,13 @@ export function TripStatusPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   const statusRows = useMemo(() => {
-    const now = Date.now();
     const total = trips.length;
     const completed = trips.filter((trip) => trip.status === "COMPLETED").length;
     const inProgress = trips.filter((trip) => trip.status === "IN_PROGRESS").length;
-    const delayed = trips.filter((trip) => isDelayedTrip(trip, now)).length;
+    const delayed = trips.filter((trip) => isDelayedTrip(trip, loadedAtMs)).length;
     const cancelled = trips.filter((trip) => trip.status === "CANCELLED").length;
     return {
       total,
@@ -537,7 +559,7 @@ export function TripStatusPanel() {
         { label: "Cancelled", count: cancelled, swatch: "bg-destructive" },
       ],
     };
-  }, [trips]);
+  }, [trips, loadedAtMs]);
 
   const [completedRow, inProgressRow, delayedRow] = statusRows.rows;
   const completedDeg = statusRows.total ? (completedRow.count / statusRows.total) * 360 : 0;

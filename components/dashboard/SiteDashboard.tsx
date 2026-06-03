@@ -21,7 +21,7 @@ import {
   Wrench,
 } from "@/lib/icons";
 
-import { ApiError } from "@/lib/api/client";
+import { ignoreForbidden } from "@/lib/api/ignoreForbidden";
 import { listAttendanceRoster } from "@/lib/api/attendance";
 import { listFuelConsumptionRoster } from "@/lib/api/fuel";
 import { listSiteHealth, listSiteHealthHistory } from "@/lib/api/siteHealth";
@@ -31,16 +31,6 @@ import { listVehicles } from "@/lib/api/vehicles";
 import { hasPermission } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { isScopedToSites } from "@/lib/auth/useScopedSiteIds";
-
-// Swallow only "missing permission" failures (HTTP 403) so the page can
-// gracefully degrade for users with reduced roles. Auth/expired-token
-// errors (401) and real network errors still surface to the caller.
-function ignoreForbidden<T>(fallback: T) {
-  return (err: unknown): T => {
-    if (err instanceof ApiError && err.status === 403) return fallback;
-    throw err;
-  };
-}
 import type {
   ApiAttendanceDay,
   ApiFuelConsumptionDay,
@@ -132,6 +122,7 @@ interface SiteDashboardData {
   trips: ApiTrip[];
   attendance: ApiAttendanceDay[];
   fuel: ApiFuelConsumptionDay[];
+  loadedAtMs: number;
 }
 
 function statusLabel(snap: ApiSiteHealthScore | null): string {
@@ -333,8 +324,13 @@ function FuelByDriver({ rows }: { rows: ApiFuelConsumptionDay[] }) {
   );
 }
 
-function TripStatusPie({ trips }: { trips: ApiTrip[] }) {
-  const now = Date.now();
+function TripStatusPie({
+  trips,
+  loadedAtMs,
+}: {
+  trips: ApiTrip[];
+  loadedAtMs: number;
+}) {
   const total = trips.length;
   const completed = trips.filter((t) => t.status === "COMPLETED").length;
   const inProgress = trips.filter((t) => t.status === "IN_PROGRESS").length;
@@ -342,7 +338,7 @@ function TripStatusPie({ trips }: { trips: ApiTrip[] }) {
     (t) =>
       t.status === "PLANNED" &&
       !!t.scheduledAt &&
-      new Date(t.scheduledAt).getTime() < now,
+      new Date(t.scheduledAt).getTime() < loadedAtMs,
   ).length;
   const cancelled = trips.filter((t) => t.status === "CANCELLED").length;
 
@@ -361,24 +357,27 @@ function TripStatusPie({ trips }: { trips: ApiTrip[] }) {
     : "#f1f5f9";
 
   return (
-    <div className="grid grid-cols-[110px_1fr] items-center gap-4">
-      <div className="grid size-24 place-items-center rounded-full p-3" style={{ background: conic }}>
+    <div className="flex flex-col items-center gap-4">
+      <div
+        className="grid size-24 shrink-0 place-items-center rounded-full p-3"
+        style={{ background: conic }}
+      >
         <div className="grid size-16 place-items-center rounded-full bg-white text-center">
           <span className="text-lg font-bold text-primary">{formatCount(total)}</span>
           <span className="-mt-2 text-[10px] text-muted-foreground">Trips</span>
         </div>
       </div>
-      <div className="space-y-1.5">
+      <div className="w-full space-y-1.5">
         {rows.map((status) => (
           <div
             key={status.label}
-            className="flex items-center justify-between gap-3 text-xs"
+            className="flex items-center justify-between gap-2 text-xs"
           >
-            <span className="flex items-center gap-2 text-muted-foreground">
-              <span className={cn("size-2 rounded-full", status.swatch)} />
-              {status.label}
+            <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+              <span className={cn("size-2 shrink-0 rounded-full", status.swatch)} />
+              <span className="truncate">{status.label}</span>
             </span>
-            <span className="font-semibold text-primary">
+            <span className="shrink-0 font-semibold whitespace-nowrap text-primary">
               {formatCount(status.count)}{" "}
               <span className="font-normal text-muted-foreground">
                 ({percentLabel(status.count, total)})
@@ -717,24 +716,25 @@ function formatElapsed(ms: number): string {
 
 function ActiveTripsPanel({
   trips,
+  loadedAtMs,
   limit = 5,
 }: {
   trips: ApiTrip[];
+  loadedAtMs: number;
   limit?: number;
 }) {
   const { settings: timeSettings } = useTimeSettings();
   const active = useMemo(() => {
-    const now = Date.now();
     return trips
       .filter((trip) => trip.status === "IN_PROGRESS" && trip.startedAt)
       .map((trip) => ({
         trip,
         startedMs: new Date(trip.startedAt!).getTime(),
-        elapsedMs: now - new Date(trip.startedAt!).getTime(),
+        elapsedMs: loadedAtMs - new Date(trip.startedAt!).getTime(),
       }))
       .sort((a, b) => a.startedMs - b.startedMs)
       .slice(0, limit);
-  }, [trips, limit]);
+  }, [trips, loadedAtMs, limit]);
 
   if (active.length === 0) {
     return (
@@ -1097,6 +1097,7 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
           trips: siteTrips,
           attendance,
           fuel,
+          loadedAtMs: Date.now(),
         });
         setError(null);
       } catch (err) {
@@ -1161,7 +1162,16 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
     );
   }
 
-  const { site, snapshot, historyScores, vehicles, trips, attendance, fuel } = data;
+  const {
+    site,
+    snapshot,
+    historyScores,
+    vehicles,
+    trips,
+    attendance,
+    fuel,
+    loadedAtMs,
+  } = data;
   const tone = statusTone(snapshot);
   const styles = TONE_STYLES[tone];
   const displayScore =
@@ -1184,14 +1194,13 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
   const driversExpected = attendance.filter(
     (day) => day.status !== "ON_LEAVE",
   ).length;
-  const now = Date.now();
   const activeTrips = trips.filter((t) => t.status === "IN_PROGRESS").length;
   const completedTrips = trips.filter((t) => t.status === "COMPLETED").length;
   const delayedTrips = trips.filter(
     (t) =>
       t.status === "PLANNED" &&
       !!t.scheduledAt &&
-      new Date(t.scheduledAt).getTime() < now,
+      new Date(t.scheduledAt).getTime() < loadedAtMs,
   ).length;
   const fuelLitersToday = fuel.reduce((sum, day) => {
     const liters = day.estimatedLiters;
@@ -1365,7 +1374,7 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-primary">Trip Status (Today)</h2>
           </div>
-          <TripStatusPie trips={trips} />
+          <TripStatusPie trips={trips} loadedAtMs={loadedAtMs} />
         </div>
 
         <div className="fs-card-in rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm lg:col-span-1">
@@ -1431,7 +1440,7 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
               Live
             </span>
           </div>
-          <ActiveTripsPanel trips={trips} />
+          <ActiveTripsPanel trips={trips} loadedAtMs={loadedAtMs} />
         </div>
 
         <div className="fs-card-in rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm xl:col-span-1">

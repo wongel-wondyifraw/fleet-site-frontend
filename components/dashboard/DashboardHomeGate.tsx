@@ -1,11 +1,11 @@
 "use client";
 
-// Route guard for the org-wide /dashboard page. Site-scoped users (those
-// assigned to specific sites without `sites.bypass-scope`) should never
-// see the global dashboard — if they land here (URL bar, bookmark, an
-// old link, etc.) we transparently bounce them to their assigned site.
+// Route guard for the org-wide /dashboard page. Users assigned to specific
+// sites who lack `sites.bypass-scope` should never see the global dashboard —
+// if they land here (URL bar, bookmark, etc.) we bounce them to /sites/{id}.
 //
-// Admins / bypass users render children as normal.
+// Users with `sites.bypass-scope` (and users with no assignments) render
+// children as normal.
 import { Loader2 } from "@/lib/icons";
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";

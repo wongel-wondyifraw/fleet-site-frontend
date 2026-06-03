@@ -12,9 +12,8 @@ import { getHomePath } from "@/lib/auth/useScopedSiteIds";
  * dashboard and shows a spinner while auth hydrates from localStorage.
  * Children (mobile + desktop login forms) render only for guests.
  *
- * Site-scoped users (assigned to specific sites with no `sites.bypass-scope`)
- * are sent directly to their first assigned site dashboard so they never see
- * the org-wide /dashboard.
+ * Users with site assignments and no `sites.bypass-scope` are sent to
+ * `/sites/{id}`. Users with bypass (or no assignments) go to `/dashboard`.
  */
 export function LoginRedirectGate({ children }: { children: ReactNode }) {
   const router = useRouter();

@@ -10,9 +10,11 @@ import {
   type ReactNode,
 } from "react";
 
+import { ignoreForbidden } from "@/lib/api/ignoreForbidden";
 import { listSiteHealth, listSiteHealthHistory } from "@/lib/api/siteHealth";
 import { listMySites } from "@/lib/api/sites";
-import type { ApiSiteHealthScore } from "@/lib/api/types";
+import type { ApiSite, ApiSiteHealthDimension, ApiSiteHealthScore } from "@/lib/api/types";
+import { hasPermission } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { toLocalDateKey } from "@/lib/trips/tripFormatters";
@@ -44,6 +46,39 @@ function last7DayKeys(endDate: string): string[] {
   return keys;
 }
 
+const STUB_DIMENSION: ApiSiteHealthDimension = {
+  value: 0,
+  normalized: 0,
+  weight: 0,
+  rescaledWeight: 0,
+  applicable: false,
+};
+
+function siteRowWithoutHealth(site: ApiSite, today: string): SiteOverviewRow {
+  const historyScores = last7DayKeys(today).map(() => null);
+  return {
+    siteId: site.id,
+    name: site.name,
+    date: today,
+    score: null,
+    status: null,
+    insufficientData: true,
+    dimensions: {
+      driverAttendance: STUB_DIMENSION,
+      vehicleAvailability: STUB_DIMENSION,
+      tripTargetAchievement: STUB_DIMENSION,
+      scheduleCompliance: STUB_DIMENSION,
+      fuelEfficiencyVariance: STUB_DIMENSION,
+      dataCompleteness: STUB_DIMENSION,
+    },
+    trucks: { total: 0, onsite: 0 },
+    trips: { completed: 0, total: 0, target: 0 },
+    fuel: { liters: 0 },
+    computedAt: today,
+    historyScores,
+  };
+}
+
 const SitesOverviewContext = createContext<SitesOverviewState | null>(null);
 
 export function SitesOverviewProvider({ children }: { children: ReactNode }) {
@@ -54,9 +89,6 @@ export function SitesOverviewProvider({ children }: { children: ReactNode }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
-  // Bumped each time `refresh()` is called to retrigger the loader. We
-  // explicitly avoid auto-polling so the dashboard doesn't hammer the
-  // health endpoints — the user pulls fresh data via the refresh button.
   const [refreshToken, setRefreshToken] = useState(0);
 
   const today = useMemo(() => toLocalDateKey(new Date()), []);
@@ -70,54 +102,66 @@ export function SitesOverviewProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
 
     async function load() {
-      // First-load vs subsequent refresh: keep the full-card skeleton only
-      // for the initial paint; subsequent refreshes show the inline spinner
-      // on the refresh button so the cards don't flash empty.
       const isInitialLoad = lastUpdatedAt == null;
       if (isInitialLoad) setIsLoading(true);
       else setIsRefreshing(true);
 
       try {
-        const scopedSites = await listMySites();
+        const canSites = hasPermission(user, "sites.read");
+        const canSiteHealth = hasPermission(user, "site-health.read");
+
+        const scopedSites = canSites
+          ? await listMySites().catch(ignoreForbidden([] as ApiSite[]))
+          : [];
+
         const siteIds = scopedSites.map((s) => s.id);
-
         const nameById = new Map(scopedSites.map((s) => [s.id, s.name]));
-        const health =
-          siteIds.length > 0 ? await listSiteHealth(today, siteIds) : [];
 
-        const historyFrom = last7DayKeys(today)[0];
-        const histories = await Promise.all(
-          health.map(async (row) => {
-            try {
-              const hist = await listSiteHealthHistory(
-                row.siteId,
-                historyFrom,
-                today,
-              );
-              const byDate = new Map(hist.map((h) => [h.date, h.score]));
-              const historyScores = last7DayKeys(today).map(
-                (key) => byDate.get(key) ?? null,
-              );
-              return { siteId: row.siteId, historyScores };
-            } catch {
-              return {
-                siteId: row.siteId,
-                historyScores: last7DayKeys(today).map(() => null),
-              };
-            }
-          }),
-        );
-        const historyBySite = new Map(
-          histories.map((h) => [h.siteId, h.historyScores]),
-        );
+        let merged: SiteOverviewRow[];
 
-        const merged: SiteOverviewRow[] = health
-          .map((row) => ({
-            ...row,
-            name: nameById.get(row.siteId) ?? "Unknown site",
-            historyScores: historyBySite.get(row.siteId) ?? [],
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name));
+        if (canSiteHealth && siteIds.length > 0) {
+          const health = await listSiteHealth(today, siteIds).catch(
+            ignoreForbidden([] as ApiSiteHealthScore[]),
+          );
+
+          const historyFrom = last7DayKeys(today)[0];
+          const histories = await Promise.all(
+            health.map(async (row) => {
+              try {
+                const hist = await listSiteHealthHistory(
+                  row.siteId,
+                  historyFrom,
+                  today,
+                );
+                const byDate = new Map(hist.map((h) => [h.date, h.score]));
+                const historyScores = last7DayKeys(today).map(
+                  (key) => byDate.get(key) ?? null,
+                );
+                return { siteId: row.siteId, historyScores };
+              } catch {
+                return {
+                  siteId: row.siteId,
+                  historyScores: last7DayKeys(today).map(() => null),
+                };
+              }
+            }),
+          );
+          const historyBySite = new Map(
+            histories.map((h) => [h.siteId, h.historyScores]),
+          );
+
+          merged = health
+            .map((row) => ({
+              ...row,
+              name: nameById.get(row.siteId) ?? "Unknown site",
+              historyScores: historyBySite.get(row.siteId) ?? [],
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        } else {
+          merged = scopedSites
+            .map((site) => siteRowWithoutHealth(site, today))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        }
 
         if (!cancelled) {
           setSites(merged);
@@ -142,8 +186,6 @@ export function SitesOverviewProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-    // lastUpdatedAt is intentionally not in the dep array — including it
-    // would cause an immediate re-fetch right after each successful load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, today, refreshToken]);
 

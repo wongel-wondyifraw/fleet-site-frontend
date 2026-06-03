@@ -19,7 +19,7 @@ import {
   type FormEvent,
 } from "react";
 
-import { PermissionPicker } from "@/components/settings/PermissionPicker";
+import { PermissionPicker, categoryIcon } from "@/components/settings/PermissionPicker";
 import {
   FieldGrid,
   SettingsField,
@@ -188,29 +188,40 @@ export function RoleDetail({ roleId }: { roleId: string }) {
         {Object.keys(permissionsByCategory).length === 0 ? (
           <p className="text-xs text-muted-foreground">No permissions assigned.</p>
         ) : (
-          <div className="space-y-4">
-            {Object.entries(permissionsByCategory).map(([category, perms]) => (
-              <div key={category}>
-                <p className="mb-1 text-xs font-semibold text-primary">
-                  {category}
-                </p>
-                <ul className="space-y-1">
-                  {perms.map((p) => (
-                    <li
-                      key={p.slug}
-                      className="flex flex-col rounded-lg border border-slate-100 bg-white px-3 py-2"
-                    >
-                      <span className="text-sm font-medium text-primary">
-                        {p.name}
-                      </span>
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        {p.slug}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+          <div className="grid auto-rows-min grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {Object.entries(permissionsByCategory).map(([category, perms]) => {
+              const Icon = categoryIcon(category);
+              return (
+                <div
+                  key={category}
+                  className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                >
+                  <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/60 px-3 py-2">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Icon className="size-4" />
+                    </span>
+                    <span className="truncate text-sm font-semibold text-primary">
+                      {category}
+                    </span>
+                    <span className="ml-auto shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+                      {perms.length}
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-slate-50">
+                    {perms.map((p) => (
+                      <li key={p.slug} className="px-3 py-2">
+                        <span className="block text-[13px] font-medium leading-tight text-primary">
+                          {p.name}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {p.slug}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -339,25 +350,34 @@ function RoleEditForm({
         </SettingsField>
       </FieldGrid>
 
-      <div className="mt-5">
-        <SettingsField label="Permissions">
-          {isLoadingCatalog ? (
-            <div className="flex justify-center py-6">
-              <Loader2 className="size-5 animate-spin text-primary" />
-            </div>
-          ) : (
-            <PermissionPicker
-              catalog={catalog}
-              selected={selected}
-              onChange={setSelected}
-              disabled={isSubmitting}
-              lockedAll={lockedAll}
-            />
-          )}
-        </SettingsField>
+      <div className="mt-6">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <ShieldCheck className="size-4" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-primary">Permissions</p>
+            <p className="text-[11px] text-muted-foreground">
+              Toggle what this role can access, grouped by area.
+            </p>
+          </div>
+        </div>
+        {isLoadingCatalog ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="size-5 animate-spin text-primary" />
+          </div>
+        ) : (
+          <PermissionPicker
+            catalog={catalog}
+            selected={selected}
+            onChange={setSelected}
+            disabled={isSubmitting}
+            lockedAll={lockedAll}
+          />
+        )}
       </div>
 
-      <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+      <div className="sticky bottom-0 -mx-5 -mb-5 mt-6 flex flex-col gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:flex-row sm:justify-end">
         <Button
           type="button"
           variant="ghost"

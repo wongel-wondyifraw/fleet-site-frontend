@@ -18,7 +18,7 @@
  * old caches get cleaned up on activate.
  */
 
-const CACHE_VERSION = "fleetsite-v3";
+const CACHE_VERSION = "fleetsite-v4";
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const PRECACHE = `${CACHE_VERSION}-precache`;
 
