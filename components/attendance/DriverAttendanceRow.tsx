@@ -48,6 +48,8 @@ export function DriverAttendanceRow({
   isOnActiveTrip,
   pendingOdometer,
   onChangeOdometer,
+  pendingReason,
+  onChangeReason,
   onToggleMenu,
   onPunch,
   onPunchWithOdometer,
@@ -64,6 +66,8 @@ export function DriverAttendanceRow({
   isOnActiveTrip: boolean;
   pendingOdometer: { value: string; error: string | null };
   onChangeOdometer: (value: string) => void;
+  pendingReason: { value: string; error: string | null };
+  onChangeReason: (value: string) => void;
   onToggleMenu: (pair: "day" | "lunch" | "maint") => void;
   onPunch: (day: ApiAttendanceDay, type: AttendancePunchType) => Promise<void>;
   onPunchWithOdometer: (
@@ -239,6 +243,8 @@ export function DriverAttendanceRow({
                 pairPunches={pairPunches}
                 pendingOdometer={pendingOdometer}
                 onChangeOdometer={onChangeOdometer}
+                pendingReason={pendingReason}
+                onChangeReason={onChangeReason}
                 onToggleMenu={() => onToggleMenu(pair.key)}
                 onPunch={onPunch}
                 onPunchWithOdometer={onPunchWithOdometer}
@@ -309,6 +315,8 @@ function PunchPairControl({
   pairPunches,
   pendingOdometer,
   onChangeOdometer,
+  pendingReason,
+  onChangeReason,
   onToggleMenu,
   onPunch,
   onPunchWithOdometer,
@@ -328,6 +336,8 @@ function PunchPairControl({
   pairPunches: ApiAttendancePunch[];
   pendingOdometer: { value: string; error: string | null };
   onChangeOdometer: (value: string) => void;
+  pendingReason: { value: string; error: string | null };
+  onChangeReason: (value: string) => void;
   onToggleMenu: () => void;
   onPunch: (day: ApiAttendanceDay, type: AttendancePunchType) => Promise<void>;
   onPunchWithOdometer: (
@@ -371,9 +381,15 @@ function PunchPairControl({
 
   const needsOdometer =
     next != null && ODOMETER_REQUIRED_PUNCH_TYPES.has(next.type);
+  // Starting a maintenance break requires a reason that we persist on the
+  // punch note.
+  const needsReason = next != null && next.type === "MAINT_OUT";
   const trimmed = pendingOdometer.value.trim();
+  const reasonTrimmed = pendingReason.value.trim();
   const submitDisabled =
-    isMutating || (needsOdometer && trimmed.length === 0);
+    isMutating ||
+    (needsOdometer && trimmed.length === 0) ||
+    (needsReason && reasonTrimmed.length === 0);
 
   const menuPanel = open && menuPos && (
     <div
@@ -443,6 +459,27 @@ function PunchPairControl({
                 )}
               </label>
             )}
+            {needsReason && (
+              <label className="block">
+                <span className="mb-1 block text-[9px] font-bold tracking-wide text-slate-600 uppercase">
+                  Reason
+                </span>
+                <textarea
+                  rows={2}
+                  autoFocus
+                  value={pendingReason.value}
+                  onChange={(e) => onChangeReason(e.target.value)}
+                  placeholder="e.g. Tyre change, engine check"
+                  aria-invalid={pendingReason.error ? true : undefined}
+                  className="block w-full resize-none rounded-lg border border-slate-200 bg-[#ffffff] px-2.5 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                {pendingReason.error && (
+                  <span className="mt-1 block text-[10px] font-medium text-rose-600">
+                    {pendingReason.error}
+                  </span>
+                )}
+              </label>
+            )}
             <Button
               type="submit"
               disabled={submitDisabled}
@@ -483,17 +520,27 @@ function PunchPairControl({
                   key={p.id}
                   className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-[11px] text-slate-800 transition-colors hover:bg-slate-100"
                 >
-                  <span className="inline-flex items-center gap-1.5 truncate">
-                    <HistoryIcon
-                      className={cn(
-                        "size-3 shrink-0",
-                        isInPunch ? "text-primary" : "text-slate-500",
-                      )}
-                    />
-                    <span className="truncate">
-                      {p.type.replace("_", " ")} ·{" "}
-                      {formatPunchTime(p.at, timeSettings)}
+                  <span className="inline-flex min-w-0 flex-col">
+                    <span className="inline-flex items-center gap-1.5 truncate">
+                      <HistoryIcon
+                        className={cn(
+                          "size-3 shrink-0",
+                          isInPunch ? "text-primary" : "text-slate-500",
+                        )}
+                      />
+                      <span className="truncate">
+                        {p.type.replace("_", " ")} ·{" "}
+                        {formatPunchTime(p.at, timeSettings)}
+                      </span>
                     </span>
+                    {p.note && (
+                      <span
+                        className="truncate pl-[18px] text-[10px] text-muted-foreground"
+                        title={p.note}
+                      >
+                        {p.note}
+                      </span>
+                    )}
                   </span>
                   {(canUpdatePunch || canDeletePunch) && (
                     <div className="flex items-center gap-0.5">

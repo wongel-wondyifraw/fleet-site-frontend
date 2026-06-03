@@ -132,12 +132,20 @@ function AttendancePanel({
     value: string;
     error: string | null;
   }>({ value: "", error: null });
+  // Reason captured in the open punch dropdown when starting a maintenance
+  // break (MAINT_OUT). Persisted on the punch's `note` so the report and
+  // history show why the driver went off-clock for maintenance.
+  const [pendingReason, setPendingReason] = useState<{
+    value: string;
+    error: string | null;
+  }>({ value: "", error: null });
 
-  // Centralised closer that also clears the in-dropdown odometer input so
-  // a half-typed value doesn't survive when the menu reopens later.
+  // Centralised closer that also clears the in-dropdown odometer + reason
+  // inputs so a half-typed value doesn't survive when the menu reopens later.
   const closeActionMenu = useCallback(() => {
     setActionMenu(null);
     setPendingOdometer({ value: "", error: null });
+    setPendingReason({ value: "", error: null });
   }, []);
 
   // Close any open punch dropdown when the user clicks outside of it or
@@ -414,10 +422,27 @@ function AttendancePanel({
       });
       return;
     }
+    // Starting a maintenance break requires a reason, stored on the punch
+    // note so it shows in history and exports.
+    let note: string | undefined;
+    if (type === "MAINT_OUT") {
+      const reason = pendingReason.value.trim();
+      if (reason.length === 0) {
+        setPendingReason({
+          value: pendingReason.value,
+          error: "Enter a reason for the maintenance break.",
+        });
+        return;
+      }
+      note = reason;
+    }
     setIsMutating(true);
     setLoadError(null);
     try {
-      const updated = await createAttendancePunch(day.id, { type });
+      const updated = await createAttendancePunch(day.id, {
+        type,
+        ...(note ? { note } : {}),
+      });
       upsertDay(updated);
       closeActionMenu();
     } catch (err) {
@@ -722,6 +747,10 @@ function AttendancePanel({
                   onChangeOdometer={(value) =>
                     setPendingOdometer({ value, error: null })
                   }
+                  pendingReason={pendingReason}
+                  onChangeReason={(value) =>
+                    setPendingReason({ value, error: null })
+                  }
                   onToggleMenu={(dayId, pair) => {
                     const isSame =
                       actionMenu?.dayId === dayId && actionMenu.pair === pair;
@@ -731,6 +760,7 @@ function AttendancePanel({
                     }
                     setActionMenu({ dayId, pair });
                     setPendingOdometer({ value: "", error: null });
+                    setPendingReason({ value: "", error: null });
                   }}
                   onPunch={handlePunch}
                   onPunchWithOdometer={handleSubmitPunchWithOdometer}
@@ -764,6 +794,10 @@ function AttendancePanel({
           onChangeOdometer={(value) =>
             setPendingOdometer({ value, error: null })
           }
+          pendingReason={pendingReason}
+          onChangeReason={(value) =>
+            setPendingReason({ value, error: null })
+          }
           onToggleMenu={(dayId, pair) => {
             const isSame =
               actionMenu?.dayId === dayId && actionMenu.pair === pair;
@@ -773,6 +807,7 @@ function AttendancePanel({
             }
             setActionMenu({ dayId, pair });
             setPendingOdometer({ value: "", error: null });
+            setPendingReason({ value: "", error: null });
           }}
           onPunch={handlePunch}
           onPunchWithOdometer={handleSubmitPunchWithOdometer}
@@ -855,6 +890,8 @@ function PaginatedRosterRows({
   activeTripDriverIds,
   pendingOdometer,
   onChangeOdometer,
+  pendingReason,
+  onChangeReason,
   onToggleMenu,
   onPunch,
   onPunchWithOdometer,
@@ -874,6 +911,8 @@ function PaginatedRosterRows({
   activeTripDriverIds: Set<string>;
   pendingOdometer: { value: string; error: string | null };
   onChangeOdometer: (value: string) => void;
+  pendingReason: { value: string; error: string | null };
+  onChangeReason: (value: string) => void;
   onToggleMenu: (
     dayId: string,
     pair: (typeof PUNCH_PAIRS)[number]["key"],
@@ -910,6 +949,8 @@ function PaginatedRosterRows({
               }
               pendingOdometer={pendingOdometer}
               onChangeOdometer={onChangeOdometer}
+              pendingReason={pendingReason}
+              onChangeReason={onChangeReason}
               onToggleMenu={(pair) => onToggleMenu(day.id, pair)}
               onPunch={onPunch}
               onPunchWithOdometer={onPunchWithOdometer}

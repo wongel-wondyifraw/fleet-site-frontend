@@ -27,7 +27,6 @@ import {
 } from "@/lib/icons";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { DailyTargetEditor } from "@/components/trips/DailyTargetEditor";
 import { TripDateFilterMenu } from "@/components/trips/TripDateFilterMenu";
 import { TripDateTabs } from "@/components/trips/TripDateTabs";
 import { TripStatusFilterMenu } from "@/components/trips/TripStatusFilterMenu";
@@ -62,10 +61,6 @@ import {
 } from "@/lib/api/trips";
 import { listCustomTripRoutes } from "@/lib/api/customTripRoutes";
 import { listMySites } from "@/lib/api/sites";
-import {
-  clearTripTargetOverride,
-  setTripTargetOverride,
-} from "@/lib/api/tripTargets";
 import { Can, useCan } from "@/components/auth/Can";
 import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
 import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
@@ -154,10 +149,11 @@ export function TripsPanel({
   // if one exists, otherwise the global default (seeded to 25 on first
   // backend access). Donut charts and the editor input below the date
   // tabs both read from this.
+  // Read-only effective target for the active date. Still drives the donut
+  // badge below; editing the target now lives in Settings → Trip Settings.
   const [targetState, setTargetState] = useState<ApiTripTargetEffective | null>(
     null,
   );
-  const [isSavingTarget, setIsSavingTarget] = useState(false);
   const [inProgressDriverIds, setInProgressDriverIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -330,43 +326,6 @@ export function TripsPanel({
       else next.add(key);
       return next;
     });
-  }
-
-  async function handleSaveTarget(nextCount: number) {
-    if (!Number.isFinite(nextCount) || nextCount < 0) return;
-    setIsSavingTarget(true);
-    try {
-      const result = await setTripTargetOverride(
-        targetDateKey,
-        Math.floor(nextCount),
-      );
-      setTargetState(result);
-    } catch (err) {
-      showToast({
-        variant: "error",
-        message:
-          err instanceof ApiError ? err.message : "Unable to update target.",
-      });
-    } finally {
-      setIsSavingTarget(false);
-    }
-  }
-
-  async function handleResetTarget() {
-    if (!targetState?.isOverride) return;
-    setIsSavingTarget(true);
-    try {
-      const result = await clearTripTargetOverride(targetDateKey);
-      setTargetState(result);
-    } catch (err) {
-      showToast({
-        variant: "error",
-        message:
-          err instanceof ApiError ? err.message : "Unable to reset target.",
-      });
-    } finally {
-      setIsSavingTarget(false);
-    }
   }
 
   async function handleCreate(payload: CreateTripRequest): Promise<void> {
@@ -595,17 +554,7 @@ export function TripsPanel({
             breakpoint and up, so the button hops back to being a
             direct child of the header row with its desktop alignment
             intact. */}
-        <div className="flex items-center justify-between gap-2 sm:contents">
-          <Can permission="trip-targets.update">
-            <div className="min-w-0 flex-1 sm:hidden">
-              <DailyTargetEditor
-                target={targetState}
-                isSaving={isSavingTarget}
-                onSave={handleSaveTarget}
-                onReset={handleResetTarget}
-              />
-            </div>
-          </Can>
+        <div className="flex items-center justify-end gap-2 sm:contents">
           <Can permission="trips.create">
             <Button
               onClick={() => setMode({ kind: "create" })}
@@ -680,14 +629,6 @@ export function TripsPanel({
             ]}
           />
         </div>
-        <Can permission="trip-targets.update">
-          <DailyTargetEditor
-            target={targetState}
-            isSaving={isSavingTarget}
-            onSave={handleSaveTarget}
-            onReset={handleResetTarget}
-          />
-        </Can>
       </div>
 
       {vehicles.length === 0 && !isLoading && (

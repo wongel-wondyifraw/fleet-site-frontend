@@ -13,6 +13,7 @@ import {
 
 import { SettingsSection } from "@/components/settings/SettingsShared";
 import { CustomTripRoutesPanel } from "@/components/settings/CustomTripRoutesPanel";
+import { DefaultTripTargetPanel } from "@/components/settings/DefaultTripTargetPanel";
 import { AttendanceRulesPanel } from "@/components/settings/AttendanceRulesPanel";
 import { SiteScoringPanel } from "@/components/settings/SiteScoringPanel";
 import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
@@ -63,9 +64,10 @@ export function MobileSettings() {
       {canTrips ? (
         <SettingsSection
           title="Trip Settings"
-          description="Save custom start and end points for the trip form."
+          description="Daily trip target and custom start/end points."
           icon={Route}
         >
+          <DefaultTripTargetPanel density="compact" />
           <CustomTripRoutesPanel density="compact" />
         </SettingsSection>
       ) : null}

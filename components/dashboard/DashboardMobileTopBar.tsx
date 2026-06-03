@@ -1,6 +1,6 @@
 "use client";
 
-import { Settings } from "@/lib/icons";
+import { FileText, Settings } from "@/lib/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -8,6 +8,7 @@ import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
 import { NotificationsPopover } from "@/components/dashboard/NotificationsPopover";
 import { ProfilePopover } from "@/components/dashboard/ProfilePopover";
 import { InstallPWAButton } from "@/components/pwa/InstallPWAButton";
+import { useCan } from "@/components/auth/Can";
 import { cn } from "@/lib/utils";
 
 // Top bar shown only on mobile (lg:hidden). Hosts the brand mark, the
@@ -21,6 +22,12 @@ export function DashboardMobileTopBar() {
   const settingsActive =
     pathname === "/settings" ||
     pathname.startsWith("/settings/");
+
+  // Reports moved here from the bottom nav to free up a bottom slot; gated
+  // by the same permission the bottom nav used.
+  const canViewReports = useCan("reports.read");
+  const reportsActive =
+    pathname === "/reports" || pathname.startsWith("/reports/");
 
   return (
     <header className="fixed top-0 z-50 w-full border-b border-slate-200/80 bg-white px-4 py-3 lg:hidden">
@@ -37,6 +44,22 @@ export function DashboardMobileTopBar() {
               prompt API (iOS Safari, etc.). */}
           <InstallPWAButton />
           <NotificationsPopover placement="topbar" />
+          {/* Reports shortcut. Sits between the bell and Settings; hidden
+              for users without the reports.read permission. */}
+          {canViewReports && (
+            <Link
+              href="/reports"
+              aria-label="Reports"
+              className={cn(
+                "flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",
+                reportsActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-primary",
+              )}
+            >
+              <FileText className="size-4" />
+            </Link>
+          )}
           {/* Settings shortcut. Moved up from the bottom nav so it sits
               between the bell and the avatar while keeping the same
               destination. */}

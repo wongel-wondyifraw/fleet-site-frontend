@@ -15,6 +15,7 @@ import { useCallback, useMemo, type ComponentType } from "react";
 
 import { SettingsSection } from "@/components/settings/SettingsShared";
 import { CustomTripRoutesPanel } from "@/components/settings/CustomTripRoutesPanel";
+import { DefaultTripTargetPanel } from "@/components/settings/DefaultTripTargetPanel";
 import { AttendanceRulesPanel } from "@/components/settings/AttendanceRulesPanel";
 import { SiteScoringPanel } from "@/components/settings/SiteScoringPanel";
 import { TimeSettingsPanel } from "@/components/settings/TimeSettingsPanel";
@@ -77,7 +78,7 @@ const SECTIONS: SectionMeta[] = [
   {
     id: "trips",
     label: "Trip Settings",
-    description: "Custom start & end points",
+    description: "Daily target & custom points",
     icon: Route,
     permission: "custom-routes.read",
   },
@@ -270,7 +271,12 @@ function ActivePanel({
       icon={meta.icon}
     >
       {section === "sites" ? <SitesPanel /> : null}
-      {section === "trips" ? <CustomTripRoutesPanel /> : null}
+      {section === "trips" ? (
+        <>
+          <DefaultTripTargetPanel />
+          <CustomTripRoutesPanel />
+        </>
+      ) : null}
       {section === "notifications" ? <NotificationsSettingsPanel /> : null}
       {section === "time" ? <TimeSettingsPanel /> : null}
       {section === "attendance" ? <AttendanceRulesPanel /> : null}
@@ -287,7 +293,7 @@ function panelDescription(section: SectionId): string {
     case "sites":
       return "Add new construction sites and edit existing ones.";
     case "trips":
-      return "Save reusable start and end points to surface as Custom presets on the trip form.";
+      return "Set the default daily trip target and save reusable start/end points for the trip form.";
     case "notifications":
       return "Control where each notification kind is delivered: in-app, browser toast, and push.";
     case "time":

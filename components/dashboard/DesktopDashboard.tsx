@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import {
   FuelUsagePanel,
+  MaintenanceIssuesPanel,
   MetricCard,
   SitePerformancePanel,
   SitesOverviewPanel,
@@ -73,6 +74,7 @@ export function DesktopDashboard() {
               <FuelUsagePanel />
               <TripStatusPanel />
               <SitePerformancePanel />
+              <MaintenanceIssuesPanel />
             </div>
           </div>
         </>

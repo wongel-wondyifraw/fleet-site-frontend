@@ -13,11 +13,16 @@ import {
   type SiteOverviewRow,
 } from "@/components/dashboard/useSitesOverview";
 import { staggerStyle } from "@/lib/animations";
+import { listAttendanceRosterBulk } from "@/lib/api/attendance";
 import { listFuelConsumptionRosterBulk } from "@/lib/api/fuel";
 import { ignoreForbidden } from "@/lib/api/ignoreForbidden";
 import { listMySites } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
-import { hasPermission, type ApiTrip, SiteHealthStatusBand } from "@/lib/api/types";
+import {
+  hasPermission,
+  type ApiTrip,
+  SiteHealthStatusBand,
+} from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import {
   formatCount,
@@ -294,7 +299,9 @@ export function SiteScoreCard({
           <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
             {index + 1}
           </span>
-          <p className="truncate text-lg font-bold tracking-tight text-primary">
+          {/* On small screens the name moves below the donut (see below) so it
+              stays readable in the cramped 2-up grid; shown here from sm+. */}
+          <p className="hidden truncate text-lg font-bold tracking-tight text-primary sm:block">
             {site.name}
           </p>
         </div>
@@ -323,6 +330,11 @@ export function SiteScoreCard({
           </div>
         </div>
       </div>
+      {/* Mobile-only: site name below the donut, smaller + centered so it's
+          fully visible in the 2-up grid where the header has no room. */}
+      <p className="mt-2 truncate text-center text-sm font-bold tracking-tight text-primary sm:hidden">
+        {site.name}
+      </p>
       <ScoreSparkline scores={site.historyScores} />
       <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[10px] text-muted-foreground">
         <span>
@@ -501,6 +513,171 @@ export function FuelUsagePanel() {
                   </div>
                 ))}
               </div>
+            )}
+    </section>
+  );
+}
+
+type MaintenanceIssue = {
+  id: string;
+  driver: string;
+  vehicle: string | null;
+  reason: string;
+  site: string;
+  at: string;
+};
+
+function formatIssueTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+// Recently reported maintenance issues — surfaces every MAINT_OUT punch
+// recorded today that carries a reason note, tagged with the driver, their
+// assigned truck, and the site. Mirrors FuelUsagePanel's scoping: listMySites
+// already returns only the sites the current user is scoped to, so the
+// all-sites dashboard shows every site while a site-scoped user only sees
+// their own.
+export function MaintenanceIssuesPanel() {
+  const { user } = useAuth();
+  const [issues, setIssues] = useState<MaintenanceIssue[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    async function load() {
+      setIsLoading(true);
+      try {
+        if (!hasPermission(user, "attendance.read")) {
+          if (!cancelled) {
+            setIssues([]);
+            setError(null);
+          }
+          return;
+        }
+
+        const today = toLocalDateKey(new Date());
+        const sites = hasPermission(user, "sites.read")
+          ? await listMySites().catch(ignoreForbidden([]))
+          : [];
+        const siteIds = sites.map((site) => site.id);
+        const nameById = new Map(sites.map((site) => [site.id, site.name]));
+
+        if (siteIds.length === 0) {
+          if (!cancelled) {
+            setIssues([]);
+            setError(null);
+          }
+          return;
+        }
+
+        const roster = await listAttendanceRosterBulk({
+          date: today,
+          siteIds,
+        }).catch(ignoreForbidden({ bySite: {} }));
+
+        const collected: MaintenanceIssue[] = [];
+        for (const [siteId, days] of Object.entries(roster.bySite)) {
+          const siteName = nameById.get(siteId) ?? "Unknown site";
+          for (const day of days) {
+            for (const punch of day.punches ?? []) {
+              if (punch.type !== "MAINT_OUT") continue;
+              if (punch.isVoided) continue;
+              const reason = (punch.note ?? "").trim();
+              if (reason.length === 0) continue;
+              const driver = day.driver;
+              const driverName = driver
+                ? `${driver.firstName ?? ""} ${driver.lastName ?? ""}`.trim() ||
+                  "Unknown driver"
+                : "Unknown driver";
+              const vehicle =
+                driver?.assignedVehicle?.plateNumber ??
+                driver?.assignedVehicle?.assetNumber ??
+                null;
+              collected.push({
+                id: punch.id,
+                driver: driverName,
+                vehicle,
+                reason,
+                site: siteName,
+                at: punch.at,
+              });
+            }
+          }
+        }
+
+        collected.sort(
+          (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
+        );
+
+        if (!cancelled) {
+          setIssues(collected.slice(0, 6));
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load maintenance issues",
+          );
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  return (
+    <section className={cardClass("p-4")}>
+      <SectionHeader title="Maintenance Issues (Today)" action="By Site" />
+      {error
+        ? panelMessage(error, "error")
+        : isLoading
+          ? panelMessage("Loading maintenance issues...")
+          : issues.length === 0
+            ? panelMessage("No maintenance issues reported today.")
+            : (
+              <ul className="-my-1 divide-y divide-slate-100">
+                {issues.map((item) => (
+                  <li key={item.id} className="flex items-start gap-2 py-2">
+                    <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-destructive" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-semibold text-primary">
+                          {item.driver}
+                        </span>
+                        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                          {formatIssueTime(item.at)}
+                        </span>
+                      </div>
+                      <p className="line-clamp-1 text-[11px] font-medium text-destructive">
+                        {item.reason}
+                      </p>
+                      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                        {item.vehicle ? (
+                          <>
+                            <span className="font-medium text-primary/80">
+                              {item.vehicle}
+                            </span>
+                            <span aria-hidden>·</span>
+                          </>
+                        ) : null}
+                        <span className="truncate">{item.site}</span>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
     </section>
   );

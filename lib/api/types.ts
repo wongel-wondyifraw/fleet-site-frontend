@@ -579,3 +579,33 @@ export interface ApiSiteScoringConfig {
   bands: SiteScoringBands;
   dataCompletenessFloor: number;
 }
+
+// ---------------------------------------------------------------------------
+// Fleet activity report — GET /reports/fleet-activity
+// ---------------------------------------------------------------------------
+
+export interface ApiFleetActivitySiteRow {
+  siteId: string;
+  siteName: string;
+  tripsCompleted: number;
+  tripsStarted: number;
+  fuelLiters: number;
+  fuelCost: number;
+  checkIns: number;
+  checkOuts: number;
+}
+
+export interface ApiFleetActivityReport {
+  windowStart: string;
+  windowEnd: string;
+  totals: {
+    tripsCompleted: number;
+    tripsStarted: number;
+    fuelLiters: number;
+    fuelCost: number;
+    checkIns: number;
+    checkOuts: number;
+    activeSites: number;
+  };
+  perSite: ApiFleetActivitySiteRow[];
+}

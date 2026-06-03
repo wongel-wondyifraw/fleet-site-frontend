@@ -3,6 +3,7 @@
 import {
   ChevronRight,
   Clock,
+  FileText,
   Fuel,
   LayoutDashboard,
   LogOut,
@@ -47,6 +48,12 @@ const SIDEBAR_NAV = [
     icon: Fuel,
     href: "/fuel",
     permission: "fuel.read",
+  },
+  {
+    label: "Reports",
+    icon: FileText,
+    href: "/reports",
+    permission: "reports.read",
   },
 ] as const;
 
