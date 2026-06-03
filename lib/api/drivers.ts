@@ -1,7 +1,6 @@
 // API wrappers for the /drivers resource.
 import { apiRequest } from "@/lib/api/client";
 import type { PageResponse } from "@/lib/api/pagination";
-import { fetchAllPages } from "@/lib/api/pagination";
 import type { ApiDriver, DriverStatus, LicenseClass } from "@/lib/api/types";
 
 export interface CreateDriverRequest {
@@ -33,6 +32,12 @@ export type DriverLookup = Pick<
   | "firstName"
   | "lastName"
   | "employeeId"
+  | "licenseNumber"
+  | "licenseClass"
+  | "licenseExpiry"
+  | "phoneNumber"
+  | "email"
+  | "hireDate"
   | "assignedVehicleId"
   | "status"
   | "siteId"
@@ -54,14 +59,6 @@ export async function listDriversPage(
   query: ListDriversQuery = {},
 ): Promise<PageResponse<ApiDriver>> {
   return apiRequest<PageResponse<ApiDriver>>(`/drivers${buildDriversQuery(query)}`);
-}
-
-export async function listDrivers(
-  query: ListDriversQuery = {},
-): Promise<ApiDriver[]> {
-  return fetchAllPages((cursor) =>
-    listDriversPage({ ...query, cursor, limit: query.limit ?? 100 }),
-  );
 }
 
 export async function listDriversLookup(): Promise<DriverLookup[]> {

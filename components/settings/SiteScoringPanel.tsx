@@ -22,6 +22,7 @@ import {
   updateSiteScoringConfig,
 } from "@/lib/api/siteScoring";
 import type { ApiSiteScoringConfig, SiteScoringWeights } from "@/lib/api/types";
+import { purgeApiCache } from "@/lib/pwa/purgeApiCache";
 import { siteHealthLabel } from "@/lib/site-health/labels";
 import { useToast } from "@/lib/toast/ToastContext";
 import { cn } from "@/lib/utils";
@@ -170,6 +171,7 @@ export function SiteScoringPanel({ density = "default" }: { density?: "default" 
     try {
       const saved = await updateSiteScoringConfig(config);
       setConfig(saved);
+      purgeApiCache();
       showToast({ variant: "success", message: "Site scoring settings saved." });
       setError(null);
     } catch (err) {

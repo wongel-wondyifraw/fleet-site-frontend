@@ -1,3 +1,4 @@
+import { PermissionGate } from "@/components/auth/PermissionGate";
 import { UserDetail } from "@/components/settings/UserDetail";
 
 export const metadata = {
@@ -13,5 +14,9 @@ export default async function UserDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <UserDetail userId={id} />;
+  return (
+    <PermissionGate permission="users.read" pageLabel="User Details">
+      <UserDetail userId={id} />
+    </PermissionGate>
+  );
 }

@@ -11,7 +11,7 @@ import {
 } from "react";
 
 import { ignoreForbidden } from "@/lib/api/ignoreForbidden";
-import { listSiteHealth, listSiteHealthHistory } from "@/lib/api/siteHealth";
+import { listSiteHealthOverview } from "@/lib/api/siteHealth";
 import { listMySites } from "@/lib/api/sites";
 import type { ApiSite, ApiSiteHealthDimension, ApiSiteHealthScore } from "@/lib/api/types";
 import { hasPermission } from "@/lib/api/types";
@@ -120,42 +120,41 @@ export function SitesOverviewProvider({ children }: { children: ReactNode }) {
         let merged: SiteOverviewRow[];
 
         if (canSiteHealth && siteIds.length > 0) {
-          const health = await listSiteHealth(today, siteIds).catch(
-            ignoreForbidden([] as ApiSiteHealthScore[]),
+          const overview = await listSiteHealthOverview(today, siteIds, 7).catch(
+            ignoreForbidden(
+              [] as Array<{
+                siteId: string;
+                current: ApiSiteHealthScore | null;
+                history: ApiSiteHealthScore[];
+              }>,
+            ),
           );
 
-          const historyFrom = last7DayKeys(today)[0];
-          const histories = await Promise.all(
-            health.map(async (row) => {
-              try {
-                const hist = await listSiteHealthHistory(
-                  row.siteId,
-                  historyFrom,
-                  today,
-                );
-                const byDate = new Map(hist.map((h) => [h.date, h.score]));
-                const historyScores = last7DayKeys(today).map(
-                  (key) => byDate.get(key) ?? null,
-                );
-                return { siteId: row.siteId, historyScores };
-              } catch {
+          const dayKeys = last7DayKeys(today);
+          merged = overview
+            .map((row) => {
+              const current = row.current;
+              const byDate = new Map(
+                row.history.map((h) => [h.date, h.score]),
+              );
+              const historyScores = dayKeys.map((key) => byDate.get(key) ?? null);
+              if (current) {
                 return {
-                  siteId: row.siteId,
-                  historyScores: last7DayKeys(today).map(() => null),
+                  ...current,
+                  name: nameById.get(row.siteId) ?? "Unknown site",
+                  historyScores,
                 };
               }
-            }),
-          );
-          const historyBySite = new Map(
-            histories.map((h) => [h.siteId, h.historyScores]),
-          );
-
-          merged = health
-            .map((row) => ({
-              ...row,
-              name: nameById.get(row.siteId) ?? "Unknown site",
-              historyScores: historyBySite.get(row.siteId) ?? [],
-            }))
+              const site = scopedSites.find((s) => s.id === row.siteId);
+              if (site) {
+                return {
+                  ...siteRowWithoutHealth(site, today),
+                  historyScores,
+                };
+              }
+              return null;
+            })
+            .filter((row): row is SiteOverviewRow => row != null)
             .sort((a, b) => a.name.localeCompare(b.name));
         } else {
           merged = scopedSites

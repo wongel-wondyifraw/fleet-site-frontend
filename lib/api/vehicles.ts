@@ -1,7 +1,6 @@
 // API wrappers for the /vehicles resource.
 import { apiRequest } from "@/lib/api/client";
 import type { PageResponse } from "@/lib/api/pagination";
-import { fetchAllPages } from "@/lib/api/pagination";
 import type {
   ApiVehicle,
   FuelType,
@@ -33,7 +32,16 @@ export interface ListVehiclesQuery {
 
 export type VehicleLookup = Pick<
   ApiVehicle,
-  "id" | "assetNumber" | "plateNumber" | "type" | "status" | "siteId"
+  | "id"
+  | "assetNumber"
+  | "plateNumber"
+  | "type"
+  | "status"
+  | "fuelType"
+  | "fuelCapacity"
+  | "mileage"
+  | "currentOdometer"
+  | "siteId"
 >;
 
 function buildVehiclesQuery(query: ListVehiclesQuery): string {
@@ -52,14 +60,6 @@ export async function listVehiclesPage(
 ): Promise<PageResponse<ApiVehicle>> {
   return apiRequest<PageResponse<ApiVehicle>>(
     `/vehicles${buildVehiclesQuery(query)}`,
-  );
-}
-
-export async function listVehicles(
-  query: ListVehiclesQuery = {},
-): Promise<ApiVehicle[]> {
-  return fetchAllPages((cursor) =>
-    listVehiclesPage({ ...query, cursor, limit: query.limit ?? 100 }),
   );
 }
 

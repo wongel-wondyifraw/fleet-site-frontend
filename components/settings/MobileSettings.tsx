@@ -29,6 +29,10 @@ export function MobileSettings() {
   // ProfilePopover (avatar in the top bar) so they're one tap from any
   // page instead of buried under /settings.
   const { user } = useAuth();
+  const canSites = hasPermission(user, "sites.read");
+  const canTrips = hasPermission(user, "custom-routes.read");
+  const canTime = hasPermission(user, "time-settings.read");
+  const canAttendance = hasPermission(user, "attendance-rules.read");
   const canSiteScoring = hasPermission(user, "site-health.read");
   const canUsers = hasPermission(user, "users.read");
   const canRoles = hasPermission(user, "roles.read");
@@ -46,21 +50,25 @@ export function MobileSettings() {
         </p>
       </header>
 
-      <SettingsSection
-        title="Sites"
-        description="Add and edit construction sites."
-        icon={Building2}
-      >
-        <SitesPanel density="compact" />
-      </SettingsSection>
+      {canSites ? (
+        <SettingsSection
+          title="Sites"
+          description="Add and edit construction sites."
+          icon={Building2}
+        >
+          <SitesPanel density="compact" />
+        </SettingsSection>
+      ) : null}
 
-      <SettingsSection
-        title="Trip Settings"
-        description="Save custom start and end points for the trip form."
-        icon={Route}
-      >
-        <CustomTripRoutesPanel density="compact" />
-      </SettingsSection>
+      {canTrips ? (
+        <SettingsSection
+          title="Trip Settings"
+          description="Save custom start and end points for the trip form."
+          icon={Route}
+        >
+          <CustomTripRoutesPanel density="compact" />
+        </SettingsSection>
+      ) : null}
 
       <SettingsSection
         title="Notifications"
@@ -70,21 +78,25 @@ export function MobileSettings() {
         <NotificationsSettingsPanel wrapInSection={false} />
       </SettingsSection>
 
-      <SettingsSection
-        title="Time"
-        description="Application timezone and 12 / 24-hour format."
-        icon={Clock}
-      >
-        <TimeSettingsPanel density="compact" />
-      </SettingsSection>
+      {canTime ? (
+        <SettingsSection
+          title="Time"
+          description="Application timezone and 12 / 24-hour format."
+          icon={Clock}
+        >
+          <TimeSettingsPanel density="compact" />
+        </SettingsSection>
+      ) : null}
 
-      <SettingsSection
-        title="Attendance Rules"
-        description="Set expected punch times and daily target hours."
-        icon={ClipboardCheck}
-      >
-        <AttendanceRulesPanel density="compact" />
-      </SettingsSection>
+      {canAttendance ? (
+        <SettingsSection
+          title="Attendance Rules"
+          description="Set expected punch times and daily target hours."
+          icon={ClipboardCheck}
+        >
+          <AttendanceRulesPanel density="compact" />
+        </SettingsSection>
+      ) : null}
 
       {canSiteScoring ? (
         <SettingsSection

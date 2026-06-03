@@ -37,7 +37,7 @@ import { ApiError } from "@/lib/api/client";
 import {
   createDriver,
   deleteDriver,
-  listDrivers,
+  listDriversLookup,
   listDriversPage,
   updateDriver,
   type CreateDriverRequest,
@@ -45,7 +45,7 @@ import {
 } from "@/lib/api/drivers";
 import { useCursorPagedList } from "@/lib/api/useCursorPagedList";
 import { listMySites } from "@/lib/api/sites";
-import { createVehicle, listVehicles } from "@/lib/api/vehicles";
+import { createVehicle, listVehiclesLookup } from "@/lib/api/vehicles";
 import {
   DRIVER_STATUSES,
   formatLicenseClass,
@@ -130,7 +130,7 @@ export function DriversPanel({
     setLoadError(null);
     try {
       const [d, s, v] = await Promise.all([
-        listDrivers().catch((err) => {
+        listDriversLookup().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),
@@ -138,7 +138,7 @@ export function DriversPanel({
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
-        listVehicles().catch((err) => {
+        listVehiclesLookup().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiVehicle[];
           throw err;
         }),

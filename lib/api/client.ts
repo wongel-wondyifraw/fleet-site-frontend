@@ -1,5 +1,6 @@
 // Centralized fetch wrapper: handles base URL, JSON, auth header, and errors.
 import { getStoredToken, clearStoredAuth } from "@/lib/auth/storage";
+import { purgeApiCache } from "@/lib/pwa/purgeApiCache";
 import type { ApiErrorPayload } from "@/lib/api/types";
 
 // Base URL of the NestJS backend. Resolved in this order:
@@ -110,6 +111,7 @@ export async function apiRequest<T>(
     // Treat 401 as "session expired" and clear stored token.
     if (response.status === 401) {
       clearStoredAuth();
+      purgeApiCache();
     }
     const payload = data as ApiErrorPayload | null;
     const message = extractErrorMessage(payload, response.statusText);

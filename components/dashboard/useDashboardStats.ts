@@ -16,7 +16,7 @@ import { listFuelConsumptionRosterBulk } from "@/lib/api/fuel";
 import { ignoreForbidden } from "@/lib/api/ignoreForbidden";
 import { listMySites } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
-import { listVehicles } from "@/lib/api/vehicles";
+import { listVehiclesLookup } from "@/lib/api/vehicles";
 import { hasPermission, type ApiSite, type ApiTrip, type ApiVehicle } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
@@ -152,7 +152,7 @@ export function useDashboardStats(): {
         // individual tiles instead of failing the whole dashboard.
         const [vehicles, sites, trips] = await Promise.all([
           canVehicles
-            ? listVehicles().catch(ignoreForbidden([] as ApiVehicle[]))
+            ? listVehiclesLookup().catch(ignoreForbidden([] as ApiVehicle[]))
             : Promise.resolve([] as ApiVehicle[]),
           canSites
             ? listMySites().catch(ignoreForbidden([] as ApiSite[]))

@@ -36,7 +36,7 @@ import {
 import { saveVehicleWithDriver } from "@/components/vehicles/saveVehicle";
 import { Pagination } from "@/components/ui/Pagination";
 import { ApiError } from "@/lib/api/client";
-import { listDrivers } from "@/lib/api/drivers";
+import { listDriversLookup } from "@/lib/api/drivers";
 import { listMySites } from "@/lib/api/sites";
 import { useCursorPagedList } from "@/lib/api/useCursorPagedList";
 import {
@@ -109,7 +109,7 @@ export function VehiclesPanel({
     setLoadError(null);
     try {
       const [d, s] = await Promise.all([
-        listDrivers().catch((err) => {
+        listDriversLookup().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),

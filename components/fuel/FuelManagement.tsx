@@ -22,7 +22,7 @@ import {
   listFuelConsumptionRoster,
   listFuelConsumptionRosterBulk,
 } from "@/lib/api/fuel";
-import { listDrivers } from "@/lib/api/drivers";
+import { listDriversLookup } from "@/lib/api/drivers";
 import { listMySites } from "@/lib/api/sites";
 import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
 import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
@@ -120,7 +120,7 @@ function FuelPanel({ density = "comfortable" }: { density?: "comfortable" | "com
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
-        listDrivers().catch((err) => {
+        listDriversLookup().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),

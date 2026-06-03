@@ -72,12 +72,14 @@ const SECTIONS: SectionMeta[] = [
     label: "Sites",
     description: "Add & edit sites",
     icon: Building2,
+    permission: "sites.read",
   },
   {
     id: "trips",
     label: "Trip Settings",
     description: "Custom start & end points",
     icon: Route,
+    permission: "custom-routes.read",
   },
   {
     id: "notifications",
@@ -90,12 +92,14 @@ const SECTIONS: SectionMeta[] = [
     label: "Time",
     description: "Timezone & format",
     icon: Clock,
+    permission: "time-settings.read",
   },
   {
     id: "attendance",
     label: "Attendance Rules",
     description: "Schedule & target hours",
     icon: ClipboardCheck,
+    permission: "attendance-rules.read",
   },
   {
     id: "siteScoring",

@@ -40,7 +40,7 @@ import {
 } from "@/components/vehicles/VehicleForm";
 import { saveVehicleWithDriver } from "@/components/vehicles/saveVehicle";
 import { ApiError } from "@/lib/api/client";
-import { listDrivers } from "@/lib/api/drivers";
+import { listDriversLookup } from "@/lib/api/drivers";
 import { listMySites } from "@/lib/api/sites";
 import { formatDate } from "@/lib/time/format";
 import { useTimeSettings } from "@/lib/time/TimeSettingsContext";
@@ -93,7 +93,7 @@ export function VehicleDetail({ vehicleId }: { vehicleId: string }) {
     try {
       const [v, d, s] = await Promise.all([
         getVehicle(vehicleId),
-        listDrivers().catch((err) => {
+        listDriversLookup().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),

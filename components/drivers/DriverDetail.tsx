@@ -37,14 +37,14 @@ import { getDriverAttendanceHistory } from "@/lib/api/attendance";
 import {
   deleteDriver,
   getDriver,
-  listDrivers,
+  listDriversLookup,
   updateDriver,
   type CreateDriverRequest,
   type UpdateDriverRequest,
 } from "@/lib/api/drivers";
 import { listSites } from "@/lib/api/sites";
-import { listTrips } from "@/lib/api/trips";
-import { createVehicle, listVehicles } from "@/lib/api/vehicles";
+import { listTripsPage } from "@/lib/api/trips";
+import { createVehicle, listVehiclesLookup } from "@/lib/api/vehicles";
 import { toLocalDateKey } from "@/lib/attendance/attendanceHelpers";
 import { driverSiteName } from "@/lib/drivers/resolveDriverSite";
 import { formatDate, formatDateTime } from "@/lib/time/format";
@@ -118,16 +118,18 @@ export function DriverDetail({ driverId }: { driverId: string }) {
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
-        listVehicles().catch((err) => {
+        listVehiclesLookup().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiVehicle[];
           throw err;
         }),
-        listDrivers().catch((err) => {
+        listDriversLookup().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),
-        listTrips({ driverId, limit: 20 }).catch((err) => {
-          if (err instanceof ApiError && err.isAuth) return [] as ApiTrip[];
+        listTripsPage({ driverId, limit: 20 }).catch((err) => {
+          if (err instanceof ApiError && err.isAuth) {
+            return { data: [] as ApiTrip[], nextCursor: null };
+          }
           throw err;
         }),
         getDriverAttendanceHistory(driverId, { from, to }).catch((err) => {
@@ -142,7 +144,7 @@ export function DriverDetail({ driverId }: { driverId: string }) {
       setVehicles(v);
       setAllDrivers(drivers);
       setRecentTrips(
-        [...trips].sort((a, b) => {
+        [...trips.data].sort((a, b) => {
           const ad = getTripEffectiveDate(a)?.getTime() ?? 0;
           const bd = getTripEffectiveDate(b)?.getTime() ?? 0;
           return bd - ad;

@@ -33,6 +33,7 @@ import {
 } from "@/lib/icons";
 
 import { ApiError } from "@/lib/api/client";
+import { useCan } from "@/components/auth/Can";
 import { getDriverAttendanceHistory } from "@/lib/api/attendance";
 import { getAttendanceRules } from "@/lib/api/attendanceRules";
 import {
@@ -275,6 +276,11 @@ interface DerivedStats {
 
 export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
   const { settings } = useTimeSettings();
+  // Rules sit behind attendance-rules.read (distinct from attendance.read that
+  // gates this page); skip the fetch entirely when the user lacks it so we
+  // never fire a request the backend will 403. DEFAULT_ATTENDANCE_SCHEDULE
+  // remains the fallback.
+  const canReadRules = useCan("attendance-rules.read");
   const [rangePreset, setRangePreset] = useState<"7" | "30" | "90" | "CUSTOM">(
     "30",
   );
@@ -297,6 +303,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
   );
 
   useEffect(() => {
+    if (!canReadRules) return;
     let cancelled = false;
     void getAttendanceRules()
       .then((loaded) => {
@@ -308,7 +315,7 @@ export function DriverAttendanceDetail({ driverId }: { driverId: string }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canReadRules]);
 
   // Compute the effective range from the preset. "CUSTOM" honours the
   // user-supplied bounds; the presets are anchored to "today" so the page

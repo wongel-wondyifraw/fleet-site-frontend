@@ -45,10 +45,11 @@ import {
 } from "@/lib/api/attendance";
 import { getAttendanceRules } from "@/lib/api/attendanceRules";
 import { ApiError } from "@/lib/api/client";
-import { listDrivers } from "@/lib/api/drivers";
+import { listDriversLookup } from "@/lib/api/drivers";
 import { listMySites } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
 import { SiteScopeEmptyState } from "@/components/shared/SiteScopeEmptyState";
+import { useCan } from "@/components/auth/Can";
 import { useScopedSiteIds } from "@/lib/auth/useScopedSiteIds";
 import { DEFAULT_TARGET_HOURS } from "@/lib/attendance-targets";
 import type {
@@ -174,6 +175,11 @@ function AttendancePanel({
 
   const { settings: timeSettings } = useTimeSettings();
   const { hasAssignments } = useScopedSiteIds();
+  // Attendance rules live behind their own permission slug, which is distinct
+  // from attendance.read that gates this page. Only fetch them when allowed so
+  // a user with attendance.read but not attendance-rules.read never fires a
+  // request that the backend would 403.
+  const canReadRules = useCan("attendance-rules.read");
   const targetHours = rules?.targetHours ?? DEFAULT_TARGET_HOURS;
   const scheduleLabel = rules
     ? `Day ${formatScheduleTime(rules.dayInTime, timeSettings)}–${formatScheduleTime(rules.dayOutTime, timeSettings)} · Lunch ${formatScheduleTime(rules.lunchOutTime, timeSettings)}–${formatScheduleTime(rules.lunchInTime, timeSettings)} · Target ${rules.targetHours}h`
@@ -256,14 +262,16 @@ function AttendancePanel({
           if (err instanceof ApiError && err.isAuth) return [] as ApiSite[];
           throw err;
         }),
-        listDrivers().catch((err) => {
+        listDriversLookup().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),
-        getAttendanceRules().catch((err) => {
-          if (err instanceof ApiError && err.isAuth) return null;
-          throw err;
-        }),
+        canReadRules
+          ? getAttendanceRules().catch((err) => {
+              if (err instanceof ApiError && err.isAuth) return null;
+              throw err;
+            })
+          : Promise.resolve(null),
         refreshActiveTrips(),
       ]);
       setSites(s);
@@ -276,7 +284,7 @@ function AttendancePanel({
     } finally {
       setIsLoading(false);
     }
-  }, [refreshActiveTrips]);
+  }, [refreshActiveTrips, canReadRules]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {

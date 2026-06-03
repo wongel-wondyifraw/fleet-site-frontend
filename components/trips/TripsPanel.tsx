@@ -48,7 +48,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { PanelError } from "@/components/vehicles/VehicleForm";
 import { fieldClass } from "@/components/settings/SettingsShared";
 import { ApiError } from "@/lib/api/client";
-import { listDrivers } from "@/lib/api/drivers";
+import { listDriversLookup } from "@/lib/api/drivers";
 import { useCursorPagedList } from "@/lib/api/useCursorPagedList";
 import {
   createTrip,
@@ -85,7 +85,7 @@ import {
   type TripStatus,
   type TripVehicleSummary,
 } from "@/lib/api/types";
-import { listVehicles } from "@/lib/api/vehicles";
+import { listVehiclesLookup } from "@/lib/api/vehicles";
 import {
   customRouteDistanceKm,
   findMatchingCustomRoute,
@@ -233,8 +233,8 @@ export function TripsPanel({
     setLoadError(null);
     try {
       const [v, d, s, r, inProgressTrips] = await Promise.all([
-        listVehicles(),
-        listDrivers().catch((err) => {
+        listVehiclesLookup(),
+        listDriversLookup().catch((err) => {
           if (err instanceof ApiError && err.isAuth) return [] as ApiDriver[];
           throw err;
         }),

@@ -22,6 +22,7 @@ import {
   setStoredToken,
   setStoredUser,
 } from "@/lib/auth/storage";
+import { purgeApiCache } from "@/lib/pwa/purgeApiCache";
 
 // Public shape of what useAuth() returns. Keep this minimal and stable.
 interface AuthContextValue {
@@ -81,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // 401 means the token is no longer valid - clear and force re-login.
         if (err instanceof ApiError && err.isAuth) {
           clearStoredAuth();
+          purgeApiCache();
           setUser(null);
         }
         // Network errors leave the optimistic state in place.
@@ -108,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // logout: wipe state + storage; UI redirects happen at the caller.
   const logout = useCallback(() => {
     clearStoredAuth();
+    purgeApiCache();
     setUser(null);
   }, []);
 
@@ -120,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       if (err instanceof ApiError && err.isAuth) {
         clearStoredAuth();
+        purgeApiCache();
         setUser(null);
       }
     }

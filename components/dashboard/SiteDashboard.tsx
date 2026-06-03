@@ -27,7 +27,7 @@ import { listFuelConsumptionRoster } from "@/lib/api/fuel";
 import { listSiteHealth, listSiteHealthHistory } from "@/lib/api/siteHealth";
 import { getSite } from "@/lib/api/sites";
 import { listTrips } from "@/lib/api/trips";
-import { listVehicles } from "@/lib/api/vehicles";
+import { listVehiclesLookup } from "@/lib/api/vehicles";
 import { hasPermission } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { isScopedToSites } from "@/lib/auth/useScopedSiteIds";
@@ -1054,10 +1054,14 @@ export function SiteDashboard({ siteId }: { siteId: string }) {
                 [] as Awaited<ReturnType<typeof listSiteHealthHistory>>,
               ),
           canVehicles
-            ? listVehicles().catch(
-                ignoreForbidden([] as Awaited<ReturnType<typeof listVehicles>>),
+            ? listVehiclesLookup().catch(
+                ignoreForbidden(
+                  [] as Awaited<ReturnType<typeof listVehiclesLookup>>,
+                ),
               )
-            : Promise.resolve([] as Awaited<ReturnType<typeof listVehicles>>),
+            : Promise.resolve(
+                [] as Awaited<ReturnType<typeof listVehiclesLookup>>,
+              ),
           canTrips
             ? listTrips({ date: today }).catch(
                 ignoreForbidden([] as Awaited<ReturnType<typeof listTrips>>),
