@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["192.168.1.3"],
+  allowedDevOrigins: ["127.0.0.1", "192.168.1.3"],
 
   // Pin Turbopack's workspace root to this folder so Next stops warning
   // about the higher-up package-lock.json in the user profile and stops
