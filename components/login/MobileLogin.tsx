@@ -13,6 +13,7 @@ import {
 import { useRouter } from "next/navigation";
 import {
   useState,
+  useSyncExternalStore,
   type ChangeEvent,
   type ComponentType,
   type FormEvent,
@@ -20,10 +21,12 @@ import {
 
 import { FleetSiteLogo } from "@/components/brand/FleetSiteLogo";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { getRememberedEmail } from "@/lib/auth/storage";
 import { getHomePath } from "@/lib/auth/useScopedSiteIds";
 import { cn } from "@/lib/utils";
 
@@ -33,10 +36,19 @@ export function MobileLogin() {
   // Pull the login helper out of auth context.
   const { login } = useAuth();
 
+  const rememberedEmail = useSyncExternalStore(
+    () => () => {},
+    () => getRememberedEmail() ?? "",
+    () => "",
+  );
+
   // Form state: controlled inputs + UI flags.
-  const [email, setEmail] = useState("");
+  const [emailInput, setEmailInput] = useState<string | null>(null);
+  const email = emailInput ?? rememberedEmail;
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberOverride, setRememberOverride] = useState<boolean | null>(null);
+  const remember = rememberOverride ?? rememberedEmail.length > 0;
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -55,7 +67,7 @@ export function MobileLogin() {
 
     setIsAuthenticating(true);
     try {
-      const signedInUser = await login(trimmedEmail, password);
+      const signedInUser = await login(trimmedEmail, password, remember);
       // Site-scoped users (no `sites.bypass-scope`) skip the org-wide
       // /dashboard and go straight to their assigned site dashboard.
       router.push(getHomePath(signedInUser));
@@ -89,11 +101,13 @@ export function MobileLogin() {
             email={email}
             password={password}
             showPassword={showPassword}
+            remember={remember}
             errorMessage={errorMessage}
             isAuthenticating={isAuthenticating}
-            onEmailChange={(e) => setEmail(e.target.value)}
+            onEmailChange={(e) => setEmailInput(e.target.value)}
             onPasswordChange={(e) => setPassword(e.target.value)}
             onTogglePassword={() => setShowPassword((v) => !v)}
+            onRememberChange={setRememberOverride}
           />
         </form>
       </div>
@@ -110,20 +124,24 @@ function LoginForm({
   email,
   password,
   showPassword,
+  remember,
   errorMessage,
   isAuthenticating,
   onEmailChange,
   onPasswordChange,
   onTogglePassword,
+  onRememberChange,
 }: {
   email: string;
   password: string;
   showPassword: boolean;
+  remember: boolean;
   errorMessage: string | null;
   isAuthenticating: boolean;
   onEmailChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onPasswordChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onTogglePassword: () => void;
+  onRememberChange: (checked: boolean) => void;
 }) {
   return (
     <div className="w-full space-y-6">
@@ -153,6 +171,12 @@ function LoginForm({
       {/* Inline error: shown only when we have something to report. */}
       {errorMessage && <ErrorBanner message={errorMessage} />}
 
+      <RememberRow
+        checked={remember}
+        onCheckedChange={onRememberChange}
+        disabled={isAuthenticating}
+      />
+
       <Button
         type="submit"
         className="h-12 w-full gap-2 rounded-lg bg-primary-container font-semibold shadow-sm hover:bg-primary active:scale-[0.98] disabled:opacity-70"
@@ -172,6 +196,35 @@ function LoginForm({
       </Button>
 
       <ForgotPasswordLink />
+    </div>
+  );
+}
+
+function RememberRow({
+  checked,
+  onCheckedChange,
+  disabled,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <label className="flex cursor-pointer items-center gap-3">
+        <Checkbox
+          id="mobile-remember"
+          checked={checked}
+          onCheckedChange={onCheckedChange}
+          disabled={disabled}
+        />
+        <Label
+          htmlFor="mobile-remember"
+          className="font-body-sm text-body-sm cursor-pointer font-normal text-muted-foreground"
+        >
+          Remember me
+        </Label>
+      </label>
     </div>
   );
 }

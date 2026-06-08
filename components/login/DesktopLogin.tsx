@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import {
   FormEvent,
   useState,
+  useSyncExternalStore,
   type ChangeEvent,
   type ComponentType,
   type ReactNode,
@@ -26,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { getRememberedEmail } from "@/lib/auth/storage";
 import { getHomePath } from "@/lib/auth/useScopedSiteIds";
 
 // Background image used as a hero on the left side of the desktop login.
@@ -37,11 +39,20 @@ export function DesktopLogin() {
   // login() hits POST /auth/login and stores token + user in context.
   const { login } = useAuth();
 
+  const rememberedEmail = useSyncExternalStore(
+    () => () => {},
+    () => getRememberedEmail() ?? "",
+    () => "",
+  );
+
   // Controlled inputs: needed so we can include them in the API request.
-  const [email, setEmail] = useState("");
+  const [emailInput, setEmailInput] = useState<string | null>(null);
+  const email = emailInput ?? rememberedEmail;
   const [password, setPassword] = useState("");
   // UI flags: password visibility toggle, network in-flight, and the last error.
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberOverride, setRememberOverride] = useState<boolean | null>(null);
+  const remember = rememberOverride ?? rememberedEmail.length > 0;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -61,7 +72,7 @@ export function DesktopLogin() {
     // Disable the button and show a spinner while the request is in flight.
     setIsSubmitting(true);
     try {
-      const signedInUser = await login(trimmedEmail, password);
+      const signedInUser = await login(trimmedEmail, password, remember);
       // Route the user to the right "home" based on their access scope.
       // Site-scoped users (no `sites.bypass-scope`) land directly on their
       // assigned site dashboard so they never see the org-wide /dashboard.
@@ -109,7 +120,7 @@ export function DesktopLogin() {
                   className="h-10 border-outline bg-surface pl-10"
                   value={email}
                   onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    setEmail(e.target.value)
+                    setEmailInput(e.target.value)
                   }
                   disabled={isSubmitting}
                   aria-invalid={errorMessage ? true : undefined}
@@ -131,7 +142,11 @@ export function DesktopLogin() {
               {/* Inline error banner; only renders when we have a message. */}
               {errorMessage && <ErrorBanner message={errorMessage} />}
 
-              <RememberRow />
+              <RememberRow
+                checked={remember}
+                onCheckedChange={setRememberOverride}
+                disabled={isSubmitting}
+              />
 
               <Button
                 type="submit"
@@ -279,12 +294,24 @@ function PasswordInput({
   );
 }
 
-// "Remember me" + forgot-password link; visual-only for now.
-function RememberRow() {
+function RememberRow({
+  checked,
+  onCheckedChange,
+  disabled,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between py-2">
       <label className="flex cursor-pointer items-center gap-3">
-        <Checkbox id="remember" />
+        <Checkbox
+          id="remember"
+          checked={checked}
+          onCheckedChange={onCheckedChange}
+          disabled={disabled}
+        />
         <Label
           htmlFor="remember"
           className="font-body-sm text-body-sm cursor-pointer font-normal text-muted-foreground"

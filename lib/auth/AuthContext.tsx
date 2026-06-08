@@ -16,11 +16,14 @@ import { ApiError } from "@/lib/api/client";
 import { fetchCurrentUser, loginRequest } from "@/lib/api/auth";
 import type { ApiUser } from "@/lib/api/types";
 import {
+  clearRememberedEmail,
   clearStoredAuth,
   getStoredToken,
   getStoredUserRaw,
+  setRememberedEmail,
   setStoredToken,
   setStoredUser,
+  updateStoredUser,
 } from "@/lib/auth/storage";
 import { purgeApiCache } from "@/lib/pwa/purgeApiCache";
 
@@ -33,7 +36,7 @@ interface AuthContextValue {
   // Convenience boolean derived from user.
   isAuthenticated: boolean;
   // Performs the full login flow and updates context state.
-  login: (email: string, password: string) => Promise<ApiUser>;
+  login: (email: string, password: string, remember: boolean) => Promise<ApiUser>;
   // Clears state + storage.
   logout: () => void;
   // Re-fetches /auth/me - useful after profile edits.
@@ -77,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const fresh = await fetchCurrentUser(controller.signal);
         setUser(fresh);
-        setStoredUser(JSON.stringify(fresh));
+        updateStoredUser(JSON.stringify(fresh));
       } catch (err) {
         // 401 means the token is no longer valid - clear and force re-login.
         if (err instanceof ApiError && err.isAuth) {
@@ -96,16 +99,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // login: persists token + user, returns the user so callers can branch on role.
-  const login = useCallback(async (email: string, password: string) => {
-    const { accessToken, user: signedInUser } = await loginRequest({
-      email,
-      password,
-    });
-    setStoredToken(accessToken);
-    setStoredUser(JSON.stringify(signedInUser));
-    setUser(signedInUser);
-    return signedInUser;
-  }, []);
+  const login = useCallback(
+    async (email: string, password: string, remember: boolean) => {
+      const { accessToken, user: signedInUser } = await loginRequest({
+        email,
+        password,
+      });
+      setStoredToken(accessToken, remember);
+      setStoredUser(JSON.stringify(signedInUser), remember);
+      if (remember) {
+        setRememberedEmail(email);
+      } else {
+        clearRememberedEmail();
+      }
+      setUser(signedInUser);
+      return signedInUser;
+    },
+    [],
+  );
 
   // logout: wipe state + storage; UI redirects happen at the caller.
   const logout = useCallback(() => {
@@ -119,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const fresh = await fetchCurrentUser();
       setUser(fresh);
-      setStoredUser(JSON.stringify(fresh));
+      updateStoredUser(JSON.stringify(fresh));
     } catch (err) {
       if (err instanceof ApiError && err.isAuth) {
         clearStoredAuth();
