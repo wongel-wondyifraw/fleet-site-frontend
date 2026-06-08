@@ -175,7 +175,6 @@ function RoleForm({
   onCancel: () => void;
   onCreated: (role: ApiRole) => void;
 }) {
-  const [key, setKey] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [catalog, setCatalog] = useState<
@@ -196,15 +195,20 @@ function RoleForm({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
-    const trimmedKey = key.trim().toUpperCase().replace(/\s+/g, "_");
     const trimmedName = name.trim();
-    if (!trimmedKey || !trimmedName) {
-      setFormError("Key and name are required.");
+    if (!trimmedName) {
+      setFormError("Display name is required.");
       return;
     }
-    if (!/^[A-Z][A-Z0-9_]*$/.test(trimmedKey)) {
+    // The key is derived from the display name: uppercased, with any run
+    // of non-alphanumeric characters collapsed to a single underscore.
+    const derivedKey = trimmedName
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    if (!/^[A-Z][A-Z0-9_]*$/.test(derivedKey)) {
       setFormError(
-        "Key must be uppercase letters, digits, and underscores (e.g. FLEET_SUPERVISOR).",
+        "Display name must start with a letter so a valid key can be generated.",
       );
       return;
     }
@@ -216,7 +220,7 @@ function RoleForm({
     setIsSubmitting(true);
     try {
       const role = await createRole({
-        key: trimmedKey,
+        key: derivedKey,
         name: trimmedName,
         description: description.trim() || undefined,
         permissionSlugs: [...selected],
@@ -251,24 +255,15 @@ function RoleForm({
 
       <FieldGrid>
         <SettingsField
-          label="Key"
-          hint="Uppercase identifier, e.g. FLEET_SUPERVISOR. Cannot be changed later."
+          label="Display name"
+          hint="A unique key (e.g. FLEET_SUPERVISOR) is generated from this name and cannot be changed later."
         >
-          <input
-            type="text"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            disabled={isSubmitting}
-            placeholder="FLEET_SUPERVISOR"
-            className={`${fieldClass} font-mono uppercase`}
-          />
-        </SettingsField>
-        <SettingsField label="Display name">
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={isSubmitting}
+            placeholder="Fleet Supervisor"
             className={fieldClass}
           />
         </SettingsField>

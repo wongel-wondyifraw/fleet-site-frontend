@@ -181,7 +181,7 @@ export function NotificationsInbox() {
         <div
           role="region"
           aria-label={LABELS.notifications}
-          className="px-2 py-2 sm:px-3"
+          className="max-h-[calc(100dvh-280px)] overflow-y-auto overscroll-contain px-2 py-2 sm:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {inboxEmpty ? (
             <EmptyState mode="empty" />
